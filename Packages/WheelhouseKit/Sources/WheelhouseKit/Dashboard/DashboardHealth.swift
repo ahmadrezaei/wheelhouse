@@ -15,8 +15,8 @@ public struct PodPhaseBreakdown: Sendable, Hashable {
             if s.isCompleted { b.completed += 1; continue }
             let phase = pod.status?.phase
             if phase == "Failed" || s.reason == "Evicted" || s.reason == "Error" { b.failed += 1 }
+            else if pod.isPendingForCounts(s) { b.pending += 1 }
             else if s.severity == .critical || s.severity == .warning { b.crashing += 1 }
-            else if phase == "Pending" { b.pending += 1 }
             else { b.healthy += 1 }
         }
         return b

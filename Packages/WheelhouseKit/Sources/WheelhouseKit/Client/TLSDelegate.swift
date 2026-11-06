@@ -50,6 +50,9 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
 
     private struct Failures {
         var latest: TLSFailureInfo?
+        var latestAt: Date?
+        /// Session-level trust challenges carry no task URL; they are keyed by `host:port`.
+        var byHost: [String: (info: TLSFailureInfo, at: Date)] = [:]
         var byURL: [String: (info: TLSFailureInfo, at: Date)] = [:]
     }
     private let failures = Mutex(Failures())
@@ -91,9 +94,28 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
     /// The rejection recorded for the request that failed (matched by URL), if any.
     func failure(for url: URL?) -> TLSFailureInfo? {
         failures.withLock { state in
-            if let url, let hit = state.byURL[Self.key(url)], Date().timeIntervalSince(hit.at) < 60 { return hit.info }
+            let now = Date()
+            if let url, let hit = state.byURL[Self.key(url)], now.timeIntervalSince(hit.at) < Self.failureWindow { return hit.info }
+            // A rejected session-level challenge (no task URL) is matched by host:port, or, when the failing request is unknown,
+            // by recency: URLSession reports the rejection as -999 (cancelled).
+            if let url, let hk = Self.hostKey(url), let hit = state.byHost[hk], now.timeIntervalSince(hit.at) < Self.failureWindow { return hit.info }
+            if url == nil, let latest = state.latest, let at = state.latestAt, now.timeIntervalSince(at) < Self.failureWindow { return latest }
             return nil
         }
+    }
+
+    static let failureWindow: TimeInterval = 60
+
+    static func hostKey(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        return "\(host):\(hostKeyPort(url.port, scheme: url.scheme))"
+    }
+
+    static func hostKeyPort(_ port: Int?, scheme: String?) -> Int { port ?? (scheme?.lowercased() == "http" ? 80 : 443) }
+
+    /// Test hook: records a rejection exactly as a trust challenge would.
+    func recordFailureForTesting(_ info: TLSFailureInfo, host: String, port: Int, url: URL?) {
+        store(info, url: url, hostKey: "\(host.lowercased()):\(port)")
     }
 
     private static func key(_ url: URL) -> String { url.absoluteString }
@@ -111,7 +133,7 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
     private func handle(_ challenge: URLAuthenticationChallenge, url: URL?) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         let method = challenge.protectionSpace.authenticationMethod
         if method == NSURLAuthenticationMethodServerTrust, let trust = challenge.protectionSpace.serverTrust {
-            return handleServerTrust(trust, host: challenge.protectionSpace.host, url: url)
+            return handleServerTrust(trust, host: challenge.protectionSpace.host, port: challenge.protectionSpace.port, url: url)
         }
         if method == NSURLAuthenticationMethodClientCertificate { return handleClientCertificate() }
         return (.performDefaultHandling, nil)
@@ -153,10 +175,10 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
         identityState.withLock { $0.trace.errorChain = chain; $0.trace.streamCode = x.streamCode; $0.trace.streamDomain = x.streamDomain }
     }
 
-    func handleServerTrust(_ trust: SecTrust, host: String, url: URL? = nil) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    func handleServerTrust(_ trust: SecTrust, host: String, port: Int? = nil, url: URL? = nil) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         if insecure {
             identityState.withLock { $0.trace.serverTrust = .passed }
-            clearFailure(url)
+            clearFailure(url, hostKey: hostKey(host, port))
             return (.useCredential, URLCredential(trust: trust))
         }
         var verdict = TLSValidator.evaluate(trust, host: serverName ?? host, anchors: systemTrustFirst ? [] : anchors)
@@ -165,28 +187,40 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
         }
         if verdict.trusted {
             identityState.withLock { $0.trace.serverTrust = .passed }
-            clearFailure(url)
+            clearFailure(url, hostKey: hostKey(host, port))
             return (.useCredential, URLCredential(trust: trust))
         }
         identityState.withLock { $0.trace.serverTrust = .failed }
-        record(trust, message: verdict.message, url: url)
+        record(trust, message: verdict.message, url: url, hostKey: hostKey(host, port))
         return (.cancelAuthenticationChallenge, nil)
     }
 
-    private func clearFailure(_ url: URL?) {
+    private func hostKey(_ host: String, _ port: Int?) -> String? {
+        guard let port, port > 0 else { return nil }
+        return "\(host.lowercased()):\(port)"
+    }
+
+    private func clearFailure(_ url: URL?, hostKey: String?) {
         failures.withLock { state in
             state.latest = nil
+            state.latestAt = nil
+            if let hostKey { state.byHost[hostKey] = nil }
             if let url { state.byURL[Self.key(url)] = nil }
         }
     }
 
-    private func record(_ trust: SecTrust, message: String, url: URL?) {
+    private func record(_ trust: SecTrust, message: String, url: URL?, hostKey: String?) {
         let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
         let subject = leaf.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? "Unknown certificate"
         let digest = leaf.map { SHA256.hash(data: SecCertificateCopyData($0) as Data).map { String(format: "%02X", $0) }.joined(separator: ":") } ?? ""
-        let info = TLSFailureInfo(subject: subject, sha256: digest, message: message)
+        store(TLSFailureInfo(subject: subject, sha256: digest, message: message), url: url, hostKey: hostKey)
+    }
+
+    private func store(_ info: TLSFailureInfo, url: URL?, hostKey: String?) {
         failures.withLock { state in
             state.latest = info
+            state.latestAt = Date()
+            if let hostKey { state.byHost[hostKey] = (info, Date()) }
             if let url {
                 state.byURL[Self.key(url)] = (info, Date())
                 if state.byURL.count > 24, let oldest = state.byURL.min(by: { $0.value.at < $1.value.at })?.key {

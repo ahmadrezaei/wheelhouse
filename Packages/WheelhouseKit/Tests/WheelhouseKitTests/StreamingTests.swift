@@ -399,10 +399,10 @@ struct LiveStreamingTests {
             }
         }
         try await Task.sleep(for: .milliseconds(800))
-        await session.resize(cols: 120, rows: 40)
-        await session.send(Data("echo marker-$((20+22)); stty size\r".utf8))
+        session.resize(cols: 120, rows: 40)
+        session.send(Data("echo marker-$((20+22)); stty size\r".utf8))
         try await Task.sleep(for: .milliseconds(800))
-        await session.send(Data("exit 7\r".utf8))
+        session.send(Data("exit 7\r".utf8))
         await reader.value
         let text = String(decoding: output, as: UTF8.self)
         #expect(text.contains("marker-42"))
@@ -410,6 +410,27 @@ struct LiveStreamingTests {
         #expect(term.allText().contains("40 120"))
         #expect(status?.outcome == .exited(code: 7))
         print("EXEC tty screen:\n" + term.screenText())
+    }
+
+    /// Types a long line one byte at a time without pausing; the shell must receive it intact and in order.
+    @Test func execRapidKeystrokesStayOrdered() async throws {
+        let client = LiveEnv.client()
+        let pod = try await LiveEnv.pod(client, app: "web")
+        let session = ExecSession(client: client, namespace: "shop", pod: pod, options: ExecOptions(command: ["/bin/sh"], tty: true, stdin: true))
+        try await session.start(cols: 120, rows: 30)
+        let reader = Task { () -> String in
+            var out = Data()
+            for await event in session.events { if case .output(let d) = event { out.append(d) } }
+            return String(decoding: out, as: UTF8.self)
+        }
+        try await Task.sleep(for: .milliseconds(800))
+        let payload = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for b in Array("echo RESULT:\(payload)\r".utf8) { session.send(Data([b])) }
+        try await Task.sleep(for: .milliseconds(1200))
+        session.send(Data("exit\r".utf8))
+        let text = await reader.value
+        await session.close()
+        #expect(text.contains("RESULT:\(payload)\r\n"))
     }
 
     @Test func execFailureForBadContainer() async throws {

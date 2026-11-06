@@ -39,6 +39,7 @@
 		5A3350864FD4297A6EAB8F3E /* DrainSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2BA55B44724291DF21B17F /* DrainSheet.swift */; };
 		5E38EBBBC2A0F28C2A53EBE2 /* AlertSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D374FB1F6A5821D5381EB8 /* AlertSettingsView.swift */; };
 		61680923FBB5B2FA34EA5ECC /* ResourceSectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */; };
+		62ED3B1A369DD106D88E1F7A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */; };
 		690699A0F44A978E153C4CF7 /* ObjectRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F495E201E0610A974851C166 /* ObjectRow.swift */; };
 		6AC941CD5F44875F7AB89D72 /* ClusterIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376DBE56B10CEC0380A4224F /* ClusterIntent.swift */; };
 		6FFDD489DCD28B14B0E855B3 /* DetailParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80B5A977728C271B46021ACC /* DetailParts.swift */; };
@@ -120,6 +121,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		05850A5A2F03124AD8641A6D /* Route.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Route.swift; sourceTree = "<group>"; };
 		062C449091DBB9ECBFB3B2A7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0ABE98E9EAFD33EDEEBA16C4 /* PhoneShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneShell.swift; sourceTree = "<group>"; };
@@ -301,6 +303,7 @@
 			children = (
 				376DBE56B10CEC0380A4224F /* ClusterIntent.swift */,
 				6BFFCE399F053CC16E701256 /* Info.plist */,
+				02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */,
 				3D3C546C16695AD9E2351D6E /* Providers.swift */,
 				E807AD74708CC25D66B2E59A /* WheelhouseWidgets.swift */,
 			);
@@ -518,6 +521,7 @@
 			buildConfigurationList = 6486BD98E1F869BF5CDF73D9 /* Build configuration list for PBXNativeTarget "WheelhouseWidgets" */;
 			buildPhases = (
 				BA7E08E043E47B908F27F4F4 /* Sources */,
+				6178456893310F7BF4BE5C2F /* Resources */,
 				66D4B9C3230FF76F301CFC7D /* Frameworks */,
 			);
 			buildRules = (
@@ -581,6 +585,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		6178456893310F7BF4BE5C2F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				62ED3B1A369DD106D88E1F7A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		64F0ED8CA75204D614E9928D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -795,7 +807,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = JCZY58QP3L;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -895,7 +907,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = JCZY58QP3L;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

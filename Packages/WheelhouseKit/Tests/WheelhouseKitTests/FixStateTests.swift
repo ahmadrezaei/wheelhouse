@@ -13,6 +13,7 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
     var listDelay: Duration = .zero
     var podsError: KubeError?
     var versionFails = false
+    var versionError: KubeError?
     var podNames = ["a", "b"]
 
     var lists: Int { lock.withLock { _lists } }
@@ -24,6 +25,7 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
     }
 
     func version() async throws -> KubeVersion {
+        if let e = lock.withLock({ versionError }) { throw e }
         if lock.withLock({ versionFails }) { throw KubeError.unreachable(cause: "down") }
         return KubeVersion(major: "1", minor: "31", gitVersion: "v1.31.0", platform: nil, buildDate: nil)
     }

@@ -52,7 +52,7 @@ struct ExecTerminalView: View {
         m.awaitConfirmation()
     }
 
-    /// The Connect button. Production clusters require typing the pod name first.
+    /// The Connect button. Production clusters show the confirmation sheet (warning, facts, access review) with a plain button.
     private func connectTapped(_ m: ShellModel, session: ClusterSession) {
         if session.config.isProduction && !session.config.isDemo {
             requestProductionConfirmation(m, session: session)
@@ -61,7 +61,7 @@ struct ExecTerminalView: View {
         }
     }
 
-    /// Production: dry-run is an access review for `pods/exec`; type-to-confirm applies.
+    /// Production: dry-run is an access review for `pods/exec`; confirmation is a button, not typing.
     private func requestProductionConfirmation(_ m: ShellModel, session: ClusterSession) {
         let ns = pod.namespace ?? "default"
         m.awaitConfirmation()
@@ -75,6 +75,7 @@ struct ExecTerminalView: View {
             confirmationText: pod.name,
             facts: [.init("Container", container ?? "default"), .init("Shell", m.shell.title)],
             isDisruptive: true,
+            typeToConfirmOnProduction: false,
             dryRun: {
                 switch await SessionAccessCheck.canCreate(session.client, namespace: ns, pod: pod.name, subresource: "exec") {
                 case .allowed: return .passed("Access review: you can create pods/exec here.")
@@ -156,7 +157,7 @@ struct ExecTerminalView: View {
                     .font(.headline).multilineTextAlignment(.center)
                 ContextLine(cluster: session.config, namespace: pod.namespace, kind: "pod/\(pod.name)")
                 Text(isProduction
-                     ? "This opens an interactive shell on a production cluster. You will be asked to type the pod name to confirm."
+                     ? "This opens an interactive shell on a production cluster. You will be asked to confirm before connecting."
                      : "This opens an interactive shell inside the container. Commands you run affect the running workload.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button { connectTapped(model, session: session) } label: {

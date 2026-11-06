@@ -34,8 +34,8 @@ public enum HealthEvaluator {
             let ref = ResourceRef(clusterID: cid, object: pod)
             let name = pod.metadata.name
             if s.isCompleted { counts.podsCompleted += 1 }
+            else if pod.isPendingForCounts(s) { counts.podsPending += 1 }
             else if s.severity == .critical || s.severity == .warning { counts.podsFailing += 1 }
-            else if pod.status?.phase == "Pending" { counts.podsPending += 1 }
             else if s.isReady || pod.status?.phase == "Running" { counts.podsRunning += 1 }
 
             let since = pod.status?.containerStatuses.compactMap { $0.lastState?.terminated?.finishedAt }.max() ?? pod.metadata.creationTimestamp

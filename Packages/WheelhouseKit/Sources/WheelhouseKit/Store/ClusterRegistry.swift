@@ -10,6 +10,8 @@ public final class ClusterRegistry {
     private var demoClusters: [ClusterConfig] = []
     public private(set) var isDemoMode = false
     public private(set) var lastError: String?
+    /// Called after a cluster was removed (its id) or Demo mode was left (nil), so the app can drop it from the widget snapshot.
+    @ObservationIgnored public var onFleetShrank: (@MainActor (ClusterID?) -> Void)?
 
     /// Clusters currently shown: demo fleet in demo mode, otherwise the user's clusters (pinned order = array order).
     public var clusters: [ClusterConfig] { isDemoMode ? demoClusters : realClusters }
@@ -243,7 +245,7 @@ public final class ClusterRegistry {
 
     public func remove(id: ClusterID) throws {
         var removed = false
-        defer { ClusterEvents.postInvalidated(id, removed: removed) }
+        defer { ClusterEvents.postInvalidated(id, removed: removed); if removed { onFleetShrank?(id) } }
         sessions[id]?.invalidateAll()
         sessions[id] = nil
         transientSessions[id]?.session.invalidateAll()
@@ -289,5 +291,6 @@ public final class ClusterRegistry {
         demoClusters = []
         currentClusterID = realClusters.first?.id
         defaults.set(false, forKey: "demoMode")
+        onFleetShrank?(nil)
     }
 }

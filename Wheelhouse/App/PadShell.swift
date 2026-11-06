@@ -82,12 +82,27 @@ struct PadShell: View {
 
     // MARK: Detail
 
+    @ViewBuilder private var detailPlaceholder: some View {
+        switch router.sidebarSelection ?? .fleet {
+        case .fleet:
+            EmptyState(.empty(title: "Select a cluster", systemImage: "server.rack", hint: "Choose a cluster in the list to see its dashboard."))
+        case .alerts:
+            EmptyState(.empty(title: "Select an alert", systemImage: "bell", hint: "Choose an alert to open the affected resource."))
+        case .sessions:
+            EmptyState(.empty(title: "Select a session", systemImage: "apple.terminal", hint: "Choose a session to reopen it."))
+        case .search:
+            EmptyState(.empty(title: "Select a result", systemImage: "magnifyingglass", hint: "Choose a result to see its details."))
+        case .cluster:
+            EmptyState(.empty(title: "Select a resource", systemImage: "square.stack.3d.up", hint: "Choose an item in the list to see its details."))
+        }
+    }
+
     private var detailColumn: some View {
         @Bindable var router = router
         return NavigationStack(path: $router.detailPath) {
             Group {
                 if case .cluster(let id, .overview)? = router.sidebarSelection { ClusterDashboardView(clusterID: id) }
-                else { EmptyState(.empty(title: "No Selection", systemImage: "sidebar.right", hint: "Select an item to see its details.")) }
+                else { detailPlaceholder }
             }
             .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
         }

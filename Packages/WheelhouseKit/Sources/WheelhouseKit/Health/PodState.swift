@@ -16,6 +16,13 @@ public extension Pod {
     static let criticalReasons: Set<String> = ["CrashLoopBackOff", "OOMKilled", "Error", "Failed", "Evicted", "ContainerCannotRun", "DeadlineExceeded"]
     static let warningReasons: Set<String> = ["ImagePullBackOff", "ErrImagePull", "InvalidImageName", "CreateContainerConfigError", "CreateContainerError", "ErrImageNeverPull", "RunContainerError"]
 
+    /// True for a pod that has not started yet (unscheduled, initialising, creating containers) and has no error of its own.
+    /// Pending pods carry `.warning` severity, so dashboards must test this before bucketing by severity.
+    func isPendingForCounts(_ s: PodStateSummary) -> Bool {
+        guard status?.phase == "Pending", s.severity != .critical else { return false }
+        return s.reason == "Pending" || s.severity == .healthy
+    }
+
     func stateSummary() -> PodStateSummary {
         let st = status
         var reason = st?.reason ?? st?.phase ?? "Unknown"
@@ -60,6 +67,9 @@ public extension Pod {
             severity = .critical
         } else if st?.phase == "Failed" {
             severity = .critical
+        } else if reason == "Pending" {
+            // A pod that has not started is never "healthy" (consistent with its diagnosis banner).
+            severity = .warning
         } else if reason == "Unknown" {
             severity = .unknown
         }

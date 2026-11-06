@@ -173,11 +173,16 @@ struct ClusterDashboardView: View {
             }
         }
 
+        private var unreachableKind: EmptyStateKind {
+            if case .failed(.tlsUntrusted(let summary)) = session.connection { return .tlsError(summary: summary) }
+            return .unreachable(cause: session.health?.items.first?.detail ?? "The API server did not respond.")
+        }
+
         private var unreachable: some View {
             ScrollView {
                 VStack(spacing: Spacing.cardGap) {
                     ContextLine(cluster: session.config, namespace: nil, showsNamespace: false)
-                    EmptyState(.unreachable(cause: session.health?.items.first?.detail ?? "The API server did not respond.")) {
+                    EmptyState(unreachableKind) {
                         Button("Retry") { Task { await model.refresh(session, range: range) } }.buttonStyle(.borderedProminent)
                     }
                     .frame(minHeight: 320)

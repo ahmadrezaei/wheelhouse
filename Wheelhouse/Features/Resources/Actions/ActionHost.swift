@@ -73,12 +73,30 @@ final class ActionHost {
 
     // MARK: Presentation
 
+    /// Presents `request` once whatever is on screen (an options sheet or a previous confirmation) has finished dismissing.
+    /// Setting `confirm` while another sheet is still animating out makes SwiftUI drop the new presentation.
     func queue(_ request: ConfirmRequest) {
-        if sheet != nil { queued = request; sheet = nil } else { confirm = request }
+        if sheet != nil {
+            queued = request
+            sheet = nil            // `flushQueued` runs from the sheet's onDismiss
+        } else if confirm != nil {
+            queued = request
+            confirm = nil
+            flushQueued(after: .milliseconds(450))
+        } else {
+            confirm = request
+        }
     }
 
-    func flushQueued() {
-        if let q = queued { queued = nil; confirm = q }
+    func flushQueued(after delay: Duration = .zero) {
+        guard queued != nil else { return }
+        Task { @MainActor [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard let self, let q = self.queued else { return }
+            if self.sheet != nil || self.confirm != nil { self.flushQueued(after: .milliseconds(250)); return }
+            self.queued = nil
+            self.confirm = q
+        }
     }
 
     func show(_ toast: ActionToast) {
@@ -294,7 +312,7 @@ struct ActionHostModifier: ViewModifier {
                 if let toast = host.toast {
                     ToastBanner(toast: toast, onUndo: {
                         host.dismissToast()
-                        if let undo = toast.undo { Task { await undo() } }
+                        if let undo = toast.undo { Task { @MainActor in await undo() } }
                     }, onDismiss: { host.dismissToast() })
                     .padding(.horizontal, Spacing.l).padding(.bottom, Spacing.m)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -317,6 +335,8 @@ struct ToastBanner: View {
         HStack(spacing: 10) {
             Image(systemName: toast.symbol).foregroundStyle(toast.tone.color)
             Text(toast.message).font(.subheadline).lineLimit(3)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onDismiss)
             Spacer(minLength: 4)
             if let title = toast.undoTitle, toast.undo != nil {
                 Button(title, action: onUndo).font(.subheadline.weight(.semibold)).buttonStyle(.borderless)
@@ -325,7 +345,6 @@ struct ToastBanner: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: 560)
         .glassEffect(.regular, in: Capsule())
-        .onTapGesture(perform: onDismiss)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
     }

@@ -33,6 +33,9 @@ public struct ConfirmRequest: Identifiable {
     public var isDisruptive: Bool
     /// Force type-to-confirm on non-production clusters too.
     public var alwaysRequireTyping: Bool
+    /// Production clusters demand type-to-confirm by default. Set to false ONLY for requests where a plain button is the
+    /// deliberate design (opening a shell); `alwaysRequireTyping` still wins.
+    public var typeToConfirmOnProduction: Bool
     /// Server dry-run; the primary button stays disabled until it passes.
     public var dryRun: (@MainActor @Sendable () async -> DryRunOutcome)?
     public var action: @MainActor @Sendable () async throws -> Void
@@ -41,7 +44,7 @@ public struct ConfirmRequest: Identifiable {
     public var currentConfig: (@MainActor () -> ClusterConfig?)?
 
     public init(title: String, message: String, verb: String, isDestructive: Bool = false, cluster: ClusterConfig, namespace: String? = nil,
-                resource: String, confirmationText: String, facts: [Fact] = [], isDisruptive: Bool = true, alwaysRequireTyping: Bool = false,
+                resource: String, confirmationText: String, facts: [Fact] = [], isDisruptive: Bool = true, alwaysRequireTyping: Bool = false, typeToConfirmOnProduction: Bool = true,
                 dryRun: (@MainActor @Sendable () async -> DryRunOutcome)? = nil, action: @escaping @MainActor @Sendable () async throws -> Void) {
         self.title = title
         self.message = message
@@ -54,6 +57,7 @@ public struct ConfirmRequest: Identifiable {
         self.facts = facts
         self.isDisruptive = isDisruptive
         self.alwaysRequireTyping = alwaysRequireTyping
+        self.typeToConfirmOnProduction = typeToConfirmOnProduction
         self.dryRun = dryRun
         self.action = action
     }
@@ -62,7 +66,7 @@ public struct ConfirmRequest: Identifiable {
     public var requiresTyping: Bool { requiresTyping(for: cluster) }
 
     /// Typing requirement evaluated against a (possibly newer) cluster configuration.
-    public func requiresTyping(for live: ClusterConfig) -> Bool { alwaysRequireTyping || live.environment.requiresTypeToConfirm }
+    public func requiresTyping(for live: ClusterConfig) -> Bool { alwaysRequireTyping || (typeToConfirmOnProduction && live.environment.requiresTypeToConfirm) }
 
     /// Why the action must not run against `live`, or nil when it may proceed. `live == nil` means the cluster no longer exists.
     public func refusal(live: ClusterConfig?) -> String? {

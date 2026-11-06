@@ -13,6 +13,12 @@ enum AboutText {
     """
 }
 
+enum AboutLinks {
+    static let support = URL(string: "https://ahmadrezaei.github.io/wheelhouse/support.html")!
+    static let privacyPolicy = URL(string: "https://ahmadrezaei.github.io/wheelhouse/privacy.html")!
+    static let source = URL(string: "https://github.com/ahmadrezaei/wheelhouse")!
+}
+
 struct AboutTextView: View {
     let title: String
     let text: String
@@ -25,7 +31,6 @@ struct AboutTextView: View {
 struct AcknowledgementsView: View {
     private let items: [(String, String, String)] = [
         ("Yams", "https://github.com/jpsim/Yams", "MIT License — Copyright (c) 2016 JP Simard. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, subject to the inclusion of the copyright notice and this permission notice in all copies or substantial portions of the Software. The software is provided \"as is\", without warranty of any kind."),
-        ("SwiftTerm", "https://github.com/migueldeicaza/SwiftTerm", "MIT License — Copyright (c) 2020 Miguel de Icaza. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, subject to the inclusion of the copyright notice and this permission notice in all copies or substantial portions of the Software. The software is provided \"as is\", without warranty of any kind."),
     ]
     var body: some View {
         List(items, id: \.0) { item in

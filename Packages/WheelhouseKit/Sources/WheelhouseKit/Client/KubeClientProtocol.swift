@@ -306,7 +306,11 @@ public extension KubeClientProtocol {
             "apiVersion": "policy/v1", "kind": "Eviction",
             "metadata": ["name": .string(pod), "namespace": .string(namespace)],
         ]
-        if let g = gracePeriodSeconds { body["deleteOptions"] = ["gracePeriodSeconds": .int(g)] }
+        // The Eviction body carries its own DeleteOptions; the API server honours the dry-run flag from there.
+        var deleteOptions: JSONValue = [:]
+        if let g = gracePeriodSeconds { deleteOptions["gracePeriodSeconds"] = .int(g) }
+        if dryRun { deleteOptions["dryRun"] = ["All"] }
+        if deleteOptions.objectValue?.isEmpty == false { body["deleteOptions"] = deleteOptions }
         _ = try await create(.pod, namespace: namespace, name: pod, subresource: "eviction", body: body, options: MutationOptions(dryRun: dryRun))
     }
 }

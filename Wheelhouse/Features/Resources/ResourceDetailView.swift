@@ -207,6 +207,8 @@ private struct DetailScreen: View {
 
     /// Logs for a workload: the most interesting pod (not ready first), via the pod logs route.
     private func openWorkloadLogs(_ ctx: DetailContext) {
+        // A pod has no selector of its own: open its own logs rather than picking another pod from the namespace.
+        if ref.kind == .pod { router.push(.logs(ref, container: nil, previous: false)); return }
         let sel = LabelSelectorSyntax.query(from: ctx.object.raw.value(at: "spec.selector.matchLabels")?.objectValue?.compactMapValues(\.stringValue) ?? [:])
         let pods = session.store(for: Pod.self, namespace: ref.namespace, labelSelector: sel.isEmpty ? nil : sel).items
         let pick = pods.first { !$0.stateSummary().isReady } ?? pods.first

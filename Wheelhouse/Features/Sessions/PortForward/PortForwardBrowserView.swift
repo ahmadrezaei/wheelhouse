@@ -95,6 +95,7 @@ struct BrowserWebView: UIViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
+        web.uiDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
         context.coordinator.observe(web)
         controller.webView = web
@@ -105,7 +106,7 @@ struct BrowserWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {}
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let controller: BrowserController
         private var observations: [NSKeyValueObservation] = []
 
@@ -120,6 +121,39 @@ struct BrowserWebView: UIViewRepresentable {
                 web.observe(\.canGoForward) { [weak self] w, _ in MainActor.assumeIsolated { self?.controller.canGoForward = w.canGoForward } },
                 web.observe(\.url) { [weak self] w, _ in MainActor.assumeIsolated { self?.controller.currentURL = w.url } },
             ]
+        }
+
+        /// Loopback pages (the forwarded port) stay in the app. Any other web link opens in Safari.
+        nonisolated static func isLoopback(_ url: URL) -> Bool {
+            guard let host = url.host?.lowercased() else { return false }
+            return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
+        }
+
+        /// What to do with a link: load it in the page, or hand it to the system.
+        nonisolated static func opensExternally(_ url: URL) -> Bool {
+            switch url.scheme?.lowercased() {
+            case "http", "https": return !isLoopback(url)
+            case "mailto", "tel": return true
+            default: return false
+            }
+        }
+
+        private func openExternally(_ url: URL) { UIApplication.shared.open(url) }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+            guard let url = navigationAction.request.url else { return .allow }
+            // Only top-level navigations and link clicks are intercepted; embedded frames load as usual.
+            if navigationAction.targetFrame?.isMainFrame == false { return .allow }
+            if Self.opensExternally(url) { openExternally(url); return .cancel }
+            return .allow
+        }
+
+        /// `target="_blank"` / `window.open`: stay in this web view for loopback, otherwise Safari. Never silently drop it.
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            guard let url = navigationAction.request.url else { return nil }
+            if Self.opensExternally(url) { openExternally(url) } else { webView.load(navigationAction.request) }
+            return nil
         }
 
         func webView(_ webView: WKWebView, respondTo challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {

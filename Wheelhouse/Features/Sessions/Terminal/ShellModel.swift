@@ -233,12 +233,12 @@ final class ShellModel: Identifiable, TerminalSurfaceDelegate {
 
     func terminalSurface(_ surface: any TerminalSurface, send data: Data) {
         guard let exec, isLive else { return }
-        Task { await exec.send(data) }
+        exec.send(data)  // synchronous enqueue: keeps keystroke order
     }
 
     func terminalSurface(_ surface: any TerminalSurface, didResize cols: Int, rows: Int) {
         self.cols = cols; self.rows = rows
         if wantsStart, phase == .connecting { startExec(); return }
-        if let exec { Task { await exec.resize(cols: cols, rows: rows) } }
+        exec?.resize(cols: cols, rows: rows)
     }
 }

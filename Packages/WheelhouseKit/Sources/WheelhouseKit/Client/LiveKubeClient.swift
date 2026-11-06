@@ -17,6 +17,11 @@ public actor LiveKubeClient: KubeClientProtocol {
 
     /// `tlsServerName` is the kubeconfig `tls-server-name`: the name the server certificate must be valid for.
     public init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil) {
+        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, protocolClasses: nil)
+    }
+
+    /// `protocolClasses` lets tests install a `URLProtocol` that captures outgoing requests.
+    init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, protocolClasses: [AnyClass]?) {
         self.config = config
         self.token = secrets.token?.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -45,6 +50,7 @@ public actor LiveKubeClient: KubeClientProtocol {
         sc.waitsForConnectivity = false
         sc.httpMaximumConnectionsPerHost = 8
         sc.httpAdditionalHeaders = ["User-Agent": "Wheelhouse/1.0"]
+        if let protocolClasses { sc.protocolClasses = protocolClasses }
         self.session = URLSession(configuration: sc, delegate: delegate, delegateQueue: nil)
         if let lazyIdentity { Task.detached(priority: .utility) { _ = lazyIdentity.resolve() } }
     }
@@ -141,7 +147,13 @@ public actor LiveKubeClient: KubeClientProtocol {
         let failure = delegate.failure(for: url.failureURLString.flatMap(URL.init(string:)))
         let https = config.server.scheme?.lowercased() == "https"
         switch url.code {
-        case .cancelled: return failure == nil ? .cancelled : .tlsUntrusted(summary: failure?.summary)
+        case .cancelled:
+            // A rejected server-trust challenge surfaces as -999. Real task cancellation never follows a rejection.
+            if let failure { return .tlsUntrusted(summary: failure.summary) }
+            if !Task.isCancelled, https, delegate.trace.serverTrust == .failed {
+                return .tlsUntrusted(summary: nil)
+            }
+            return .cancelled
         case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
              .serverCertificateNotYetValid:
             return .tlsUntrusted(summary: failure?.summary)
@@ -372,6 +384,9 @@ public actor LiveKubeClient: KubeClientProtocol {
         var body: JSONValue = ["apiVersion": "v1", "kind": "DeleteOptions"]
         if let p = options.propagation { body["propagationPolicy"] = .string(p.rawValue) }
         if let g = options.gracePeriodSeconds { body["gracePeriodSeconds"] = .int(g) }
+        // The API server decodes DeleteOptions from the body and ignores the query when a body is present, so the
+        // dry-run flag MUST be in the body; the query parameter is kept as well.
+        if options.dryRun { body["dryRun"] = ["All"] }
         let q: [(String, String)] = options.dryRun ? [("dryRun", "All")] : []
         _ = try await perform(try makeRequest(path: kind.itemPath(name: name, namespace: namespace), query: q, method: "DELETE", contentType: "application/json", body: try body.data()))
     }

@@ -74,6 +74,29 @@ enum BackgroundRefresh {
         return true
     }
 
+    /// Drops a removed cluster (or, with `nil`, the Demo fleet) from the stored widget snapshot and reloads timelines.
+    /// Other entries keep their last known data. When Demo mode is left and the registry has real clusters, the snapshot is
+    /// rebuilt from them (instead of being left empty) with the existing snapshot writer.
+    @MainActor
+    static func pruneSnapshot(removing id: ClusterID?, registry: ClusterRegistry? = nil) {
+        if id == nil, let registry, !registry.isDemoMode, !registry.clusters.isEmpty {
+            let fleet = FleetModel.shared
+            writeSnapshot(registry, usage: fleet.snapshots.mapValues(\.usage), nodeCPU: fleet.snapshots.mapValues(\.nodeCPU))
+            return
+        }
+        let existing = WidgetDataStore.read()
+        let pruned: FleetSnapshot
+        if let id, let existing, !existing.isDemo {
+            var copy = existing
+            copy.clusters.removeAll { $0.id == id }
+            pruned = copy
+        } else {
+            pruned = FleetSnapshot(isDemo: false, clusters: [])
+        }
+        try? WidgetDataStore.write(pruned)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// Writes the widget snapshot from the registry's current health and reloads timelines.
     @MainActor
     static func writeSnapshot(_ registry: ClusterRegistry, usage: [ClusterID: ClusterUsage] = [:], nodeCPU: [ClusterID: [Double]] = [:]) {

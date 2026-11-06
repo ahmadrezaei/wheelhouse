@@ -66,7 +66,7 @@ struct LogsView: View {
             if model.stream.problem != nil { watcherBanner(model) }
             ZStack(alignment: .bottom) {
                 list(model, session: session)
-                if !model.follow && !model.visible.isEmpty { jumpToLive(model) }
+                if !model.follow && !model.previous && !model.visible.isEmpty { jumpToLive(model) }
             }
             footer(model)
         }
@@ -262,7 +262,8 @@ struct LogsView: View {
             Spacer()
             if model.stream.droppedCount > 0 { Text("\(model.stream.droppedCount.formatted()) older dropped").foregroundStyle(Palette.warningText) }
             Text("\(model.visible.count.formatted()) lines").monospacedDigit()
-            if model.stream.state == .finished || model.stream.state == .paused || model.stream.state.isFailed {
+            // A previous instance is not live: nothing to resume unless loading it failed (then it is a retry).
+            if !model.previous ? (model.stream.state == .finished || model.stream.state == .paused || model.stream.state.isFailed) : model.stream.state.isFailed {
                 Button("Resume") { model.stream.resume() }.font(.caption.weight(.semibold))
             }
         }
@@ -308,7 +309,7 @@ struct LogsView: View {
         Group {
             Button("Search") { model.isSearching.toggle() }.keyboardShortcut("f", modifiers: .command)
             Button("Clear") { model.clear() }.keyboardShortcut("k", modifiers: .command)
-            Button("Jump to Live") { model.jumpToLive() }.keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Jump to Live") { model.jumpToLive() }.keyboardShortcut(.downArrow, modifiers: .command).disabled(model.previous)
             Button("Larger") { model.fontSize = min(model.fontSize + 1, 22) }.keyboardShortcut("+", modifiers: .command)
             Button("Smaller") { model.fontSize = max(model.fontSize - 1, 9) }.keyboardShortcut("-", modifiers: .command)
         }

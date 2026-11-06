@@ -69,7 +69,7 @@ struct SettingsView: View {
                         HStack { ClusterSettingsRow(cluster: c); Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
                     }
                     .buttonStyle(.plain)
-                    .swipeActions { Button("Remove", role: .destructive) { pendingDelete = c } }
+                    .swipeActions { Button("Remove", role: .destructive) { pendingDelete = c }.tint(.red) }
                 }
             }
             .onMove { registry.move(fromOffsets: $0, toOffset: $1) }
@@ -228,6 +228,9 @@ struct SettingsView: View {
             LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"))")
             NavigationLink("Privacy") { AboutTextView(title: "Privacy", text: AboutText.privacy) }
             NavigationLink("Acknowledgements") { AcknowledgementsView() }
+            Link(destination: AboutLinks.support) { Label("Support", systemImage: "questionmark.circle") }
+            Link(destination: AboutLinks.privacyPolicy) { Label("Privacy Policy", systemImage: "hand.raised") }
+            Link(destination: AboutLinks.source) { Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right") }
         } header: { Text("About") } footer: { Text("No analytics or tracking. Credentials never leave your devices except via iCloud Keychain if you enable it.") }
     }
 }

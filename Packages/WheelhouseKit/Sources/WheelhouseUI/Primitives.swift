@@ -60,6 +60,8 @@ public struct EnvBadge: View {
             }
         }
         .font(.system(size: 10, weight: .bold)).tracking(0.4)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
         .frame(minHeight: 19)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(environment.title) cluster")
@@ -74,6 +76,7 @@ public struct FlagBadge: View {
     public var body: some View {
         Text(text)
             .font(.system(size: 10, weight: .bold)).tracking(0.4)
+            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(tone.textColor)
             .padding(.horizontal, 6).frame(minHeight: 19)
             .background(tone.color.opacity(0.15), in: Capsule())
@@ -108,13 +111,14 @@ public struct ContextLine: View {
 
     private var line: some View {
         HStack(spacing: 6) {
-            EnvBadge(cluster.environment)
-            Text(cluster.name).font(.footnote.weight(.semibold)).lineLimit(1)
-            if showsNamespace { dot; Text(namespace ?? "All namespaces").font(.footnote).foregroundStyle(.secondary).lineLimit(1) }
-            if let kind { dot; Text(kind).font(.footnote).foregroundStyle(.secondary).lineLimit(1) }
-            if cluster.readOnly { FlagBadge("READ-ONLY", tone: .info) }
-            if cluster.isDemo { FlagBadge("DEMO", tone: .warning) }
-            if cluster.allowsInsecureTLS { FlagBadge("UNVERIFIED TLS", tone: .critical) }
+            // Badges never wrap or shrink; the cluster, namespace and kind text truncates instead.
+            EnvBadge(cluster.environment).layoutPriority(2)
+            Text(cluster.name).font(.footnote.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+            if showsNamespace { dot; Text(namespace ?? "All namespaces").font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+            if let kind { dot; Text(kind).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+            if cluster.readOnly { FlagBadge("READ-ONLY", tone: .info).layoutPriority(2) }
+            if cluster.isDemo { FlagBadge("DEMO", tone: .warning).layoutPriority(2) }
+            if cluster.allowsInsecureTLS { FlagBadge("UNVERIFIED TLS", tone: .critical).layoutPriority(2) }
         }
     }
 

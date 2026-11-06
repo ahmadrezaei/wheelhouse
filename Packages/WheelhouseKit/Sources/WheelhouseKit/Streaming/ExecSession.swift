@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Events produced by an ``ExecSession``.
 public enum ExecEvent: Sendable {
@@ -73,6 +74,51 @@ public enum ShellChoice: Hashable, Sendable, Identifiable {
     }
 }
 
+/// Writes frames to a socket strictly in the order they were enqueued.
+///
+/// `enqueue` is synchronous and thread-safe (it only yields into an unbounded `AsyncStream`), so callers that fire it from a
+/// delegate callback keep their call order. One long-lived consumer task awaits each send before starting the next, which an
+/// actor method or a task per write cannot guarantee (actor reentrancy lets later writes overtake earlier ones).
+final class OrderedFrameWriter: Sendable {
+    private let continuation: AsyncStream<Data>.Continuation
+    private let consumer: Task<Void, Never>
+
+    /// - Parameters:
+    ///   - send: Writes one frame; the next frame is only started once this returns.
+    ///   - onFirstSent: Called once after the first frame was written successfully.
+    ///   - onFailure: Called once if a write throws; later frames are dropped.
+    init(send: @escaping @Sendable (Data) async throws -> Void,
+         onFirstSent: @escaping @Sendable () -> Void = {},
+         onFailure: @escaping @Sendable (Error) -> Void) {
+        let (stream, cont) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        continuation = cont
+        consumer = Task {
+            var first = true
+            for await frame in stream {
+                if Task.isCancelled { break }
+                do {
+                    try await send(frame)
+                    if first { first = false; onFirstSent() }
+                } catch {
+                    if !Task.isCancelled { onFailure(error) }
+                    break
+                }
+            }
+            cont.finish()
+        }
+    }
+
+    func enqueue(_ frame: Data) { continuation.yield(frame) }
+
+    /// Drops everything not yet written and stops the consumer.
+    func cancel() {
+        continuation.finish()
+        consumer.cancel()
+    }
+
+    deinit { continuation.finish(); consumer.cancel() }
+}
+
 /// An interactive exec session speaking the Kubernetes WebSocket channel protocol (`v5.channel.k8s.io`, falling back to v4).
 public actor ExecSession {
     public nonisolated let events: AsyncStream<ExecEvent>
@@ -84,6 +130,8 @@ public actor ExecSession {
 
     private var socket: KubeWebSocket?
     private var receiveTask: Task<Void, Never>?
+    /// Ordered stdin / resize queue; set in `start`, read from the nonisolated `send` / `resize`.
+    private nonisolated let writer = Mutex<OrderedFrameWriter?>(nil)
     private var finished = false
     private var gotStatus = false
     public private(set) var negotiatedProtocol: String?
@@ -99,6 +147,7 @@ public actor ExecSession {
     }
 
     deinit {
+        writer.withLock { $0?.cancel() }
         receiveTask?.cancel()
         socket?.close()
         continuation.finish()
@@ -113,14 +162,13 @@ public actor ExecSession {
         ws.resume()
         receiveTask = Task { [weak self] in await self?.receiveLoop(ws) }
         // The first write only completes once the upgrade succeeded, so it doubles as the "opened" signal.
-        Task { [weak self] in
-            do {
-                try await ws.send(ChannelFrame.resize(cols: cols, rows: rows).encoded())
-                await self?.markOpened(ws)
-            } catch {
-                await self?.finish(error: Self.map(error, ws))
-            }
-        }
+        // Every later frame (stdin, resize) goes through the same ordered queue.
+        let w = OrderedFrameWriter(
+            send: { try await ws.send($0) },
+            onFirstSent: { [weak self] in Task { await self?.markOpened(ws) } },
+            onFailure: { [weak self] error in Task { await self?.finish(error: Self.map(error, ws)) } })
+        writer.withLock { $0 = w }
+        w.enqueue(ChannelFrame.resize(cols: cols, rows: rows).encoded())
     }
 
     private func markOpened(_ ws: KubeWebSocket) {
@@ -129,21 +177,22 @@ public actor ExecSession {
         continuation.yield(.opened(protocol: negotiatedProtocol))
     }
 
-    /// Sends keyboard input.
-    public func send(_ bytes: Data) async {
-        guard let ws = socket, !finished, !bytes.isEmpty else { return }
-        do { try await ws.send(ChannelFrame.stdin(bytes).encoded()) } catch { finish(error: Self.map(error, ws)) }
+    /// Queues keyboard input. Synchronous: bytes are written to the socket in exactly the order this is called.
+    public nonisolated func send(_ bytes: Data) {
+        guard !bytes.isEmpty else { return }
+        writer.withLock { $0 }?.enqueue(ChannelFrame.stdin(bytes).encoded())
     }
 
-    public func resize(cols: Int, rows: Int) async {
-        guard let ws = socket, !finished else { return }
-        try? await ws.send(ChannelFrame.resize(cols: cols, rows: rows).encoded())
+    /// Queues a terminal resize behind any stdin already queued.
+    public nonisolated func resize(cols: Int, rows: Int) {
+        writer.withLock { $0 }?.enqueue(ChannelFrame.resize(cols: cols, rows: rows).encoded())
     }
 
     /// Ends the session locally.
     public func close() {
         guard !finished else { return }
         finished = true
+        writer.withLock { $0?.cancel() }
         receiveTask?.cancel()
         socket?.close()
         continuation.yield(.closed(error: nil))
@@ -182,6 +231,7 @@ public actor ExecSession {
     private func finish(error: KubeError?) {
         guard !finished else { return }
         finished = true
+        writer.withLock { $0?.cancel() }
         receiveTask?.cancel()
         socket?.close()
         continuation.yield(.closed(error: error))

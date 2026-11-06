@@ -14,6 +14,7 @@ struct WheelhouseApp: App {
     init() {
         let preferences = AppPreferences()
         let registry = ClusterRegistry()
+        registry.onFleetShrank = { [weak registry] in BackgroundRefresh.pruneSnapshot(removing: $0, registry: registry) }
         // `-WHDemoMode` launch argument (UI tests, screenshots) forces Demo mode.
         let forcedDemo = ProcessInfo.processInfo.arguments.contains("-WHDemoMode")
         if preferences.demoMode || forcedDemo { registry.enterDemoMode(persist: !forcedDemo) }

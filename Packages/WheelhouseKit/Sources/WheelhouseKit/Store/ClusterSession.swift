@@ -152,7 +152,9 @@ public final class ClusterSession: Identifiable {
     public func refreshHealth() async -> ClusterHealth {
         let probe = await connect()
         if case .failed(let error) = probe {
-            if error == .cancelled || Task.isCancelled {
+            // `.cancelled` only means task cancellation when this Task really is cancelled. A -999 from a rejected
+            // trust challenge is mapped to a TLS error by the client; any other stray `.cancelled` counts as a failed probe.
+            if Task.isCancelled {
                 return health ?? ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: "Timed out")
             }
             consecutiveProbeFailures += 1
@@ -161,7 +163,8 @@ public final class ClusterSession: Identifiable {
                 health = last
                 return last
             }
-            let h = ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: error.summary)
+            let cause = error == .cancelled ? "Connection was cancelled" : error.summary
+            let h = ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: cause)
             health = h
             lastHealthRefresh = Date()
             return h
