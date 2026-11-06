@@ -43,6 +43,63 @@ import Testing
         #expect(counts.podsPending == 1)
     }
 
+    static func initPod(_ state: String) throws -> Pod {
+        try HealthTests.pod("init", json: #""status":{"phase":"Pending","initContainerStatuses":[{"name":"i","ready":false,"restartCount":0,\#(state)}]}"#)
+    }
+    static func initTerminated(_ body: String) throws -> Pod { try initPod(#""state":{"terminated":{\#(body)}}"#) }
+    static func initWaiting(_ reason: String) throws -> Pod { try initPod(#""state":{"waiting":{"reason":"\#(reason)"}}"#) }
+
+    @Test func initContainerFailuresAreClassifiedAndNeverPending() throws {
+        let critical: [(Pod, String)] = [
+            (try Self.initTerminated(#""exitCode":137,"reason":"OOMKilled""#), "Init:OOMKilled"),
+            (try Self.initTerminated(#""exitCode":1"#), "Init:ExitCode:1"),
+            (try Self.initTerminated(#""exitCode":137,"signal":9"#), "Init:Signal:9"),
+        ]
+        let warning: [(Pod, String)] = [
+            (try Self.initWaiting("CreateContainerConfigError"), "Init:CreateContainerConfigError"),
+            (try Self.initWaiting("RunContainerError"), "Init:RunContainerError"),
+        ]
+        for (p, reason) in critical {
+            let s = p.stateSummary()
+            #expect(s.reason == reason && s.severity == .critical)
+            #expect(!p.isPendingForCounts(s))
+        }
+        for (p, reason) in warning {
+            let s = p.stateSummary()
+            #expect(s.reason == reason && s.severity == .warning)
+            #expect(!p.isPendingForCounts(s))
+        }
+        var input = ClusterHealthInput(clusterID: "c", environment: .development)
+        input.pods = (critical + warning).map(\.0)
+        let counts = HealthEvaluator.evaluate(input, now: HealthTests.now).counts
+        #expect(counts.podsPending == 0)
+        #expect(counts.podsFailing == 5)
+    }
+
+    @Test func initWarningsProduceIssuesInWidgetList() throws {
+        var input = ClusterHealthInput(clusterID: "c", environment: .development)
+        input.pods = [try Self.initWaiting("ImagePullBackOff"), try Self.initWaiting("CreateContainerConfigError")]
+        let h = HealthEvaluator.evaluate(input, now: HealthTests.now)
+        #expect(Set(h.items.map(\.kind)) == [.imagePull, .configError])
+        #expect(h.items.map(\.title).contains("Init:ImagePullBackOff"))
+    }
+
+    @Test func initProgressStillCountsAsPending() throws {
+        let progress = try Self.initPod(#""state":{"running":{}}"#)   // first init container still running
+        let s = progress.stateSummary()
+        #expect(s.reason == "Init:0/1" && s.severity == .healthy)
+        #expect(progress.isPendingForCounts(s))
+        let two = try HealthTests.pod("init2", json: #""status":{"phase":"Pending","initContainerStatuses":[{"name":"a","ready":false,"restartCount":0,"state":{"running":{}}},{"name":"b","ready":false,"restartCount":0,"state":{"waiting":{"reason":"PodInitializing"}}}]}"#)
+        let s2 = two.stateSummary()
+        #expect(s2.reason == "Init:0/2" && s2.severity == .healthy)
+        #expect(two.isPendingForCounts(s2))
+        var input = ClusterHealthInput(clusterID: "c", environment: .development)
+        input.pods = [progress, two]
+        let counts = HealthEvaluator.evaluate(input, now: HealthTests.now).counts
+        #expect(counts.podsPending == 2)
+        #expect(counts.podsFailing == 0)
+    }
+
     @Test func phaseBreakdownBucketsPendingSeparately() throws {
         let b = PodPhaseBreakdown.compute([try Self.pendingUnscheduled(), try Self.creating(), try Self.imagePull(), try HealthTests.crashPod(), try HealthTests.runningPod()])
         #expect(b.pending == 2)

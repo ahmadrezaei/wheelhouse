@@ -67,8 +67,9 @@ enum BackgroundRefresh {
         } onCancel: { works.forEach { $0.cancel() } }
         overall.cancel()
         if Task.isCancelled { return false }
-        writeSnapshot(registry, usage: usage, nodeCPU: nodeCPU)
         let health = sessions.map { $0.health ?? ClusterHealth.unreachable(clusterID: $0.config.id, environment: $0.config.environment, cause: "Timed out") }
+        // A cluster that timed out is unreachable in the widget too (not "not loaded").
+        writeSnapshot(registry, usage: usage, nodeCPU: nodeCPU, fallbackHealth: Dictionary(health.map { ($0.clusterID, $0) }, uniquingKeysWith: { a, _ in a }))
         // Demo clusters are not real: never post alerts for them.
         if BackgroundPolicy.shouldPostAlerts(isDemoMode: registry.isDemoMode, settings: AlertSettings.load()) { await AlertNotifier.process(health: health, clusters: registry.clusters) }
         return true
@@ -81,7 +82,7 @@ enum BackgroundRefresh {
     static func pruneSnapshot(removing id: ClusterID?, registry: ClusterRegistry? = nil) {
         if id == nil, let registry, !registry.isDemoMode, !registry.clusters.isEmpty {
             let fleet = FleetModel.shared
-            writeSnapshot(registry, usage: fleet.snapshots.mapValues(\.usage), nodeCPU: fleet.snapshots.mapValues(\.nodeCPU))
+            writeSnapshot(registry, usage: fleet.snapshots.mapValues(\.usage), nodeCPU: fleet.snapshots.mapValues(\.nodeCPU), previous: WidgetDataStore.read())
             return
         }
         let existing = WidgetDataStore.read()
@@ -99,8 +100,9 @@ enum BackgroundRefresh {
 
     /// Writes the widget snapshot from the registry's current health and reloads timelines.
     @MainActor
-    static func writeSnapshot(_ registry: ClusterRegistry, usage: [ClusterID: ClusterUsage] = [:], nodeCPU: [ClusterID: [Double]] = [:]) {
-        try? WidgetDataStore.write(registry.makeSnapshot(usage: usage, nodeCPU: nodeCPU))
+    static func writeSnapshot(_ registry: ClusterRegistry, usage: [ClusterID: ClusterUsage] = [:], nodeCPU: [ClusterID: [Double]] = [:], previous: FleetSnapshot? = nil,
+                              fallbackHealth: [ClusterID: ClusterHealth] = [:]) {
+        try? WidgetDataStore.write(registry.makeSnapshot(usage: usage, nodeCPU: nodeCPU, previous: previous, fallbackHealth: fallbackHealth))
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -109,7 +111,7 @@ enum BackgroundRefresh {
     static func appDidEnterBackground(registry: ClusterRegistry) {
         if registry.allSessions.contains(where: { $0.health != nil }) {
             let fleet = FleetModel.shared
-            writeSnapshot(registry, usage: fleet.snapshots.mapValues(\.usage), nodeCPU: fleet.snapshots.mapValues(\.nodeCPU))
+            writeSnapshot(registry, usage: fleet.snapshots.mapValues(\.usage), nodeCPU: fleet.snapshots.mapValues(\.nodeCPU), previous: WidgetDataStore.read())
         }
         schedule()
     }

@@ -21,7 +21,7 @@ private struct ClusterLine: View {
                 }
             }
             Spacer(minLength: 4)
-            Text(c.isReachable ? (showCPU ? WidgetFormat.percent(c.cpuFraction) : c.statusWord) : "Offline")
+            Text(c.isReachable ? (showCPU && !c.isNotLoaded ? WidgetFormat.percent(c.cpuFraction) : c.statusWord) : "Offline")
                 .font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .ignore)
@@ -80,7 +80,7 @@ public struct FleetWidgetView: View {
         let healthy = s.clusters.filter { $0.status == .healthy && $0.isReachable }.count
         let worst = s.worstCluster?.status ?? .healthy
         return ZStack {
-            RingGauge(value: Double(healthy) / Double(max(1, s.clusters.count)), lineWidth: size / 7, color: WidgetTint(mode: mode).color(s.needAttentionCount == 0 ? .healthy : worst))
+            RingGauge(value: Double(healthy) / Double(max(1, s.clusters.count)), lineWidth: size / 7, color: WidgetTint(mode: mode).color(s.needAttentionCount > 0 ? worst : s.unknownCount + s.unknownStatusCount > 0 ? .unknown : .healthy))
             VStack(spacing: 0) {
                 Text("\(healthy)").font(.system(size: size * 0.36, weight: .bold).monospacedDigit())
                 Text("of \(s.clusters.count)").font(.system(size: size * 0.16)).foregroundStyle(.secondary)
@@ -98,7 +98,7 @@ public struct FleetWidgetView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Header(symbol: "helm", title: "Fleet")
                     ring(s, size: 76)
-                    Text(s.needAttentionCount == 0 ? "All healthy" : "\(s.needAttentionCount) need attention").font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(s.shortTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 }
                 .frame(width: 100, alignment: .leading)
                 VStack(spacing: 0) {
@@ -145,7 +145,7 @@ public struct FleetWidgetView: View {
                 Header(symbol: "helm", title: "Fleet")
                 HStack(spacing: 8) {
                     ring(s, size: 46)
-                    Text(s.needAttentionCount == 0 ? "All healthy" : "\(s.needAttentionCount) need attention")
+                    Text(s.shortTitle)
                         .font(.system(size: 13, weight: .bold)).lineLimit(2).minimumScaleFactor(0.8)
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -213,7 +213,7 @@ public struct ClusterWidgetView: View {
                     Text(c.statusWord).font(.system(size: 12, weight: .semibold)).foregroundStyle(WidgetTint(mode: mode).text(c.isReachable ? c.status : .unknown))
                 }
             }
-            if c.isReachable {
+            if c.isReachable && !c.isNotLoaded {
                 HStack(spacing: 12) {
                     gauge("CPU", c.cpuFraction)
                     gauge("MEM", c.memoryFraction)
@@ -226,7 +226,7 @@ public struct ClusterWidgetView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(c.failingPods) failing pods, \(c.nodesReady) of \(c.nodesTotal) nodes ready")
             } else {
-                Text(c.topIssue ?? "Can't reach the API server").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
+                Text(c.isNotLoaded ? "Not loaded yet" : c.topIssue ?? "Can't reach the API server").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
             }
             Spacer(minLength: 0)
             WidgetFooter(snapshot: s, now: now, showDemo: false)
@@ -251,7 +251,7 @@ public struct ClusterWidgetView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(c.failingPodList.isEmpty ? "NO FAILING PODS" : "FAILING PODS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
             if c.failingPodList.isEmpty {
-                Label(c.isReachable ? "All workloads healthy" : "No data", systemImage: c.isReachable ? "checkmark.circle" : "wifi.slash")
+                Label(c.isNotLoaded ? "Not loaded yet" : c.isReachable ? "All workloads healthy" : "No data", systemImage: c.isNotLoaded ? "circle.dotted" : c.isReachable ? "checkmark.circle" : "wifi.slash")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             ForEach(c.failingPodList.prefix(4)) { p in
@@ -313,7 +313,7 @@ public struct FailingPodsWidgetView: View {
                 }
                 Text("FAILING PODS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                 if c.failingPodList.isEmpty {
-                    Label(c.isReachable ? "No failing pods" : "Cluster unreachable", systemImage: c.isReachable ? "checkmark.circle" : "wifi.slash")
+                    Label(c.isNotLoaded ? "Not loaded yet" : c.isReachable ? "No failing pods" : "Cluster unreachable", systemImage: c.isNotLoaded ? "circle.dotted" : c.isReachable ? "checkmark.circle" : "wifi.slash")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 ForEach(c.failingPodList.prefix(large ? 5 : 2)) { p in
@@ -383,7 +383,7 @@ public struct NodeStatusWidgetView: View {
                                 StatusGlyph(entry: c, size: 11)
                                 Text(c.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).frame(width: 110, alignment: .leading)
                                 if c.nodeCPU.isEmpty { Spacer() } else { NodeStrip(values: c.nodeCPU) }
-                                Text(c.isReachable ? "\(c.nodesReady)/\(c.nodesTotal)" : "—").font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                Text(c.isReachable && !c.isNotLoaded ? "\(c.nodesReady)/\(c.nodesTotal)" : "—").font(.system(size: 12, weight: .semibold).monospacedDigit())
                                     .foregroundStyle(c.nodesReady < c.nodesTotal ? WidgetTint(mode: mode).text(.warning) : .secondary)
                                     .frame(width: 32, alignment: .trailing)
                             }
@@ -399,7 +399,7 @@ public struct NodeStatusWidgetView: View {
                     Header(symbol: "server.rack", title: "Nodes")
                     Text(c.name).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(c.isReachable ? "\(c.nodesReady)" : "—").font(.system(size: 34, weight: .bold).monospacedDigit())
+                        Text(c.isReachable && !c.isNotLoaded ? "\(c.nodesReady)" : "—").font(.system(size: 34, weight: .bold).monospacedDigit())
                         Text("/ \(c.nodesTotal) ready").font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     if !c.nodeCPU.isEmpty { NodeStrip(values: c.nodeCPU) }
@@ -435,8 +435,8 @@ public struct AccessoryWidgetView: View {
                     ZStack {
                         AccessoryWidgetBackground()
                         VStack(spacing: 0) {
-                            Image(systemName: c?.isReachable == false ? "wifi.slash" : (c?.failingPods ?? 0) > 0 ? "xmark.octagon.fill" : "checkmark.circle.fill").font(.system(size: 14))
-                            Text(c?.isReachable == false ? "Off" : "\(c?.failingPods ?? 0)").font(.system(size: 16, weight: .bold).monospacedDigit())
+                            Image(systemName: c?.isNotLoaded == true ? "circle.dotted" : c?.isReachable == false ? "wifi.slash" : (c?.failingPods ?? 0) > 0 ? "xmark.octagon.fill" : "checkmark.circle.fill").font(.system(size: 14))
+                            Text(c?.isNotLoaded == true ? "–" : c?.isReachable == false ? "Off" : "\(c?.failingPods ?? 0)").font(.system(size: 16, weight: .bold).monospacedDigit())
                         }
                     }
                     .accessibilityElement(children: .ignore)
@@ -445,27 +445,24 @@ public struct AccessoryWidgetView: View {
             case .accessoryRectangular:
                 if c != nil, AppGroup.defaults.bool(forKey: AlertKeys.hideDetails) {
                     // "Hide details on Lock Screen": no cluster names or issue text.
-                    let n = snapshot.needAttentionCount
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) { Image(systemName: "helm"); Text("Wheelhouse").fontWeight(.semibold) }.font(.system(size: 13)).widgetAccentable()
-                        Text(n == 0 ? "All clusters healthy" : "\(n) need attention").font(.system(size: 12)).lineLimit(2)
+                        Text(snapshot.shortTitle).font(.system(size: 12)).lineLimit(2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(n == 0 ? "Wheelhouse, all clusters healthy" : "Wheelhouse, \(n) clusters need attention")
+                    .accessibilityLabel("Wheelhouse, \(snapshot.title)")
                 } else if let c {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) { Image(systemName: c.displaySymbol); Text(c.name).fontWeight(.semibold).lineLimit(1) }.font(.system(size: 13)).widgetAccentable()
-                        Text(c.topIssue ?? (c.isReachable ? "All workloads healthy" : "Unreachable")).font(.system(size: 12)).lineLimit(2)
-                        Text(c.isReachable ? "Nodes \(c.nodesReady)/\(c.nodesTotal) · CPU \(WidgetFormat.percent(c.cpuFraction))" : "Last seen \(WidgetFormat.updated(snapshot.generatedAt, now: Date()).dropFirst(8))")
+                        Text(c.topIssue ?? (c.isNotLoaded ? "Not loaded yet" : c.isReachable ? "All workloads healthy" : "Unreachable")).font(.system(size: 12)).lineLimit(2)
+                        Text(c.isNotLoaded ? "Waiting for first refresh" : c.isReachable ? "Nodes \(c.nodesReady)/\(c.nodesTotal) · CPU \(WidgetFormat.percent(c.cpuFraction))" : "Last seen \(WidgetFormat.updated(snapshot.generatedAt, now: Date()).dropFirst(8))")
                             .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .privacySensitive()
                 }
             default: // inline
-                let n = snapshot.needAttentionCount
-                if n == 0 { Label("All \(snapshot.clusters.count) clusters healthy", systemImage: "checkmark.circle") }
-                else { Label("\(n) need attention", systemImage: "exclamationmark.triangle") }
+                Label(snapshot.title, systemImage: snapshot.needAttentionCount > 0 ? "exclamationmark.triangle" : snapshot.unknownCount + snapshot.unknownStatusCount > 0 ? "circle.dotted" : "checkmark.circle")
             }
         } else if family == .accessoryInline {
             Label("Wheelhouse: add a cluster", systemImage: "helm")

@@ -48,10 +48,12 @@ public enum HealthEvaluator {
             case "OOMKilled":
                 items.append(AttentionItem(id: "\(cid)/pod/\(pod.id)/oom", clusterID: cid, severity: .critical, kind: .oomKilled, title: "OOMKilled",
                                            detail: "\(name) · restarted \(s.restarts)×", resource: ref, since: since, restarts: s.restarts))
-            case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "ErrImageNeverPull":
+            case "ImagePullBackOff", "ErrImagePull", "InvalidImageName", "ErrImageNeverPull",
+                 "Init:ImagePullBackOff", "Init:ErrImagePull", "Init:InvalidImageName", "Init:ErrImageNeverPull":
                 items.append(AttentionItem(id: "\(cid)/pod/\(pod.id)/image", clusterID: cid, severity: .warning, kind: .imagePull, title: s.reason,
                                            detail: name, resource: ref, since: pod.metadata.creationTimestamp))
-            case "CreateContainerConfigError", "CreateContainerError", "RunContainerError":
+            case "CreateContainerConfigError", "CreateContainerError", "RunContainerError",
+                 "Init:CreateContainerConfigError", "Init:CreateContainerError", "Init:RunContainerError":
                 items.append(AttentionItem(id: "\(cid)/pod/\(pod.id)/config", clusterID: cid, severity: .warning, kind: .configError, title: s.reason,
                                            detail: name, resource: ref, since: pod.metadata.creationTimestamp))
             default:

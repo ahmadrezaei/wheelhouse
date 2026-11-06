@@ -171,22 +171,33 @@ public final class ClusterRegistry {
     }
 
     /// Builds the widget snapshot from current health. `usage` / `nodeCPU` come from the Fleet model or the background
-    /// refresh (per cluster); clusters without an entry show no CPU / memory.
-    public func makeSnapshot(usage: [ClusterID: ClusterUsage] = [:], nodeCPU: [ClusterID: [Double]] = [:]) -> FleetSnapshot {
+    /// refresh (per cluster); clusters without an entry show no CPU / memory. A cluster with no health yet is "not loaded":
+    /// status `.unknown`, reachable, no counts (never "Offline"); when `previous` (a non-demo snapshot) has its last known entry,
+    /// that entry is kept instead, with the current name and environment.
+    public func makeSnapshot(usage: [ClusterID: ClusterUsage] = [:], nodeCPU: [ClusterID: [Double]] = [:], previous: FleetSnapshot? = nil,
+                             fallbackHealth: [ClusterID: ClusterHealth] = [:]) -> FleetSnapshot {
+        var reused = false
         let entries = clusters.map { c -> FleetSnapshot.ClusterEntry in
-            let h = sessions[c.id]?.health
+            let h = sessions[c.id]?.health ?? transientSessions[c.id]?.session.health ?? fallbackHealth[c.id]
+            if h == nil, let previous, !previous.isDemo, var last = previous.clusters.first(where: { $0.id == c.id }), last.notLoaded != true {
+                last.name = c.name; last.environment = c.environment
+                reused = true
+                return last
+            }
             let counts = h?.counts ?? ClusterCounts()
             let failing = (h?.items ?? []).filter { [.crashLoop, .oomKilled, .imagePull, .podFailed, .configError].contains($0.kind) }
             let u = usage[c.id]
             return FleetSnapshot.ClusterEntry(
-                id: c.id, name: c.name, environment: c.environment, status: h?.status ?? .unknown, isReachable: h?.isReachable ?? false,
+                id: c.id, name: c.name, environment: c.environment, status: h?.status ?? .unknown, isReachable: h?.isReachable ?? true,
                 nodesReady: counts.nodesReady, nodesTotal: counts.nodesTotal, podsRunning: counts.podsRunning, podsTotal: counts.podsTotal,
                 failingPods: counts.podsFailing, cpuFraction: u?.cpuFraction, memoryFraction: u?.memFraction,
                 topIssue: h?.items.first.map { "\($0.title) · \($0.detail)" },
                 failingPodList: failing.prefix(6).map { FleetSnapshot.FailingPod(name: $0.resource?.name ?? $0.detail, namespace: $0.resource?.namespace ?? "", reason: $0.title, restarts: $0.restarts) },
-                nodeCPU: nodeCPU[c.id] ?? [])
+                nodeCPU: nodeCPU[c.id] ?? [], notLoaded: h == nil ? true : nil)
         }
-        return FleetSnapshot(isDemo: isDemoMode, clusters: entries)
+        // Reused last-known entries are old data: keep the older timestamp so the widget's stale dimming still works.
+        let generatedAt = reused ? min(previous?.generatedAt ?? Date(), Date()) : Date()
+        return FleetSnapshot(generatedAt: generatedAt, isDemo: isDemoMode, clusters: entries)
     }
 
     // MARK: Mutations

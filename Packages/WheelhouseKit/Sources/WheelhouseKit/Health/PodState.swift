@@ -59,12 +59,14 @@ public extension Pod {
         let ready = st?.phase == "Running" && (st?.containerStatuses ?? []).allSatisfy(\.ready) && !(st?.containerStatuses ?? []).isEmpty
 
         var severity: HealthStatus = .healthy
-        if Self.criticalReasons.contains(reason) || reason.hasPrefix("Init:Error") || reason.hasPrefix("Init:CrashLoop") {
+        // Init failures use the main-container rules on the reason after `Init:`; `Init:0/2` and `PodInitializing` are progress.
+        let isInit = reason.hasPrefix("Init:")
+        let base = isInit ? String(reason.dropFirst(5)) : reason
+        if Self.criticalReasons.contains(base) || base.hasPrefix("ExitCode:") || base.hasPrefix("Signal:")
+            || base.hasPrefix("CrashLoop") || (isInit && base.hasPrefix("Error")) {
             severity = .critical
-        } else if Self.warningReasons.contains(reason) || reason.hasPrefix("Init:ImagePull") || reason.hasPrefix("Init:ErrImage") {
+        } else if Self.warningReasons.contains(base) || (isInit && (base.hasPrefix("ImagePull") || base.hasPrefix("ErrImage"))) {
             severity = .warning
-        } else if reason.hasPrefix("ExitCode:") || reason.hasPrefix("Signal:") {
-            severity = .critical
         } else if st?.phase == "Failed" {
             severity = .critical
         } else if reason == "Pending" {

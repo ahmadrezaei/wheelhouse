@@ -334,6 +334,57 @@ private func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool)
         #expect(r1.namespace(for: "r1") == "payments")   // an explicit pick in this launch still applies
     }
 
+    @Test func clusterWithoutHealthIsNotOfflineOrAttention() throws {
+        let r = registry(d: defaults())
+        try r.add(config, secrets: ClusterSecrets(token: "t"))   // no session / health yet (e.g. just left Demo mode)
+        let snap = r.makeSnapshot()
+        let e = try #require(snap.clusters.first { $0.id == "r1" })
+        #expect(e.isReachable)
+        #expect(e.status == .unknown)
+        #expect(e.isNotLoaded)
+        #expect(e.statusWord != "Unreachable")
+        #expect(snap.needAttentionCount == 0)
+        #expect(e.attentionRank == HealthStatus.unknown.rank)
+        // A previous non-demo snapshot's last known entry is preferred over a blank one.
+        let known = FleetSnapshot.ClusterEntry(id: "r1", name: "old", environment: .production, status: .critical, nodesReady: 2, nodesTotal: 3, failingPods: 1)
+        let kept = r.makeSnapshot(previous: FleetSnapshot(isDemo: false, clusters: [known])).clusters.first
+        #expect(kept?.status == .critical && kept?.nodesTotal == 3 && kept?.name == config.name)
+        let demoPrev = r.makeSnapshot(previous: FleetSnapshot(isDemo: true, clusters: [known])).clusters.first
+        #expect(demoPrev?.isNotLoaded == true)
+    }
+
+    @Test func timedOutClusterIsOfflineViaFallbackHealth() throws {
+        let r = registry(d: defaults())
+        try r.add(config, secrets: ClusterSecrets(token: "t"))
+        let h = ClusterHealth.unreachable(clusterID: "r1", environment: config.environment, cause: "Timed out")
+        let e = try #require(r.makeSnapshot(fallbackHealth: ["r1": h]).clusters.first)
+        #expect(!e.isReachable && !e.isNotLoaded)
+        let snap = r.makeSnapshot()
+        #expect(snap.title == "1 cluster · 1 not loaded" && snap.shortTitle == "1 not loaded")
+        // A reused previous entry keeps the older timestamp.
+        let old = Date(timeIntervalSinceNow: -3 * 3600)
+        let prev = FleetSnapshot(generatedAt: old, isDemo: false, clusters: [.init(id: "r1", name: "r1", environment: .production, status: .healthy)])
+        #expect(r.makeSnapshot(previous: prev).generatedAt == old)
+    }
+
+    @Test func previousUnreachableEntryIsKeptAndUnknownStatusCounts() throws {
+        let r = registry(d: defaults())
+        try r.add(config, secrets: ClusterSecrets(token: "t"))
+        let off = FleetSnapshot.ClusterEntry(id: "r1", name: "r1", environment: .production, status: .unknown, isReachable: false)
+        let kept = try #require(r.makeSnapshot(previous: FleetSnapshot(isDemo: false, clusters: [off])).clusters.first)
+        #expect(!kept.isReachable && !kept.isNotLoaded)
+        // A previous not-loaded entry is not reused.
+        let nl = FleetSnapshot.ClusterEntry(id: "r1", name: "r1", environment: .production, status: .unknown, notLoaded: true)
+        #expect(try #require(r.makeSnapshot(previous: FleetSnapshot(isDemo: false, clusters: [nl])).clusters.first).isNotLoaded)
+        // Reachable but `.unknown` (blind) is neither healthy nor needing attention.
+        let blind = FleetSnapshot(clusters: [.init(id: "a", name: "a", environment: .production, status: .unknown, nodesTotal: 3),
+                                             .init(id: "b", name: "b", environment: .production, status: .healthy),
+                                             .init(id: "c", name: "c", environment: .production, status: .unknown, notLoaded: true)])
+        #expect(blind.needAttentionCount == 0 && blind.unknownStatusCount == 1 && blind.unknownCount == 1)
+        #expect(blind.title == "3 clusters · 1 not loaded · 1 unknown" && blind.shortTitle == "1 not loaded · 1 unknown")
+        #expect(FleetSnapshot(clusters: [.init(id: "a", name: "a", environment: .production, status: .unknown, nodesTotal: 3)]).title == "1 cluster · 1 unknown")
+    }
+
     @Test func makeSnapshotCarriesUsageNodeCPUAndRestarts() async {
         let r = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: defaults())
         r.enterDemoMode(persist: false)
