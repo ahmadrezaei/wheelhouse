@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse Support</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse</span><h1>Support</h1></div></header>
+  <p>Found a bug, have a question or want a feature? Open an issue on GitHub. Please include your iOS version, the app version (Settings → About → Version) and what you expected to happen.</p>
+  <p><a href="https://github.com/ahmadrezaei/wheelhouse/issues/new">Open an issue on GitHub →</a></p>
+  <p class="muted">Never paste a kubeconfig, token, certificate or private key into an issue. If a connection fails, use <em>Copy diagnostics</em> in the app: the report it copies has credentials removed.</p>
+
+  <h2>Common questions</h2>
+  <div class="card">
+    <p><strong>How do I add a cluster?</strong><br>Tap <em>Add Cluster</em> and either import a kubeconfig file or enter the API server URL with a service-account token. You can also share a kubeconfig file to Wheelhouse from Files, Mail, WhatsApp or Telegram.</p>
+    <p><strong>Can I try it without a cluster?</strong><br>Yes. Tap <em>Explore Demo</em> on the welcome screen (or in Settings) to explore a simulated fleet.</p>
+    <p><strong>The connection fails with a TLS error.</strong><br>Make sure the kubeconfig includes the cluster’s CA certificate (<code>certificate-authority-data</code>) and that the server address matches a name or IP in the API server certificate. The connection test shows the exact reason.</p>
+    <p><strong>Logs say “too many open files”.</strong><br>That message comes from the node, not the app: the kubelet has run out of inotify instances. Raise <code>fs.inotify.max_user_instances</code> and <code>fs.inotify.max_user_watches</code> on the node. Wheelhouse falls back to polling for new lines meanwhile.</p>
+    <p style="margin-bottom:0"><strong>Metrics are missing.</strong><br>Install metrics-server in the cluster, or add a Prometheus URL in the cluster’s settings.</p>
+  </div>
+  <nav>
+    <a href="./">Home</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="https://github.com/ahmadrezaei/wheelhouse">Source code</a>
+  </nav>
+</main>
+</body>
+</html>

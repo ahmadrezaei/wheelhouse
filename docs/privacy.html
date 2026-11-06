@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse Privacy Policy</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse</span><h1>Privacy Policy</h1></div></header>
+  <p class="muted">Effective November 6, 2026</p>
+  <div class="card"><strong>In short:</strong> Wheelhouse does not collect, sell or share any personal data. It has no accounts, no analytics, no advertising and no tracking. Everything you enter stays on your device, or in your own iCloud Keychain if you turn sync on.</div>
+
+  <h2>What the app stores, and where</h2>
+  <ul>
+    <li><strong>Cluster settings</strong> (names, server addresses, colours, safety options) are stored on your device, in the app’s own container.</li>
+    <li><strong>Credentials</strong> (tokens, client certificates and keys, Prometheus tokens) are stored in the iOS Keychain on your device. If you turn on <em>iCloud Sync</em> for a cluster, that cluster’s credentials are synced by Apple’s iCloud Keychain, which is end-to-end encrypted. Sync is off by default.</li>
+    <li><strong>Shared kubeconfig files</strong>: when you share a file to Wheelhouse, the share extension keeps it in the Keychain on your device for at most one hour, until the app imports it.</li>
+    <li><strong>Widgets and alerts</strong> use a summary cached on your device. Notifications are generated on the device itself.</li>
+  </ul>
+
+  <h2>Network connections</h2>
+  <p>Wheelhouse connects only to the Kubernetes API servers and Prometheus addresses that you add. It does not contact any server run by the developer, and it contains no third-party analytics, advertising or crash-reporting SDKs.</p>
+
+  <h2>Face ID</h2>
+  <p>App Lock uses Face ID or Touch ID through iOS. The app only learns whether authentication succeeded; it never has access to biometric data.</p>
+
+  <h2>Diagnostics</h2>
+  <p>When a connection fails, the app can create a diagnostics report with tokens, keys and certificates removed. It is only shared if you choose to copy or share it yourself.</p>
+
+  <h2>Children</h2>
+  <p>Wheelhouse is a tool for managing computer infrastructure and is not directed at children.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the new version will be posted on this page with a new effective date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about privacy: <a href="https://github.com/ahmadrezaei/wheelhouse/issues">open an issue on GitHub</a>.</p>
+  <nav>
+    <a href="./">Home</a>
+    <a href="support.html">Support</a>
+    <a href="https://github.com/ahmadrezaei/wheelhouse">Source code</a>
+  </nav>
+</main>
+</body>
+</html>
