@@ -214,7 +214,8 @@ public final class ResourceStore<T: KubeObject> {
         guard !publishScheduled else { return }
         publishScheduled = true
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
+            // 100 ms normally; slower in Low Power Mode / when the device is hot.
+            try? await Task.sleep(for: .milliseconds(Int(EnergyPolicy.current.publishInterval * 1000)))
             self?.publishScheduled = false
             self?.publish()
         }

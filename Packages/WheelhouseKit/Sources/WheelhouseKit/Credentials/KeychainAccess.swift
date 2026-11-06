@@ -8,7 +8,7 @@ public enum KeychainError: Error, Equatable, Sendable {
 
 /// Shared low-level keychain helpers.
 enum KeychainAccess {
-    /// `<TeamPrefix>.app.wheelhouse.shared`, discovered at runtime from the app's default access group so the same
+    /// `<TeamPrefix>.com.ahmadrezaei.wheelhouse.shared`, discovered at runtime from the app's default access group so the same
     /// code works with any development team. nil when unsigned (unit tests, some simulator builds); items then use the default group.
     static let sharedGroup: String? = {
         let probe: [CFString: Any] = [
@@ -29,7 +29,7 @@ enum KeychainAccess {
         guard status == errSecSuccess, let attrs = result as? [String: Any], let group = attrs[kSecAttrAccessGroup as String] as? String,
               let dot = group.firstIndex(of: ".") else { return nil }
         let prefix = group[..<dot]
-        return "\(prefix).app.wheelhouse.shared"
+        return "\(prefix).com.ahmadrezaei.wheelhouse.shared"
     }()
 
     static func baseQuery(service: String, account: String) -> [CFString: Any] {

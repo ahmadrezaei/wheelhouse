@@ -26,6 +26,7 @@ struct KubeconfigImportView: View {
     @State private var importing = false
     @State private var saveError: String?
     @State private var copied = false
+    @State private var copiedDiagnosticsID: String?
     /// Cluster ids that were actually imported; everything else that was only tested must not keep a key in the Keychain.
     @State private var importedIDs: Set<ClusterID> = []
 
@@ -54,7 +55,7 @@ struct KubeconfigImportView: View {
             else if case .failure(let e) = result { parseError = e.localizedDescription }
         }
         .onAppear { consumeInbox() }
-        .onChange(of: KubeconfigInbox.shared.pendingText) { _, new in if new != nil { consumeInbox() } }
+        .onChange(of: KubeconfigInbox.shared.revision) { consumeInbox() }
         .onDisappear { removeUnimportedIdentities() }
         .task(id: config != nil) {
             guard DebugLaunch.autoTest, !didAutoTest, let kc = config else { return }
@@ -147,7 +148,7 @@ struct KubeconfigImportView: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityHint(supported ? "Double tap to \(selected ? "deselect" : "select")" : "Not supported on iOS")
 
-            if let r = results[ctx.id] { resultLine(r) }
+            if let r = results[ctx.id] { resultLine(r, ctx: ctx) }
             if selected, let binding = Binding($options[ctx.id]) {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("Environment", selection: binding.environment) { ForEach(ClusterEnvironment.allCases) { Text($0.title).tag($0) } }
@@ -160,13 +161,25 @@ struct KubeconfigImportView: View {
         .padding(.vertical, 2)
     }
 
-    @ViewBuilder private func resultLine(_ r: ConnectionTestState) -> some View {
+    @ViewBuilder private func resultLine(_ r: ConnectionTestState, ctx: KubeconfigContext) -> some View {
         switch r {
         case .idle: EmptyView()
         case .running: HStack { ProgressView().controlSize(.small); Text("Testing…").font(.footnote).foregroundStyle(.secondary) }.padding(.leading, 40)
         case .done(let res):
             Group {
-                if let e = res.error { Label(e.summary, systemImage: "xmark.octagon.fill").foregroundStyle(Palette.criticalText) }
+                if let e = res.error {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(e.summary, systemImage: "xmark.octagon.fill").foregroundStyle(Palette.criticalText)
+                        Button {
+                            UIPasteboard.general.string = ConnectionTestCard.diagnosticsReport(
+                                for: e, target: .init(host: ctx.server?.host() ?? "unknown", port: ctx.server?.port, authKind: authKind(ctx.auth)), trace: res.trace)
+                            copiedDiagnosticsID = ctx.id
+                        } label: {
+                            Label(copiedDiagnosticsID == ctx.id ? "Copied" : "Copy diagnostics", systemImage: copiedDiagnosticsID == ctx.id ? "checkmark" : "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                    }
+                }
                 else { Label("Connected · \(res.version ?? "") · \(res.latencyMilliseconds ?? 0) ms", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.healthyText) }
             }
             .font(.footnote).padding(.leading, 40)
@@ -207,6 +220,19 @@ struct KubeconfigImportView: View {
         case .missingFile: StatusPill(tone: .unknown, text: "Missing file")
         case .basicAuth: StatusPill(tone: .unknown, text: "Basic auth")
         case .invalid: StatusPill(tone: .critical, text: "Invalid")
+        }
+    }
+
+    /// Auth kind without account names, for the shareable diagnostics report.
+    private func authKind(_ auth: KubeconfigAuth) -> String {
+        switch auth {
+        case .token: "token"
+        case .clientCertificate: "clientCertificate"
+        case .basic: "basic"
+        case .exec: "exec"
+        case .authProvider: "authProvider"
+        case .missingFiles: "missingFiles"
+        case .none: "none"
         }
     }
 

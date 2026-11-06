@@ -90,6 +90,10 @@ final class LogsModel: Identifiable {
     private(set) var podError: KubeError?
     private(set) var suggestPrevious = false
     private(set) var terminationNote: String?
+    /// `spec.nodeName` of the pod; named in the inotify banner.
+    private(set) var nodeName: String?
+    /// A pinned stream keeps running when the screen is left (it still stops when the app goes to the background).
+    var pinned = false
 
     // Display
     var timestamps = false
@@ -115,6 +119,12 @@ final class LogsModel: Identifiable {
     @ObservationIgnored private var lastCount = 0
     @ObservationIgnored private var token = 0
     @ObservationIgnored private var markerAdded = false
+    @ObservationIgnored private var syncedEpoch = -1
+    @ObservationIgnored private var isOnScreen = false
+    /// `load()` finished (or was cancelled) while the screen was gone or the app in the background: start on return.
+    @ObservationIgnored private var startDeferred = false
+    @ObservationIgnored private var syncedAppended = 0
+    @ObservationIgnored private var syncedDropped = 0
 
     /// `maxLines` and `fontSize` come from Settings (`AppPreferences.logMaxLines` / `logFontSize`).
     init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12) {
@@ -140,6 +150,7 @@ final class LogsModel: Identifiable {
         if let ns = pod.namespace {
             do {
                 let p = try await clusterSession.client.get(Pod.self, name: pod.name, namespace: ns)
+                nodeName = p.spec.nodeName
                 containers = (p.spec.initContainers + p.spec.containers).map(\.name)
                 if container == nil { container = p.metadata.annotations["kubectl.kubernetes.io/default-container"] ?? p.spec.containers.first?.name }
                 if let name = container {
@@ -155,8 +166,12 @@ final class LogsModel: Identifiable {
                 if case .notFound = e { stream.appendMarker("Pod no longer exists") }
             } catch {}
         }
+        // The user may have left (or the app backgrounded) while the pod was loading: never open a follow off-screen.
+        if Task.isCancelled || !mayStream { startDeferred = true; return }
         startStream()
     }
+
+    private var mayStream: Bool { (isOnScreen || pinned) && !SessionsHub.shared.isBackgrounded }
 
     private static func termination(from t: ContainerState.Terminated?) -> String? {
         guard let t else { return nil }
@@ -169,7 +184,7 @@ final class LogsModel: Identifiable {
         let targets: [String?] = allContainers ? containers.map { Optional($0) } : [container]
         var options = LogOptions(follow: !previous, previous: previous, timestamps: true, tailLines: tail.lines, sinceSeconds: since.seconds)
         options.container = container
-        stream.start(client: clusterSession.client, namespace: ns, pod: pod.name, containers: targets, options: options)
+        stream.start(client: clusterSession.client, namespace: ns, pod: pod.name, containers: targets, options: options, scope: pod.clusterID)
         visible = []; matchIDs = []; scannedUpTo = -1; lastCount = 0; currentMatch = nil; newLinesWhileAway = 0
     }
 
@@ -183,9 +198,34 @@ final class LogsModel: Identifiable {
 
     // MARK: Lifecycle
 
-    func appDidEnterBackground() { if stream.isLive { stream.stop(to: .paused) } }
+    /// Every connection is closed in the background (pinned or not); `appWillEnterForeground` brings it back.
+    func appDidEnterBackground() { stream.suspend(reason: .background) }
 
-    func appWillEnterForeground() { if stream.state == .paused { stream.resume() } }
+    func appWillEnterForeground() {
+        if stream.state == .paused, stream.pauseReason == .background { stream.resume() }
+        startDeferredIfPossible()
+    }
+
+    private func startDeferredIfPossible() {
+        guard startDeferred, mayStream else { return }
+        startDeferred = false
+        startStream()
+    }
+
+    /// Leaving the screen closes the follow connection (the kubelet holds an inotify watcher per follow) unless pinned.
+    func screenDidDisappear() {
+        isOnScreen = false
+        if !pinned { stream.suspend(reason: .screenLeft) }
+    }
+
+    func screenDidAppear() {
+        isOnScreen = true
+        if stream.state == .paused, stream.pauseReason == .screenLeft { stream.resume() }
+        startDeferredIfPossible()
+    }
+
+    /// True while new lines come from repeated non-follow requests because the node cannot stream.
+    var isPolling: Bool { stream.mode == .polling }
 
     // MARK: Settings
 
@@ -206,11 +246,22 @@ final class LogsModel: Identifiable {
 
     /// Called when `stream.revision` changes.
     func syncFromStream(force: Bool = false) {
-        let all = stream.buffer.lines
+        let buffer = stream.buffer
         if matchesOnly, let matcher {
-            visible = all.filter { $0.kind == .marker || matcher.matches($0.message) }
+            visible = buffer.lines.filter { $0.kind == .marker || matcher.matches($0.message) }
+            syncedEpoch = -1
         } else {
-            visible = Array(all)
+            // Incremental: drop what fell off the front of the ring, append what arrived. Rebuilding the array (50 000
+            // lines, several refcounted strings each) ten times a second was the main cost of a chatty log.
+            let appended = stream.appendedTotal - syncedAppended
+            let dropped = buffer.droppedCount - syncedDropped
+            if !force, syncedEpoch == stream.epoch, appended >= 0, dropped >= 0, dropped <= visible.count, appended <= buffer.count {
+                if dropped > 0 { visible.removeFirst(dropped) }
+                if appended > 0 { visible.append(contentsOf: buffer.lines.suffix(appended)) }
+            } else {
+                visible = Array(buffer.lines)
+            }
+            syncedEpoch = stream.epoch; syncedAppended = stream.appendedTotal; syncedDropped = buffer.droppedCount
         }
         if !follow, visible.count > lastCount { newLinesWhileAway += visible.count - lastCount }
         if follow { newLinesWhileAway = 0 }

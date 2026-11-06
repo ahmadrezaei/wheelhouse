@@ -32,6 +32,8 @@ public final class ClusterRegistry {
     @ObservationIgnored private let metadata: any ClusterMetadataStoring
     @ObservationIgnored private let clientFactory: ClientFactory
     @ObservationIgnored private let defaults: UserDefaults
+    /// True while the app is in the background (watches paused).
+    @ObservationIgnored private var isSuspended = false
 
     private static let allNamespaces = "*"
 
@@ -88,7 +90,11 @@ public final class ClusterRegistry {
         set { if let id = currentCluster?.id { setNamespace(newValue, for: id) } }
     }
 
-    public func select(_ id: ClusterID) { if clusters.contains(where: { $0.id == id }) { currentClusterID = id } }
+    public func select(_ id: ClusterID) {
+        guard clusters.contains(where: { $0.id == id }) else { return }
+        currentClusterID = id
+        if EnergyPolicy.current.suspendsHiddenWatches { applyEnergyPolicy() }
+    }
 
     // MARK: Sessions
 
@@ -132,14 +138,27 @@ public final class ClusterRegistry {
     /// Pauses all watches, e.g. when the app moves to the background. Screens stay registered and cached items remain;
     /// call ``resumeAllSessions()`` when the app becomes active again.
     public func stopAllSessions() {
+        isSuspended = true
         sessions.values.forEach { $0.pauseAll() }
         transientSessions.values.forEach { $0.session.pauseAll() }
     }
 
     /// Restarts the watches paused by ``stopAllSessions()`` for every screen that is still showing them.
+    /// Under thermal pressure only the current cluster's watches restart (see ``applyEnergyPolicy(_:)``).
     public func resumeAllSessions() {
-        sessions.values.forEach { $0.resumeAll() }
+        isSuspended = false
+        let policy = EnergyPolicy.current
+        for (id, s) in sessions where !(policy.suspendsHiddenWatches && id != currentClusterID) { s.resumeAll() }
         transientSessions.values.forEach { $0.session.resumeAll() }
+    }
+
+    /// Reacts to Low Power Mode / thermal changes: while the device is hot, watches of clusters other than the
+    /// current one are suspended; they restart when it cools down. No-op while the app is in the background.
+    public func applyEnergyPolicy(_ policy: EnergyPolicy = .current) {
+        guard !isSuspended else { return }
+        for (id, s) in sessions {
+            if policy.suspendsHiddenWatches && id != currentClusterID { s.pauseAll() } else { s.resumeAll() }
+        }
     }
 
     private func invalidateAllSessions() {

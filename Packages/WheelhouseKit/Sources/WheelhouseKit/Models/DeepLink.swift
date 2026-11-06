@@ -35,6 +35,13 @@ public struct DeepLink: Equatable, Sendable {
     public var previous = false
 
     public static let scheme = "wheelhouse"
+
+    /// `wheelhouse://import`: opens the kubeconfig import screen (posted by the Share extension's notification). Carries no
+    /// data: the kubeconfig itself travels through ``PendingKubeconfigStore``.
+    public static let importURL = URL(string: "wheelhouse://import")!
+    public static func isImport(_ url: URL) -> Bool {
+        url.scheme == scheme && url.host() == "import" && url.pathComponents.filter { $0 != "/" }.isEmpty
+    }
     /// Views an external URL may request.
     public static let allowedViews: Set<String> = ["logs", "yaml"]
 

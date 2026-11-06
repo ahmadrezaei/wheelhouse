@@ -11,7 +11,7 @@ final class NetworkMonitor {
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let offline = path.status != .satisfied
-            Task { @MainActor in self?.isOffline = offline }
+            Task { @MainActor in if self?.isOffline != offline { self?.isOffline = offline } }
         }
         monitor.start(queue: DispatchQueue(label: "app.wheelhouse.network"))
     }

@@ -14,6 +14,29 @@ public struct TLSFailureInfo: Sendable, Equatable {
     }
 }
 
+/// Non-secret facts about the last TLS exchange(s), for the copyable connection report.
+public struct TLSTrace: Sendable, Equatable {
+    public enum ServerTrust: String, Sendable { case notReached = "not reached", passed, failed }
+    public var serverTrust: ServerTrust = .notReached
+    /// The server sent a client-certificate challenge.
+    public var clientCertificateRequested = false
+    /// The cluster has no client identity configured (token auth): the challenge was declined.
+    public var noIdentityConfigured = false
+    public var identityPresented = false
+    /// nil = not run; "passed"; or the failure text.
+    public var signTest: String?
+    public var clientLeafSHA256: String?
+    public var clientLeafNotAfter: Date?
+    public var keyType: String?
+    public var keySizeBits: Int?
+    public var identityError: String?
+    /// `domain:code` pairs of the last transport error's underlying chain, outermost first.
+    public var errorChain: [String] = []
+    public var streamDomain: Int?
+    public var streamCode: Int?
+    public init() {}
+}
+
 /// Per-cluster `URLSession` delegate: custom CA anchors, skip-verify, client certificate identity.
 final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let anchors: [SecCertificate]
@@ -21,7 +44,7 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
     /// Auxiliary sessions (a user-supplied Prometheus URL): try the system trust store first, then the cluster CA.
     private let systemTrustFirst: Bool
     /// Resolved on the first client-certificate challenge (off the main thread, on the URLSession delegate queue).
-    private let identityProvider: (@Sendable () -> ClientIdentityBuilder.Result?)?
+    private let identityProvider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)?
     /// Name the server certificate must be valid for instead of the URL host (kubeconfig `tls-server-name`).
     private let serverName: String?
 
@@ -30,11 +53,33 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
         var byURL: [String: (info: TLSFailureInfo, at: Date)] = [:]
     }
     private let failures = Mutex(Failures())
+    private struct IdentityState {
+        /// Set only when a configured identity provider FAILED to produce an identity.
+        var failureText: String?
+        /// A client certificate was requested but this cluster has none (token auth). A hint, never a failure by itself:
+        /// kube-apiserver always sends a CertificateRequest.
+        var requestedWithoutIdentity = false
+        var signTestFailure: String?
+        var trace = TLSTrace()
+    }
+    private let identityState = Mutex(IdentityState())
+
+    /// Why the client identity could not be built, if a configured identity failed. Takes precedence over generic handshake text.
+    var identityFailure: String? { identityState.withLock { $0.failureText } }
+
+    /// Text to append to a 401: the build failure, else the (diagnostic-only) test-signature failure.
+    var identityNote: String? { identityState.withLock { $0.failureText ?? $0.signTestFailure.map { "Client key cannot sign: \($0)" } } }
+
+    /// The server asked for a client certificate and none is configured; only relevant to `.clientCertificateRequired` / -9863.
+    var clientCertificateMissing: Bool { identityState.withLock { $0.requestedWithoutIdentity } }
+
+    /// Snapshot for the diagnostics report.
+    var trace: TLSTrace { identityState.withLock { $0.trace } }
 
     /// The most recent rejection, cleared as soon as any later server trust evaluation succeeds.
     var lastFailure: TLSFailureInfo? { failures.withLock { $0.latest } }
 
-    init(anchors: [SecCertificate], insecure: Bool, serverName: String? = nil, systemTrustFirst: Bool = false, identityProvider: (@Sendable () -> ClientIdentityBuilder.Result?)? = nil) {
+    init(anchors: [SecCertificate], insecure: Bool, serverName: String? = nil, systemTrustFirst: Bool = false, identityProvider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = nil) {
         self.anchors = anchors
         self.insecure = insecure
         self.systemTrustFirst = systemTrustFirst
@@ -68,15 +113,49 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
         if method == NSURLAuthenticationMethodServerTrust, let trust = challenge.protectionSpace.serverTrust {
             return handleServerTrust(trust, host: challenge.protectionSpace.host, url: url)
         }
-        if method == NSURLAuthenticationMethodClientCertificate, let built = identityProvider?() {
+        if method == NSURLAuthenticationMethodClientCertificate { return handleClientCertificate() }
+        return (.performDefaultHandling, nil)
+    }
+
+    func handleClientCertificate() -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        identityState.withLock { $0.trace.clientCertificateRequested = true }
+        guard let provider = identityProvider else {
+            identityState.withLock { $0.requestedWithoutIdentity = true; $0.trace.noIdentityConfigured = true }
+            return (.performDefaultHandling, nil)
+        }
+        switch provider() {
+        case .success(let built):
+            identityState.withLock { state in
+                state.failureText = nil
+                state.requestedWithoutIdentity = false
+                // The sign test is diagnostic only; the identity is presented either way.
+                state.signTestFailure = built.signTestFailure
+                state.trace.identityPresented = true
+                state.trace.signTest = built.signTestRan ? (built.signTestFailure ?? "passed") : nil
+                state.trace.clientLeafSHA256 = built.leafSHA256
+                state.trace.clientLeafNotAfter = built.leafNotAfter
+                state.trace.keyType = built.keyType
+                state.trace.keySizeBits = built.keySizeBits
+                state.trace.identityError = nil
+            }
             let intermediates = built.certificates.dropFirst().map { $0 }
             return (.useCredential, URLCredential(identity: built.identity, certificates: intermediates.isEmpty ? nil : intermediates, persistence: .forSession))
+        case .failure(let error):
+            identityState.withLock { $0.failureText = error.diagnostic; $0.trace.identityError = error.diagnostic; $0.trace.identityPresented = false }
+            return (.performDefaultHandling, nil)
         }
-        return (.performDefaultHandling, nil)
+    }
+
+    /// Records the last transport error's chain for the report.
+    func recordTransportError(_ error: Error) {
+        let x = TLSDiagnostics.extract(from: error)
+        let chain = TLSDiagnostics.errorChain(from: error)
+        identityState.withLock { $0.trace.errorChain = chain; $0.trace.streamCode = x.streamCode; $0.trace.streamDomain = x.streamDomain }
     }
 
     func handleServerTrust(_ trust: SecTrust, host: String, url: URL? = nil) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         if insecure {
+            identityState.withLock { $0.trace.serverTrust = .passed }
             clearFailure(url)
             return (.useCredential, URLCredential(trust: trust))
         }
@@ -85,9 +164,11 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
             verdict = TLSValidator.evaluate(trust, host: serverName ?? host, anchors: anchors)
         }
         if verdict.trusted {
+            identityState.withLock { $0.trace.serverTrust = .passed }
             clearFailure(url)
             return (.useCredential, URLCredential(trust: trust))
         }
+        identityState.withLock { $0.trace.serverTrust = .failed }
         record(trust, message: verdict.message, url: url)
         return (.cancelAuthenticationChallenge, nil)
     }

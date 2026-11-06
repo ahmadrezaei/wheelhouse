@@ -60,7 +60,7 @@ public struct MetricChart: View {
     public var body: some View {
         Chart {
             ForEach(series) { s in
-                ForEach(s.points, id: \.time) { p in
+                ForEach(s.points.downsampled(), id: \.time) { p in
                     switch s.style {
                     case .area:
                         AreaMark(x: .value("Time", p.time), y: .value(s.name, p.value), series: .value("Series", s.id))

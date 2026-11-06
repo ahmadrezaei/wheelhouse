@@ -88,6 +88,7 @@ final class LogsContainerView: UIView, UITableViewDataSource, UITableViewDelegat
         let anchor = captureAnchor()
 
         let fontChanged = newSettings.fontSize != settings.fontSize
+        let old = lines
         lines = new
         settings = newSettings
         matcher = newMatcher
@@ -95,17 +96,49 @@ final class LogsContainerView: UIView, UITableViewDataSource, UITableViewDelegat
         if fontChanged || charWidth <= 0 {
             charWidth = ("M" as NSString).size(withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: settings.fontSize, weight: .regular)]).width
         }
-        recomputeWidth()
 
         let appendOnly = !settingsChanged && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0
+        // A full ring buffer drops lines at the front while new ones arrive at the back. Reloading the whole table for
+        // that (10 times a second on a chatty pod) is what used to burn CPU: delete the dropped rows and insert the new ones.
+        var frontDrop: Int?
+        if !appendOnly, !settingsChanged, wasFollowing, newFollow, oldCount > 0, let first = new.first?.id, first != oldFirst,
+           let k = old.firstIndex(where: { $0.id == first }), k > 0, oldCount - k <= new.count,
+           old[oldCount - 1].id == new[oldCount - k - 1].id {
+            frontDrop = k
+        }
+        if appendOnly || frontDrop != nil {
+            if settings.wrap { maxChars = 0 } else {
+                var m = maxChars
+                for l in new[(frontDrop.map { oldCount - $0 } ?? oldCount)...] { m = max(m, min(l.message.utf8.count, 4000)) }
+                maxChars = m
+            }
+        } else {
+            recomputeWidth()
+        }
+
         if appendOnly {
             if new.count > oldCount {
                 if table.window != nil {
+                    table.layoutIfNeeded()   // settle a pending reload before diffing (avoids NSInternalInconsistencyException)
                     let paths = (oldCount..<new.count).map { IndexPath(row: $0, section: 0) }
                     UIView.performWithoutAnimation { table.performBatchUpdates { table.insertRows(at: paths, with: .none) } }
                 } else {
                     table.reloadData()
                 }
+            }
+        } else if let k = frontDrop {
+            if table.window != nil {
+                table.layoutIfNeeded()
+                let removed = (0..<k).map { IndexPath(row: $0, section: 0) }
+                let inserted = (oldCount - k..<new.count).map { IndexPath(row: $0, section: 0) }
+                UIView.performWithoutAnimation {
+                    table.performBatchUpdates {
+                        table.deleteRows(at: removed, with: .none)
+                        table.insertRows(at: inserted, with: .none)
+                    }
+                }
+            } else {
+                table.reloadData()
             }
         } else {
             table.reloadData()

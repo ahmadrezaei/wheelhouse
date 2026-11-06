@@ -37,8 +37,6 @@ final class SessionsHub {
     /// Foreground/background transitions, consumed one at a time so pause and resume can never run out of order.
     @ObservationIgnored private let lifecycleEvents = AsyncStream<Bool>.makeStream(bufferingPolicy: .unbounded)
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
-    /// Maximum number of live followed log streams; the oldest is closed when a new one registers.
-    static let maxLiveLogStreams = 5
 
     private init() {
         let center = NotificationCenter.default
@@ -61,7 +59,8 @@ final class SessionsHub {
         }
         updatesTask = Task { [weak self] in
             for await snapshot in await manager.updates() {
-                self?.forwards = snapshot
+                // Equal snapshots must not invalidate every observing screen (the manager ticks while a forward is live).
+                if let self, self.forwards != snapshot { self.forwards = snapshot }
             }
         }
     }
@@ -147,11 +146,7 @@ final class SessionsHub {
     func register(_ logs: LogsModel) {
         guard !logModels.contains(where: { $0.id == logs.id }) else { return }
         logModels.append(logs)
-        // Every followed stream holds a connection and a buffer: keep at most `maxLiveLogStreams`, closing the oldest.
-        while logModels.filter(\.isLive).count > Self.maxLiveLogStreams,
-              let oldest = logModels.first(where: { $0.isLive && $0.id != logs.id }) {
-            close(oldest)
-        }
+        // Follow connections are capped globally by `LogFollowRegistry` (older streams are suspended, never evicted).
     }
 
     func close(_ logs: LogsModel) {

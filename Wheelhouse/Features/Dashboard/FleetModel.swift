@@ -67,9 +67,14 @@ final class FleetModel {
     /// Refreshes now and then every `interval` seconds (`AppPreferences.refreshInterval`; 0 = manual, refresh once).
     func run(registry: ClusterRegistry, interval: Int) async {
         while !Task.isCancelled {
+            // A restart (energy policy changed, screen re-entered) must not refresh again right away: wait out the interval.
+            if interval > 0, let last = lastRefresh {
+                let remaining = EnergyPolicy.current.interval(Double(interval)) - Date().timeIntervalSince(last)
+                if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)); if Task.isCancelled { return } }
+            }
             await refresh(registry: registry)
             guard interval > 0 else { return }
-            try? await Task.sleep(for: .seconds(interval))
+            try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(Double(interval))))
         }
     }
 

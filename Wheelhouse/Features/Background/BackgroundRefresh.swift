@@ -32,7 +32,7 @@ enum BackgroundRefresh {
 
     static func schedule(earliest interval: TimeInterval = 15 * 60) {
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: interval)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: EnergyPolicy.current.interval(interval))
         Task { try? await BGTaskScheduler.shared.submitTaskRequest(request) }
     }
 

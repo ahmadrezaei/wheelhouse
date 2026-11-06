@@ -40,20 +40,76 @@ public enum LogTimestamp {
     }
 }
 
-/// A live (or finished) log tail backed by `client.logs`, with a bounded ring buffer, 10 Hz batching,
-/// automatic reconnect on transient errors and optional merge of several containers.
+/// Why a stream is paused (no connection open) rather than finished.
+public enum LogPauseReason: Sendable, Equatable {
+    /// The app moved to the background; resumes when it returns.
+    case background
+    /// The user left the screen without pinning the stream; resumes when the screen is shown again.
+    case screenLeft
+    /// Another stream took over this pod/container, or the global follow cap was hit. Only the user resumes it.
+    case preempted
+}
+
+/// Global bookkeeping of open `follow=true` log requests. Every follow makes the kubelet create an inotify watcher on
+/// the node, a scarce resource, so the app keeps (a) at most ONE follow per pod/container and (b) at most
+/// `maxConcurrentFollows` in total, closing the older stream first.
+@MainActor
+public final class LogFollowRegistry {
+    public static let shared = LogFollowRegistry()
+    public var maxConcurrentFollows = 6
+
+    private struct Entry { weak var stream: LogStream?; var keys: Set<String>; var since: Date }
+    private var entries: [ObjectIdentifier: Entry] = [:]
+
+    /// Number of follow requests currently held.
+    public var activeFollowCount: Int { entries.values.reduce(0) { $0 + ($1.stream == nil ? 0 : $1.keys.count) } }
+
+    /// Registers `keys` for `stream`, first closing every other stream that follows the same pod/container and then the
+    /// oldest ones while the global cap is exceeded. Old connections are cancelled before the new one is opened.
+    func claim(_ stream: LogStream, keys: Set<String>) {
+        let id = ObjectIdentifier(stream)
+        entries[id] = nil
+        for (otherID, e) in entries where !e.keys.isDisjoint(with: keys) {
+            entries[otherID] = nil
+            e.stream?.suspend(reason: .preempted, note: "Stopped: another view started following this container")
+        }
+        entries = entries.filter { $0.value.stream != nil }
+        while activeFollowCount + keys.count > maxConcurrentFollows, let oldest = entries.min(by: { $0.value.since < $1.value.since }) {
+            entries[oldest.key] = nil
+            oldest.value.stream?.suspend(reason: .preempted, note: "Stopped: too many live log streams (limit \(maxConcurrentFollows))")
+        }
+        entries[id] = Entry(stream: stream, keys: keys, since: Date())
+    }
+
+    func release(_ stream: LogStream) { entries[ObjectIdentifier(stream)] = nil }
+}
+
+/// A live (or finished) log tail backed by `client.logs`, with a bounded ring buffer, batched UI updates,
+/// exponential-backoff reconnects, and a polling fallback when the node cannot stream (inotify exhausted).
 @MainActor @Observable
 public final class LogStream {
     public enum State: Equatable, Sendable {
         case idle, connecting, streaming
         /// The server ended the stream (container exited or a non-follow request completed).
         case finished
-        /// Stopped because the app went to the background.
+        /// No connection is open; see ``pauseReason``.
         case paused
         case failed(KubeError)
     }
 
+    /// How new lines arrive.
+    public enum Mode: Equatable, Sendable {
+        /// One `follow=true` request per container.
+        case follow
+        /// Repeated non-follow requests (`sinceTime=…`): used when the node cannot create log watchers.
+        case polling
+    }
+
     public private(set) var state: State = .idle
+    public private(set) var mode: Mode = .follow
+    public private(set) var pauseReason: LogPauseReason?
+    /// Set when the node reported that it cannot stream logs; the stream then runs in ``Mode/polling``.
+    public private(set) var problem: LogStreamProblem?
     /// Bumped whenever `buffer` changed; observe this to refresh views.
     public private(set) var revision = 0
     @ObservationIgnored public private(set) var buffer: LogRingBuffer
@@ -61,19 +117,33 @@ public final class LogStream {
     public private(set) var droppedCount = 0
     /// Number of lines dropped by the last flush (views use it to adjust their scroll position).
     @ObservationIgnored public private(set) var lastFlushDropped = 0
+    /// Lines ever appended to `buffer` and ever dropped from it; views use the deltas to update incrementally.
+    @ObservationIgnored public private(set) var appendedTotal = 0
+    /// Bumped by ``clear()``; deltas are only meaningful within one epoch.
+    @ObservationIgnored public private(set) var epoch = 0
+    /// Seconds between polls in polling mode (before the energy policy is applied).
+    @ObservationIgnored public var pollInterval: TimeInterval = 4
 
     @ObservationIgnored private var nextID = 0
+    @ObservationIgnored private var lastBatchCount = 0
     @ObservationIgnored private var pending: [LogLine] = []
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    @ObservationIgnored private var reconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var lastStamp: [String: Double] = [:]
+    @ObservationIgnored private var dedupers: [String: LogPollDeduper] = [:]
+    @ObservationIgnored private var recent: [String: [String]] = [:]
     @ObservationIgnored private var lastWallClock: Date?
+    @ObservationIgnored private var connectedAt: Date?
+    @ObservationIgnored private var backoff = LogReconnectBackoff()
     @ObservationIgnored private var config: Config?
     @ObservationIgnored private var openStreams = 0
 
     private struct Config {
         var client: any KubeClientProtocol
+        var scope: String
         var namespace: String
         var pod: String
         var containers: [String?]
@@ -82,20 +152,40 @@ public final class LogStream {
 
     public init(capacity: Int = 20_000) { buffer = LogRingBuffer(capacity: capacity) }
 
+    isolated deinit {
+        for t in tasks { t.cancel() }
+        reconnectTask?.cancel(); pollTask?.cancel(); flushTask?.cancel()
+        LogFollowRegistry.shared.release(self)
+    }
+
     public var capacity: Int { buffer.capacity }
     public var count: Int { buffer.count }
     public var isLive: Bool { state == .streaming || state == .connecting }
+    /// Open `follow=true` connections right now (0 while paused, finished or polling).
+    public var openFollowCount: Int { mode == .follow && isLive ? max(openStreams, state == .connecting ? 1 : 0) : 0 }
 
     // MARK: Control
 
     /// Starts reading. Pass several `containers` to merge their output (each line gets a `source`).
-    public func start(client: any KubeClientProtocol, namespace: String, pod: String, containers: [String?], options: LogOptions) {
+    /// `scope` identifies the cluster, so two clusters with the same pod name never count as one.
+    public func start(client: any KubeClientProtocol, namespace: String, pod: String, containers: [String?], options: LogOptions, scope: String = "") {
         stop(to: .idle)
         var opts = options
         opts.timestamps = true // always request; the UI hides them on demand
-        config = Config(client: client, namespace: namespace, pod: pod, containers: containers.isEmpty ? [nil] : containers, options: opts)
+        var targets = containers.isEmpty ? [nil] : containers
+        let cap = LogFollowRegistry.shared.maxConcurrentFollows
+        let clamped = opts.follow && targets.count > cap
+        if clamped { targets = Array(targets.prefix(cap)) }
+        config = Config(client: client, scope: scope, namespace: namespace, pod: pod, containers: targets, options: opts)
         lastStamp = [:]
+        dedupers = [:]
+        recent = [:]
+        problem = nil
+        mode = .follow
+        backoff.reset()
+        pauseReason = nil
         clear()
+        if clamped { appendMarker("Showing first \(cap) containers (live stream limit)") }
         connect(reconnecting: false)
     }
 
@@ -104,16 +194,30 @@ public final class LogStream {
         generation += 1
         for t in tasks { t.cancel() }
         tasks.removeAll()
+        reconnectTask?.cancel(); reconnectTask = nil
+        pollTask?.cancel(); pollTask = nil
         flushTask?.cancel(); flushTask = nil
         flush()
         openStreams = 0
+        LogFollowRegistry.shared.release(self)
+        if newState != .paused { pauseReason = nil }
         if state != .finished { state = newState }
+    }
+
+    /// Closes the connection and remembers why, so the right trigger can bring it back.
+    public func suspend(reason: LogPauseReason, note: String? = nil) {
+        guard isLive else { return }
+        stop(to: .paused)
+        pauseReason = reason
+        if let note { appendMarker(note) }
     }
 
     /// Re-opens a paused or ended stream, deduplicating against what was already received.
     public func resume() {
         guard config != nil else { return }
         stop(to: .idle)
+        pauseReason = nil
+        backoff.reset()
         connect(reconnecting: true)
     }
 
@@ -122,6 +226,8 @@ public final class LogStream {
         pending.removeAll()
         droppedCount = 0
         lastFlushDropped = 0
+        appendedTotal = 0
+        epoch += 1
         revision += 1
     }
 
@@ -141,10 +247,16 @@ public final class LogStream {
         let gen = generation
         state = .connecting
         if reconnecting {
-            appendMarker("Stream reconnected")
+            appendMarker(mode == .polling ? "Polling resumed" : "Stream reconnected")
             cfg.options.tailLines = nil
             if let last = lastWallClock { cfg.options.sinceSeconds = max(2, Int(Date().timeIntervalSince(last).rounded(.up)) + 2) }
         }
+        if mode == .polling { startPolling(); return }
+        // One follow request per pod/container: whoever else follows the same one is closed before we connect.
+        if cfg.options.follow {
+            LogFollowRegistry.shared.claim(self, keys: Set(cfg.containers.map { "\(cfg.scope)/\(cfg.namespace)/\(cfg.pod)/\($0 ?? "")" }))
+        }
+        connectedAt = Date()
         let multi = cfg.containers.count > 1
         openStreams = cfg.containers.count
         for container in cfg.containers {
@@ -165,63 +277,177 @@ public final class LogStream {
                             if let ts = line.timestamp.flatMap(LogTimestamp.parse), ts <= limit { continue }
                             skip = nil
                         }
-                        self.ingest(line, key: key)
+                        self.ingest(line, raw: raw, key: key)
                     }
-                    self?.streamEnded(gen: gen, error: nil)
+                    // A cancelled task (sibling failed, stop, suspend) must not report the stream as finished.
+                    guard !Task.isCancelled else { return }
+                    self?.streamEnded(gen: gen, key: key, error: nil)
                 } catch {
-                    self?.streamEnded(gen: gen, error: (error as? KubeError) ?? .unreachable(cause: error.localizedDescription))
+                    guard !Task.isCancelled else { return }
+                    self?.streamEnded(gen: gen, key: key, error: (error as? KubeError) ?? .unreachable(cause: error.localizedDescription))
                 }
             })
         }
     }
 
-    private func ingest(_ line: LogLine, key: String) {
+    private func ingest(_ line: LogLine, raw: String, key: String) {
         var l = line
         l.id = takeID()
         if let ts = l.timestamp.flatMap(LogTimestamp.parse) { lastStamp[key] = max(lastStamp[key] ?? 0, ts) }
+        dedupers[key, default: LogPollDeduper()].accept(raw)
+        var tail = recent[key, default: []]
+        tail.append(raw)
+        if tail.count > 3 { tail.removeFirst(tail.count - 3) }
+        recent[key] = tail
         lastWallClock = Date()
-        reconnectAttempts = 0
         pending.append(l)
         totalReceived += 1
         scheduleFlush()
     }
 
-    private func streamEnded(gen: Int, error: KubeError?) {
+    private func streamEnded(gen: Int, key: String, error: KubeError?) {
         guard gen == generation else { return }
         openStreams = max(0, openStreams - 1)
+        let follow = config?.options.follow == true
+        // The kubelet's "failed to create fsnotify watcher" arrives as the last line (or as the error body): the node
+        // cannot follow logs. Reconnecting would only create more pressure; switch to polling instead.
+        if follow, mode == .follow, let problem = LogStreamProblem.detect(error: error) ?? LogStreamProblem.detect(lines: recent[key] ?? []) {
+            enterPolling(problem)
+            return
+        }
         if let error, error != .cancelled {
-            if error.isTransient, let cfg = config, cfg.options.follow, reconnectAttempts < 5 {
-                reconnectAttempts += 1
-                let attempt = reconnectAttempts
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(min(Double(attempt) * 1.5, 10)))
-                    guard let self, self.generation == gen else { return }
+            if error.isTransient, follow, let base = backoff.nextDelay(afterRunning: Date().timeIntervalSince(connectedAt ?? Date())) {
+                let delay = base * Double.random(in: 0.8...1.2)
+                generation += 1                      // sibling containers' cancelled loops must be ignored
+                let waitGen = generation
+                for t in tasks { t.cancel() }
+                tasks.removeAll()
+                openStreams = 0
+                LogFollowRegistry.shared.release(self)   // no connection is open while we wait
+                state = .connecting
+                reconnectTask?.cancel()
+                reconnectTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled, let self, self.generation == waitGen else { return }
+                    self.reconnectTask = nil
                     self.stop(to: .idle)
                     self.connect(reconnecting: true)
                 }
                 return
             }
+            generation += 1
             for t in tasks { t.cancel() }
             tasks.removeAll()
             flush()
+            LogFollowRegistry.shared.release(self)
             state = .failed(error)
             return
         }
-        reconnectAttempts = 0
         if openStreams == 0 {
             flush()
+            LogFollowRegistry.shared.release(self)
             state = .finished
         }
     }
-    @ObservationIgnored private var reconnectAttempts = 0
+
+    // MARK: Polling fallback
+
+    private func enterPolling(_ found: LogStreamProblem) {
+        problem = found
+        mode = .polling
+        generation += 1
+        for t in tasks { t.cancel() }
+        tasks.removeAll()
+        openStreams = 0
+        LogFollowRegistry.shared.release(self)
+        appendMarker("Live streaming unavailable on this node, polling for new lines")
+        flush()
+        startPolling()
+    }
+
+    private func startPolling() {
+        guard let cfg = config else { return }
+        generation += 1
+        let gen = generation
+        state = .streaming
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.generation == gen else { return }
+                let failure = await self.pollOnce(cfg, gen: gen)
+                guard !Task.isCancelled, self.generation == gen else { return }
+                if let failure, !failure.isTransient {
+                    // 403 / 404 and the like will not fix themselves: stop instead of polling forever.
+                    self.generation += 1
+                    self.flush()
+                    self.pollTask = nil
+                    self.state = .failed(failure)
+                    return
+                }
+                failures = failure == nil ? 0 : failures + 1
+                let base = failure == nil ? self.pollInterval : Swift.min(30, self.pollInterval * pow(2, Double(failures)))
+                try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(base)))
+            }
+        }
+    }
+
+    /// One non-follow request per container, de-duplicated against what was already shown. Returns the first error, if any.
+    /// A container is polled with `sinceTime` once a timestamp is known; until then with the original tail/since options
+    /// (never with an unbounded request, which would download the whole log every few seconds).
+    private func pollOnce(_ cfg: Config, gen: Int) async -> KubeError? {
+        let multi = cfg.containers.count > 1
+        var failure: KubeError?
+        for container in cfg.containers {
+            let key = container ?? ""
+            var o = cfg.options
+            o.follow = false
+            o.container = container
+            if let since = dedupers[key]?.lastRawStamp { o.sinceTime = since; o.sinceSeconds = nil; o.tailLines = nil }
+            var lines: [String] = []
+            do {
+                for try await raw in cfg.client.logs(namespace: cfg.namespace, pod: cfg.pod, options: o) { lines.append(raw) }
+            } catch {
+                let e = (error as? KubeError) ?? .unreachable(cause: error.localizedDescription)
+                if e != .cancelled { failure = failure ?? e }
+                continue
+            }
+            guard generation == gen, !Task.isCancelled else { return nil }
+            let fresh = dedupers[key, default: LogPollDeduper()].accept(lines)
+            for raw in fresh {
+                var l = LogParser.parse(id: 0, raw: raw, source: multi ? container : nil)
+                l.id = takeID()
+                if let ts = l.timestamp.flatMap(LogTimestamp.parse) { lastStamp[key] = max(lastStamp[key] ?? 0, ts) }
+                pending.append(l)
+                totalReceived += 1
+            }
+            if !fresh.isEmpty { lastWallClock = Date(); scheduleFlush() }
+        }
+        return failure
+    }
+
+    // MARK: Flushing
 
     private func scheduleFlush() {
         guard flushTask == nil else { return }
         flushTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
+            // 100 ms normally; slower in Low Power Mode / when the device is hot, and slower again for a firehose:
+            // nobody reads 200 lines a second, but every table update costs a fixed amount.
+            let rate = Self.adaptiveInterval(lastBatch: self?.lastBatchCount ?? 0)
+            let seconds = Swift.max(EnergyPolicy.current.publishInterval, rate)
+            try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
             guard !Task.isCancelled else { return }
             self?.flushTask = nil
             self?.flush()
+        }
+    }
+
+    /// Publish interval for a given size of the previous batch (lines per flush).
+    nonisolated static func adaptiveInterval(lastBatch: Int) -> TimeInterval {
+        switch lastBatch {
+        case 0..<30: 0.1
+        case 30..<100: 0.25
+        default: 0.5
         }
     }
 
@@ -235,7 +461,9 @@ public final class LogStream {
                 return x == y ? a.id < b.id : x < y
             }
         }
+        lastBatchCount = batch.count
         lastFlushDropped = buffer.append(contentsOf: batch)
+        appendedTotal += batch.count
         droppedCount = buffer.droppedCount
         revision += 1
     }

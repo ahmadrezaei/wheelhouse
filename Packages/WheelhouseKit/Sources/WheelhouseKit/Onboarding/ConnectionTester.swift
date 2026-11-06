@@ -13,6 +13,8 @@ public struct ConnectionTestResult: Sendable, Equatable {
     public var nodeCount: Int?
     public var capabilities: [Capability] = []
     public var error: KubeError?
+    /// Non-secret TLS facts for the copyable report (live clients only).
+    public var trace: TLSTrace?
     /// The version call succeeded (credentials accepted by the API server).
     public var reachable: Bool { version != nil }
     public var succeeded: Bool { error == nil && version != nil }
@@ -55,9 +57,11 @@ public enum ConnectionTester {
             result.version = v.gitVersion
         } catch let e as KubeError {
             result.error = e
+            result.trace = (client as? LiveKubeClient)?.tlsTrace
             return result
         } catch {
             result.error = .unreachable(cause: error.localizedDescription)
+            result.trace = (client as? LiveKubeClient)?.tlsTrace
             return result
         }
         // Capabilities and node count in parallel; failures here are not fatal.

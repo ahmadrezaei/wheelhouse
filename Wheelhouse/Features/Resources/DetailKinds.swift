@@ -70,10 +70,11 @@ struct PodSections: View {
     private func pollUsage() async {
         let client = ctx.session.client, ns = ctx.namespace, name = ctx.ref.name
         while !Task.isCancelled {
-            if let list = try? await client.podMetrics(namespace: ns), let m = list.first(where: { $0.metadata.name == name }) {
+            if EnergyPolicy.current.allowsLiveSampling || usage == nil,
+               let list = try? await client.podMetrics(namespace: ns), let m = list.first(where: { $0.metadata.name == name }) {
                 usage = PodUsageSample(cpuCores: m.cpuCores, memoryBytes: m.memoryBytes)
             }
-            try? await Task.sleep(for: .seconds(15))
+            try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(15)))
         }
     }
 }
@@ -478,10 +479,11 @@ struct NodeSections: View {
         }
         .task {
             while !Task.isCancelled {
-                if let list = try? await ctx.session.client.nodeMetrics(), let m = list.first(where: { $0.metadata.name == ctx.ref.name }) {
+                if EnergyPolicy.current.allowsLiveSampling || usage == nil,
+                   let list = try? await ctx.session.client.nodeMetrics(), let m = list.first(where: { $0.metadata.name == ctx.ref.name }) {
                     usage = PodUsageSample(cpuCores: m.cpuCores, memoryBytes: m.memoryBytes)
                 }
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(15)))
             }
         }
     }

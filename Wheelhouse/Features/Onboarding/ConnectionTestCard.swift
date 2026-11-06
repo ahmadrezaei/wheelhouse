@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WheelhouseKit
 import WheelhouseUI
 
@@ -12,7 +13,13 @@ enum ConnectionTestState: Equatable {
 struct ConnectionTestCard: View {
     let state: ConnectionTestState
     let isLocalhost: Bool
+    /// Host, port and auth kind for the copyable diagnostics report (never secrets).
+    var target: Target? = nil
     var onRun: () -> Void
+
+    struct Target: Equatable { var host: String; var port: Int?; var authKind: String }
+
+    @State private var copied = false
 
     var body: some View {
         Group {
@@ -23,7 +30,7 @@ struct ConnectionTestCard: View {
                 HStack { ProgressView(); Text("Testing connection…").foregroundStyle(.secondary) }
                     .accessibilityElement(children: .combine)
             case .done(let r):
-                if let error = r.error { failure(error) } else { success(r) }
+                if let error = r.error { failure(error, trace: r.trace) } else { success(r) }
                 Button(action: onRun) { Label("Re-run test", systemImage: "arrow.clockwise") }
             }
         }
@@ -53,7 +60,7 @@ struct ConnectionTestCard: View {
         }
     }
 
-    @ViewBuilder private func failure(_ error: KubeError) -> some View {
+    @ViewBuilder private func failure(_ error: KubeError, trace: TLSTrace?) -> some View {
         let info = Self.explain(error, isLocalhost: isLocalhost)
         VStack(alignment: .leading, spacing: Spacing.s) {
             Label(info.title, systemImage: info.symbol).font(.body.weight(.semibold)).foregroundStyle(Palette.criticalText)
@@ -61,6 +68,18 @@ struct ConnectionTestCard: View {
             if let detail = info.detail { Text(detail).font(.whCodeSmall).textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.code)) }
         }
         .accessibilityElement(children: .combine)
+        Button {
+            UIPasteboard.general.string = Self.diagnosticsReport(for: error, target: target, trace: trace)
+            copied = true
+        } label: { Label(copied ? "Copied" : "Copy diagnostics", systemImage: copied ? "checkmark" : "doc.on.doc") }
+    }
+
+    static func diagnosticsReport(for error: KubeError, target: Target?, trace: TLSTrace? = nil, info: Bundle = .main, os: String = UIDevice.current.systemVersion) -> String {
+        ConnectionDiagnosticsReport.make(
+            host: target?.host ?? "unknown", port: target?.port, authKind: target?.authKind ?? "unknown", error: error, trace: trace,
+            osVersion: os,
+            appVersion: info.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
+            build: info.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")
     }
 
     struct Explanation { var title: String; var message: String; var detail: String?; var symbol: String }
@@ -71,8 +90,11 @@ struct ConnectionTestCard: View {
             Explanation(title: "Certificate not trusted",
                         message: "The server’s certificate could not be verified. Paste or import the cluster’s CA certificate. For a non-production cluster you can also skip verification (not recommended).",
                         detail: summary, symbol: "checkmark.seal")
+        case .tlsHandshake:
+            Explanation(title: "TLS handshake failed", message: error.summary,
+                        detail: "Use Copy diagnostics to share the details.", symbol: "lock.trianglebadge.exclamationmark")
         case .unauthorized:
-            Explanation(title: "Credentials rejected (401)", message: "The server reached us but did not accept this token or certificate. It may have expired, been revoked, or belong to another cluster.", detail: nil, symbol: "key.slash")
+            Explanation(title: "Credentials rejected (401)", message: "The server reached us but did not accept this token or certificate. It may have expired, been revoked, or belong to another cluster.", detail: error.identityNote, symbol: "key.slash")
         case .forbidden(_, _, _, let m):
             Explanation(title: "Access denied (403)", message: "The credentials are valid but may not read cluster information.", detail: m, symbol: "hand.raised")
         case .unreachable(let cause):

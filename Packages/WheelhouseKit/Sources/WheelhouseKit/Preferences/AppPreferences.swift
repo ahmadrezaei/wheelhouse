@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum AppGroup {
-    public static let identifier = "group.app.wheelhouse"
+    public static let identifier = "group.com.ahmadrezaei.wheelhouse"
     /// Shared container, falling back to Application Support when the entitlement is unavailable (previews, tests, unsigned simulator builds).
     public static var containerURL: URL {
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) { return url }

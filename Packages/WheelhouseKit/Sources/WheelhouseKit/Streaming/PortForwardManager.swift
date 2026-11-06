@@ -80,7 +80,7 @@ public actor PortForwardManager {
         if anyLive, tickTask == nil {
             tickTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(500))
+                    try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(1)))
                     await self?.tick()
                 }
             }
@@ -346,6 +346,7 @@ enum ForwardPump {
         let sentOutgoing = Mutex(false)
         let gotIncoming = Mutex(false)
         let errorText = Mutex<String?>(nil)
+        let transportError = Mutex<Error?>(nil)
         let outgoing = PortForwardDemux(port: port)
 
         await withTaskCancellationHandler {
@@ -372,7 +373,7 @@ enum ForwardPump {
                                 return true
                             case .none: break
                             }
-                        } catch { return true }
+                        } catch { transportError.withLock { $0 = error }; return true }
                     }
                     return true
                 }
@@ -414,6 +415,10 @@ enum ForwardPump {
         ws.close()
         if !gotIncoming.withLock({ $0 }), let tls = ws.tlsFailure() {
             return .failed("The cluster’s certificate is not trusted (\(tls.summary)).")
+        }
+        if !gotIncoming.withLock({ $0 }), !sentOutgoing.withLock({ $0 }), let err = transportError.withLock({ $0 }) as? URLError,
+           case let mapped = ExecSession.map(err, ws), case .tlsHandshake = mapped {
+            return .failed(mapped.summary)
         }
         if let text = errorText.withLock({ $0 }), !text.isEmpty {
             // Only safe to retry on a fresh tunnel while none of the client's bytes were consumed by this one.

@@ -214,7 +214,8 @@ struct AddClusterView: View {
 
     private var testSection: some View {
         Section("Connection") {
-            ConnectionTestCard(state: test, isLocalhost: draft.serverIsLocalhost) { Task { await runTest() } }
+            ConnectionTestCard(state: test, isLocalhost: draft.serverIsLocalhost,
+                               target: draft.makeConfig().map { .init(host: $0.host, port: $0.server.port, authKind: $0.authKind.rawValue) }) { Task { await runTest() } }
                 .disabled(!draft.isValid)
             if !draft.isValid && test == .idle { Text("Fill in the name, server URL and token to test the connection.").font(.footnote).foregroundStyle(.secondary) }
         }

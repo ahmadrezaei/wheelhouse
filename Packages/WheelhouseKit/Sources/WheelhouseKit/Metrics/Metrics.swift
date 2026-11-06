@@ -86,11 +86,14 @@ public struct PrometheusClient: Sendable {
     public let endpoint: PrometheusEndpoint
     private let kube: any KubeClientProtocol
     private let session: URLSession
+    /// Refuse cleartext `http://` for a direct URL (set for production clusters; the bearer token would travel unencrypted).
+    private let requireHTTPS: Bool
 
-    public init(endpoint: PrometheusEndpoint, kube: any KubeClientProtocol, session: URLSession = .shared) {
+    public init(endpoint: PrometheusEndpoint, kube: any KubeClientProtocol, session: URLSession = .shared, requireHTTPS: Bool = false) {
         self.endpoint = endpoint
         self.kube = kube
         self.session = session
+        self.requireHTTPS = requireHTTPS
     }
 
     private func get(path: String, query: [String: String]) async throws -> Data {
@@ -101,6 +104,9 @@ public struct PrometheusClient: Sendable {
             guard var comps = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false) else { throw KubeError.unreachable(cause: "Invalid Prometheus URL") }
             comps.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
             guard let url = comps.url else { throw KubeError.unreachable(cause: "Invalid Prometheus URL") }
+            if requireHTTPS, url.scheme?.lowercased() != "https" {
+                throw KubeError.unreachable(cause: "Plain HTTP is not allowed for production clusters. Use an https:// Prometheus URL.")
+            }
             var request = URLRequest(url: url, timeoutInterval: 20)
             if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             do {
@@ -207,6 +213,28 @@ public struct MetricsService: Sendable {
     public func prometheus(_ endpoint: PrometheusEndpoint) -> PrometheusClient {
         // A direct URL must honour the cluster's CA / skip-verify settings, not just the system trust store.
         let session = (client as? LiveKubeClient)?.auxiliarySession() ?? .shared
-        return PrometheusClient(endpoint: endpoint, kube: client, session: session)
+        return PrometheusClient(endpoint: endpoint, kube: client, session: session, requireHTTPS: (client as? LiveKubeClient)?.config.isProduction ?? false)
+    }
+}
+
+extension Array where Element == MetricPoint {
+    /// At most `limit` points: buckets are averaged (time and value) and the last point is kept exactly, so a chart with
+    /// thousands of samples renders as many marks as the screen can show (a phone is ~400 px wide).
+    public func downsampled(to limit: Int = 160) -> [MetricPoint] {
+        guard limit >= 2, count > limit else { return self }
+        let bucketSize = Double(count - 1) / Double(limit - 1)
+        var out: [MetricPoint] = []
+        out.reserveCapacity(limit)
+        var start = 0
+        for b in 0..<(limit - 1) {
+            let end = Swift.min(count - 1, Swift.max(start + 1, Int((Double(b + 1) * bucketSize).rounded(.down))))
+            let slice = self[start..<end]
+            let t = slice.map { $0.time.timeIntervalSinceReferenceDate }.reduce(0, +) / Double(slice.count)
+            let v = slice.map(\.value).reduce(0, +) / Double(slice.count)
+            out.append(MetricPoint(time: Date(timeIntervalSinceReferenceDate: t), value: v))
+            start = end
+        }
+        out.append(self[count - 1])
+        return out
     }
 }

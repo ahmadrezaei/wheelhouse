@@ -82,7 +82,8 @@ struct SessionsView: View {
                 Spacer()
                 ForwardStatePill(state: f.state)
             }
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            // Uptime only needs coarse updates; a 1 Hz timeline re-renders the row (and keeps the display link busy) all the time.
+            TimelineView(.periodic(from: .now, by: EnergyPolicy.current.isConstrained ? 30 : 10)) { ctx in
                 let uptime = Format.age(from: f.startedAt, now: f.endedAt ?? ctx.date)
                 Text("\(f.clusterName) · ↓ \(SessionsHub.bytes(f.bytesDown)) ↑ \(SessionsHub.bytes(f.bytesUp)) · up \(uptime) · \(f.openConnections) open")
                     .font(.footnote).foregroundStyle(.secondary).lineLimit(2)

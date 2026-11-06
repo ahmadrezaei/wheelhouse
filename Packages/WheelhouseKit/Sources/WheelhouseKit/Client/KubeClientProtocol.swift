@@ -100,8 +100,11 @@ public struct LogOptions: Hashable, Sendable {
     public var tailLines: Int?
     public var sinceSeconds: Int?
     public var limitBytes: Int?
+    /// RFC 3339 timestamp; only lines at or after it (used by the non-follow polling fallback). Exclusive with `sinceSeconds`.
+    public var sinceTime: String?
     public init(container: String? = nil, follow: Bool = false, previous: Bool = false, timestamps: Bool = false,
-                tailLines: Int? = 500, sinceSeconds: Int? = nil, limitBytes: Int? = nil) {
+                tailLines: Int? = 500, sinceSeconds: Int? = nil, limitBytes: Int? = nil, sinceTime: String? = nil) {
+        self.sinceTime = sinceTime
         self.container = container
         self.follow = follow
         self.previous = previous
@@ -133,9 +136,15 @@ public final class KubeWebSocket: @unchecked Sendable {
     /// The certificate rejection (if any) recorded for this socket's upgrade request, so callers can report
     /// "untrusted certificate" instead of a bare cancellation.
     public let tlsFailure: @Sendable () -> TLSFailureInfo?
+    /// Why the client certificate could not be presented, if the server asked for one.
+    public let identityFailure: @Sendable () -> String?
+    /// The server asked for a client certificate and the cluster has none configured.
+    public let clientCertificateMissing: @Sendable () -> Bool
     private let keepAlive = Mutex<Task<Void, Never>?>(nil)
 
-    public init(task: URLSessionWebSocketTask, offeredProtocols: [String], tlsFailure: @escaping @Sendable () -> TLSFailureInfo? = { nil }) {
+    public init(task: URLSessionWebSocketTask, offeredProtocols: [String], tlsFailure: @escaping @Sendable () -> TLSFailureInfo? = { nil }, identityFailure: @escaping @Sendable () -> String? = { nil }, clientCertificateMissing: @escaping @Sendable () -> Bool = { false }) {
+        self.identityFailure = identityFailure
+        self.clientCertificateMissing = clientCertificateMissing
         self.task = task
         self.offeredProtocols = offeredProtocols
         self.tlsFailure = tlsFailure

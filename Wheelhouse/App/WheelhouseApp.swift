@@ -27,6 +27,16 @@ struct WheelhouseApp: App {
         // The delegate must exist before launch finishes, or a notification tap that cold-starts the app is lost.
         UNUserNotificationCenter.current().delegate = NotificationCoordinator.shared
         BackgroundRefresh.register()
+        #if DEBUG
+        // Simulator hook: `-WHPendingKubeconfig <path>` writes a pending kubeconfig exactly as the Share extension does.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-WHPendingKubeconfig"), i + 1 < args.count {
+            let url = URL(fileURLWithPath: args[i + 1])
+            if let text = try? String(contentsOf: url, encoding: .utf8) {
+                try? PendingKubeconfigStore().save(text: text, name: url.lastPathComponent)
+            }
+        }
+        #endif
     }
 
     var body: some Scene {
@@ -38,6 +48,8 @@ struct WheelhouseApp: App {
                 .environment(lock)
                 .environment(network)
                 .tint(Palette.tint)
+                .onReceive(NotificationCenter.default.publisher(for: EnergyPolicy.didChange)) { _ in registry.applyEnergyPolicy() }
+                .task { _ = EnergyMonitor.shared }   // start following Low Power Mode / thermal state
         }
         .onChange(of: scenePhase) { _, phase in handle(phase) }
         .commands { AppCommands(registry: registry) }
@@ -51,6 +63,7 @@ struct WheelhouseApp: App {
             registry.stopAllSessions()
             BackgroundRefresh.appDidEnterBackground(registry: registry)
         case .active:
+            EnergyMonitor.shared.refresh()
             registry.resumeAllSessions()
         default:
             break
@@ -63,6 +76,7 @@ struct WheelhouseApp: App {
 struct SceneRoot: View {
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppLockController.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
     @State private var router = AppRouter()
     @State private var pendingURL: URL?
 
@@ -92,13 +106,32 @@ struct SceneRoot: View {
                 } else if let url = pendingURL {
                     pendingURL = nil
                     handle(url)
+                } else {
+                    openSharedKubeconfigIfAny()
                 }
             }
+            // A kubeconfig saved by the Share extension is picked up whenever the scene becomes active (never while locked).
+            .onChange(of: scenePhase, initial: true) { _, phase in if phase == .active { openSharedKubeconfigIfAny() } }
+    }
+
+    /// Hands a fresh kubeconfig from the Share extension to the import screen. Deletes the keychain item as it is read;
+    /// stays untouched while locked (the lock-state observer calls this again after unlock).
+    @discardableResult
+    private func openSharedKubeconfigIfAny() -> Bool {
+        guard !lock.isLocked, let item = PendingKubeconfigStore().take() else { return false }
+        KubeconfigInbox.shared.offer(text: item.text, name: item.name)
+        router.push(.importKubeconfig)
+        return true
     }
 
     private func handle(_ url: URL) {
         // Links never act while locked; they are replayed right after unlock.
         if lock.isLocked { pendingURL = url; return }
+        if DeepLink.isImport(url) {
+            // Notification posted by the Share extension: the kubeconfig itself waits in `PendingKubeconfigStore`.
+            if !openSharedKubeconfigIfAny() { router.push(.importKubeconfig) }
+            return
+        }
         if url.isFileURL {
             // "Open in Wheelhouse" / Share sheet kubeconfig.
             if KubeconfigInbox.shared.offer(url: url) { router.push(.importKubeconfig) }

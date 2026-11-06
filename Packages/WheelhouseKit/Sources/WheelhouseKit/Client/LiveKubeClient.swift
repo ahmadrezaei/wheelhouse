@@ -6,10 +6,11 @@ import Synchronization
 public actor LiveKubeClient: KubeClientProtocol {
     public nonisolated let config: ClusterConfig
     private nonisolated let session: URLSession
-    private nonisolated let delegate: ClusterSessionDelegate
+    nonisolated let delegate: ClusterSessionDelegate
     private nonisolated let token: String?
     private nonisolated let identity: LazyClientIdentity?
     private nonisolated let anchors: [SecCertificate]
+    private nonisolated let hasConnected = Mutex(false)
     private nonisolated let auxiliary = Mutex<URLSession?>(nil)
     /// Watch objects that could not be decoded and were skipped (a broken CRD must not kill the stream).
     private nonisolated let skippedWatchObjects = Mutex(0)
@@ -29,8 +30,12 @@ public actor LiveKubeClient: KubeClientProtocol {
         self.identity = lazyIdentity
         self.anchors = anchors
         // Production clusters can never skip verification (see ClusterConfig.allowsInsecureTLS).
-        let provider: (@Sendable () -> ClientIdentityBuilder.Result?)? = lazyIdentity.map { li in
-            { @Sendable in li.resolve().built }
+        let provider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = lazyIdentity.map { li in
+            { @Sendable in
+                let r = li.resolve()
+                if let built = r.built { return .success(built) }
+                return .failure(r.error ?? .identityNotFound)
+            }
         }
         let delegate = ClusterSessionDelegate(anchors: anchors, insecure: config.allowsInsecureTLS, serverName: tlsServerName,
                                               identityProvider: provider)
@@ -117,23 +122,41 @@ public actor LiveKubeClient: KubeClientProtocol {
         return req
     }
 
-    private nonisolated func mapTransportError(_ error: Error) -> KubeError {
+    /// Non-secret TLS facts for the connection report (challenge outcomes, client identity, last error chain).
+    public nonisolated var tlsTrace: TLSTrace { delegate.trace }
+
+    /// Maps an HTTP error status; a 401 on a client-certificate cluster carries the identity problem (if any) so the reason isn't lost.
+    private nonisolated func httpError(code: Int, body: Data) -> KubeError {
+        let e = Status.decodeError(code: code, body: body)
+        if case .unauthorized(let m) = e, let note = delegate.identityNote { return .unauthorized(message: KubeError.appendingIdentityNote(note, to: m)) }
+        return e
+    }
+
+    /// `responseReceived`: the task already got an HTTP response, so a later `-1005` / SSL-domain error is a dropped stream, never a handshake failure.
+    nonisolated func mapTransportError(_ error: Error, responseReceived: Bool = false) -> KubeError {
         if let kube = error as? KubeError { return kube }
         if error is CancellationError { return .cancelled }
         guard let url = error as? URLError else { return .unreachable(cause: error.localizedDescription) }
+        delegate.recordTransportError(url)
         let failure = delegate.failure(for: url.failureURLString.flatMap(URL.init(string:)))
+        let https = config.server.scheme?.lowercased() == "https"
         switch url.code {
         case .cancelled: return failure == nil ? .cancelled : .tlsUntrusted(summary: failure?.summary)
         case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
-             .serverCertificateNotYetValid, .clientCertificateRejected, .clientCertificateRequired:
+             .serverCertificateNotYetValid:
             return .tlsUntrusted(summary: failure?.summary)
-        case .secureConnectionFailed:
-            return failure != nil ? .tlsUntrusted(summary: failure?.summary) : .unreachable(cause: "TLS handshake failed")
+        case .secureConnectionFailed, .clientCertificateRejected, .clientCertificateRequired, .networkConnectionLost:
+            if responseReceived { return .unreachable(cause: "Connection lost") }
+            if failure != nil { return .tlsUntrusted(summary: failure?.summary) }
+            if https, let e = TLSDiagnostics.handshakeError(for: url, clientIdentityFailure: delegate.identityFailure,
+                                                           clientCertificateMissing: delegate.clientCertificateMissing,
+                                                           neverConnected: !hasConnected.withLock { $0 }) { return e }
+            if url.code == .networkConnectionLost { return .unreachable(cause: "Connection lost") }
+            return .tlsHandshake(reason: "TLS handshake failed.", code: url.code.rawValue)
         case .timedOut: return .unreachable(cause: "Timed out")
         case .cannotFindHost, .dnsLookupFailed: return .unreachable(cause: "DNS lookup failed for \(config.host)")
         case .cannotConnectToHost: return .unreachable(cause: "Connection refused by \(config.host)")
         case .notConnectedToInternet: return .unreachable(cause: "No internet connection")
-        case .networkConnectionLost: return .unreachable(cause: "Connection lost")
         default: return .unreachable(cause: url.localizedDescription)
         }
     }
@@ -142,7 +165,8 @@ public actor LiveKubeClient: KubeClientProtocol {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
-            guard (200..<300).contains(http.statusCode) else { throw Status.decodeError(code: http.statusCode, body: data) }
+            hasConnected.withLock { $0 = true }
+            guard (200..<300).contains(http.statusCode) else { throw httpError(code: http.statusCode, body: data) }
             return data
         } catch { throw mapTransportError(error) }
     }
@@ -264,6 +288,7 @@ public actor LiveKubeClient: KubeClientProtocol {
     public nonisolated func watch<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: WatchOptions) -> AsyncThrowingStream<WatchEvent<T>, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var gotResponse = false
                 do {
                     var q: [(String, String)] = [("watch", "1"), ("allowWatchBookmarks", "true"), ("timeoutSeconds", String(options.timeoutSeconds))]
                     if let v = options.resourceVersion { q.append(("resourceVersion", v)) }
@@ -272,10 +297,12 @@ public actor LiveKubeClient: KubeClientProtocol {
                     let request = try makeRequest(path: kind.collectionPath(namespace: namespace), query: q, timeout: TimeInterval(options.timeoutSeconds + 30))
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
+                    gotResponse = true
+                    hasConnected.withLock { $0 = true }
                     guard (200..<300).contains(http.statusCode) else {
                         var body = Data()
                         for try await b in bytes { body.append(b); if body.count > 8192 { break } }
-                        throw Status.decodeError(code: http.statusCode, body: body)
+                        throw httpError(code: http.statusCode, body: body)
                     }
                     let decoder = KubeJSON.decoder
                     // Frames are newline-delimited JSON. Split on the 0x0A byte only: `bytes.lines` would also split on
@@ -308,7 +335,7 @@ public actor LiveKubeClient: KubeClientProtocol {
                     try process(buffer)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: mapTransportError(error))
+                    continuation.finish(throwing: mapTransportError(error, responseReceived: gotResponse))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -354,6 +381,7 @@ public actor LiveKubeClient: KubeClientProtocol {
     public nonisolated func logs(namespace: String, pod: String, options: LogOptions) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var gotResponse = false
                 do {
                     var q: [(String, String)] = []
                     if let c = options.container { q.append(("container", c)) }
@@ -361,17 +389,19 @@ public actor LiveKubeClient: KubeClientProtocol {
                     if options.previous { q.append(("previous", "true")) }
                     if options.timestamps { q.append(("timestamps", "true")) }
                     if let t = options.tailLines { q.append(("tailLines", String(t))) }
-                    if let s = options.sinceSeconds { q.append(("sinceSeconds", String(s))) }
+                    if let t = options.sinceTime { q.append(("sinceTime", t)) } else if let s = options.sinceSeconds { q.append(("sinceSeconds", String(s))) }
                     if let l = options.limitBytes { q.append(("limitBytes", String(l))) }
                     var request = try makeRequest(path: ResourceKind.pod.itemPath(name: pod, namespace: namespace, subresource: "log"), query: q,
                                                   timeout: options.follow ? 3600 : 60)
                     request.setValue("text/plain, */*", forHTTPHeaderField: "Accept")
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
+                    gotResponse = true
+                    hasConnected.withLock { $0 = true }
                     guard (200..<300).contains(http.statusCode) else {
                         var body = Data()
                         for try await b in bytes { body.append(b); if body.count > 8192 { break } }
-                        throw Status.decodeError(code: http.statusCode, body: body)
+                        throw httpError(code: http.statusCode, body: body)
                     }
                     var buffer: [UInt8] = []
                     for try await byte in bytes {
@@ -383,7 +413,7 @@ public actor LiveKubeClient: KubeClientProtocol {
                     if !buffer.isEmpty { continuation.yield(String(decoding: buffer, as: UTF8.self)) }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: mapTransportError(error))
+                    continuation.finish(throwing: mapTransportError(error, responseReceived: gotResponse))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -417,7 +447,7 @@ public actor LiveKubeClient: KubeClientProtocol {
         request.setValue(protocols.joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
         let url = request.url
         let delegate = delegate
-        return KubeWebSocket(task: session.webSocketTask(with: request), offeredProtocols: protocols, tlsFailure: { delegate.failure(for: url) })
+        return KubeWebSocket(task: session.webSocketTask(with: request), offeredProtocols: protocols, tlsFailure: { delegate.failure(for: url) }, identityFailure: { delegate.identityFailure }, clientCertificateMissing: { delegate.clientCertificateMissing })
     }
 
     public nonisolated func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket {
@@ -450,7 +480,13 @@ final class LazyClientIdentity: Sendable {
     func resolve() -> (built: ClientIdentityBuilder.Result?, error: ClientIdentityError?) {
         state.withLock { state in
             if case .pending = state {
-                do { state = .built(try build()) } catch let e as ClientIdentityError { state = .failed(e) } catch { state = .failed(.identityNotFound) }
+                do {
+                    var built = try build()
+                    // Diagnostic only: the identity is presented to the server even if the test signature failed.
+                    built.signTestFailure = ClientIdentityBuilder.testSign(built.identity)
+                    built.signTestRan = true
+                    state = .built(built)
+                } catch let e as ClientIdentityError { state = .failed(e) } catch { state = .failed(.identityNotFound) }
             }
             switch state {
             case .built(let r): return (r, nil)

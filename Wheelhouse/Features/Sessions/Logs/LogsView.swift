@@ -31,15 +31,23 @@ struct LogsView: View {
         .navigationTitle("Logs")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: pod) { await start() }
+        // A follow request holds an inotify watcher on the node: close it when the screen is left (unless pinned).
+        .onAppear { model?.screenDidAppear() }
+        .onDisappear { model?.screenDidDisappear() }
     }
 
     private func start() async {
         guard let session else { return }
-        if let existing = hub.existingLogs(for: pod, container: container, previous: previous) { model = existing; return }
+        if let existing = hub.existingLogs(for: pod, container: container, previous: previous) {
+            model = existing
+            existing.screenDidAppear()   // `.onAppear` ran before `model` was set
+            return
+        }
         let m = LogsModel(pod: pod, container: container, previous: previous, session: session,
                           maxLines: preferences.logMaxLines, fontSize: preferences.logFontSize)
         hub.register(m)
         model = m
+        m.screenDidAppear()
         await m.load()
     }
 
@@ -55,6 +63,7 @@ struct LogsView: View {
             chips(model)
             if model.isSearching { searchBar(model) }
             if model.suggestPrevious { suggestionBanner(model) }
+            if model.stream.problem != nil { watcherBanner(model) }
             ZStack(alignment: .bottom) {
                 list(model, session: session)
                 if !model.follow && !model.visible.isEmpty { jumpToLive(model) }
@@ -189,6 +198,36 @@ struct LogsView: View {
         .padding(.horizontal, Spacing.l).padding(.bottom, 6)
     }
 
+    /// Shown when the kubelet reported that it could not create a log watcher (node out of inotify instances).
+    private func watcherBanner(_ model: LogsModel) -> some View {
+        StateBanner(.custom(tone: .warning, symbol: "exclamationmark.triangle.fill", title: LogStreamProblem.nodeWatchLimit(detail: "").title,
+                            message: "The node ran out of file watchers (inotify). Kubernetes can't stream live logs from this node until it's fixed.")) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let node = model.nodeName { Text("Node: \(node)").font(.footnote.weight(.semibold)) }
+                Text("Showing new lines by polling every few seconds instead.").font(.footnote).foregroundStyle(.secondary)
+                DisclosureGroup("How to fix it") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(LogStreamProblem.fullFix).font(.whCode).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8).background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
+                        HStack {
+                            Button { UIPasteboard.general.string = LogStreamProblem.sysctlCommands } label: { Label("Copy sysctl", systemImage: "doc.on.doc") }
+                            Button { UIPasteboard.general.string = LogStreamProblem.fullFix } label: { Label("Copy all", systemImage: "doc.on.doc.fill") }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.footnote)
+                if case .nodeWatchLimit(let detail)? = model.stream.problem, !detail.isEmpty {
+                    Text("Kubelet said: \(detail)").font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                }
+            }
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, Spacing.l).padding(.bottom, 6)
+    }
+
     // MARK: Overlay & footer
 
     private func jumpToLive(_ model: LogsModel) -> some View {
@@ -206,10 +245,17 @@ struct LogsView: View {
     private func footer(_ model: LogsModel) -> some View {
         HStack(spacing: 8) {
             switch model.stream.state {
+            case .streaming where model.isPolling:
+                Label("Polling (live streaming unavailable on this node)", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(Palette.warningText).lineLimit(2)
             case .streaming: HStack(spacing: 4) { LiveDot(); Text("Live").foregroundStyle(Palette.healthyText) }
             case .connecting: HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Connecting") }
             case .finished: Label(model.previous ? "Previous instance" : "Stream ended", systemImage: "checkmark.circle")
-            case .paused: Label("Paused in background", systemImage: "pause.circle")
+            case .paused:
+                switch model.stream.pauseReason {
+                case .background: Label("Paused in background", systemImage: "pause.circle")
+                case .preempted: Label("Stopped: another stream took over", systemImage: "pause.circle")
+                default: Label("Paused", systemImage: "pause.circle")
+                }
             case .failed(let e): Label(e.summary, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.criticalText)
             case .idle: EmptyView()
             }
@@ -230,6 +276,7 @@ struct LogsView: View {
 
     @ToolbarContentBuilder
     private func toolbar(_ model: LogsModel) -> some ToolbarContent {
+        @Bindable var model = model
         ToolbarItem(placement: .topBarTrailing) {
             Button { model.isSearching.toggle(); if !model.isSearching { model.query = "" } } label: { Image(systemName: model.isSearching ? "magnifyingglass.circle.fill" : "magnifyingglass") }
                 .accessibilityLabel("Search")
@@ -244,6 +291,7 @@ struct LogsView: View {
                     Button("Larger", systemImage: "plus") { model.fontSize = min(model.fontSize + 1, 22) }
                     Button("Smaller", systemImage: "minus") { model.fontSize = max(model.fontSize - 1, 9) }
                 }
+                Toggle(isOn: $model.pinned) { Label("Keep Streaming When Leaving", systemImage: "pin") }
                 Button { model.clear() } label: { Label("Clear", systemImage: "trash") }
                 Button { model.reload() } label: { Label("Reload", systemImage: "arrow.clockwise") }
                 Button { UIPasteboard.general.string = model.exportText() } label: { Label("Copy All Lines", systemImage: "doc.on.doc") }

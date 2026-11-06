@@ -57,7 +57,12 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
     func replace(_ kind: ResourceKind, name: String, namespace: String?, body: JSONValue, options: MutationOptions) async throws -> JSONValue { throw KubeError.unsupported("scripted") }
     func patch(_ kind: ResourceKind, name: String, namespace: String?, subresource: String?, patch: KubePatch, options: MutationOptions) async throws -> JSONValue { throw KubeError.unsupported("scripted") }
     func delete(_ kind: ResourceKind, name: String, namespace: String?, options: DeleteOptions) async throws { throw KubeError.unsupported("scripted") }
-    func logs(namespace: String, pod: String, options: LogOptions) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
+    /// Scripted log behaviour: receives each request's options. Default: an empty, finished stream.
+    var logsHandler: (@Sendable (LogOptions) -> AsyncThrowingStream<String, Error>)?
+    func logs(namespace: String, pod: String, options: LogOptions) -> AsyncThrowingStream<String, Error> {
+        if let h = lock.withLock({ logsHandler }) { return h(options) }
+        return AsyncThrowingStream { $0.finish() }
+    }
     func podMetrics(namespace: String?) async throws -> [PodMetrics] { [] }
     func nodeMetrics() async throws -> [NodeMetrics] { [] }
     func proxyGET(namespace: String, service: String, port: String, path: String, query: [String: String]) async throws -> Data { Data() }

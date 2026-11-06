@@ -215,7 +215,7 @@ struct EventsCard: View {
         .task(id: ctx.ref.id) {
             await load()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(30)))
                 if Task.isCancelled { return }
                 await load()
             }

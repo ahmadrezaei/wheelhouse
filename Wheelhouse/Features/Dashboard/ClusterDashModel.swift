@@ -19,6 +19,7 @@ final class ClusterDashModel {
 
     @ObservationIgnored private var metricsGeneration = 0
     @ObservationIgnored private var lastStamp: Stamp?
+    @ObservationIgnored private weak var activeSession: ClusterSession?
 
     struct FailingRow: Identifiable {
         var id: String; var title: String; var subtitle: String; var lead: ResourceRow.Lead; var ref: ResourceRef; var trailing: String?
@@ -56,13 +57,39 @@ final class ClusterDashModel {
 
     // MARK: Derived state (H6)
 
-    /// Polls the shared stores while the dashboard is on screen. The view never reads store items itself, so a busy
-    /// watch (10 Hz per store) costs one cheap timestamp comparison a second instead of a full re-derivation per render.
+    /// Re-derives the dashboard when one of the shared stores changes, while the dashboard is on screen. The view never
+    /// reads store items itself, so a busy watch (10 Hz per store) costs at most one derivation per throttle window.
+    /// Event-driven (Observation) instead of a 1 Hz / 4 Hz poll: an idle dashboard does no work at all.
     func pollStores(_ session: ClusterSession) async {
+        activeSession = session
+        defer { if activeSession === session { activeSession = nil } }
         while !Task.isCancelled {
             recomputeIfNeeded(session)
-            try? await Task.sleep(for: .milliseconds(dash?.nodes.isEmpty == false ? 1000 : 250))
+            await Self.waitForStoreChange(session)
+            if Task.isCancelled { return }
+            // Throttle: fast while the first data arrives, then once a second (slower under Low Power / thermal pressure).
+            let spacing = dash?.nodes.isEmpty == false ? EnergyPolicy.current.interval(1) : 0.25
+            try? await Task.sleep(for: .seconds(spacing))
         }
+    }
+
+    /// Suspends until any observed property of the dashboard's stores changes (or the task is cancelled).
+    private static func waitForStoreChange(_ session: ClusterSession) async {
+        let gate = ChangeGate()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                gate.install(c)
+                let stores = (session.store(for: Node.self), session.store(for: Pod.self), session.store(for: Deployment.self),
+                              session.store(for: StatefulSet.self), session.store(for: DaemonSet.self), session.store(for: Job.self),
+                              session.store(for: KubeEvent.self, fieldSelector: "type=Warning"))
+                withObservationTracking {
+                    MainActor.assumeIsolated {
+                        @MainActor func touch<T>(_ s: ResourceStore<T>) { _ = s.lastUpdated; _ = s.phase; _ = s.error }
+                        touch(stores.0); touch(stores.1); touch(stores.2); touch(stores.3); touch(stores.4); touch(stores.5); touch(stores.6)
+                    }
+                } onChange: { gate.fire() }
+            }
+        } onCancel: { gate.fire() }
     }
 
     func recomputeIfNeeded(_ session: ClusterSession) {
@@ -151,8 +178,10 @@ final class ClusterDashModel {
         let availability = session.metricsAvailability ?? MetricsAvailability.none
         let client = session.client
         if availability.hasLiveUsage {
+            // Live sampling of every pod's usage is the expensive part: skipped in Low Power Mode / when the device is hot.
+            let samplePods = EnergyPolicy.current.allowsLiveSampling
             async let nm = try? client.nodeMetrics()
-            async let pm = try? client.podMetrics(namespace: nil)
+            async let pm: [PodMetrics]? = samplePods ? (try? client.podMetrics(namespace: nil)) : podMetrics
             let (n, p) = await (nm, pm)
             nodeMetrics = n
             podMetrics = p
@@ -165,6 +194,7 @@ final class ClusterDashModel {
         }
         metricsGeneration += 1
         lastRefresh = Date()
+        if let active = activeSession { recomputeIfNeeded(active) }
         if availability.hasHistory { await loadHistory(session, range: range) }
     }
 
@@ -184,5 +214,29 @@ final class ClusterDashModel {
         let pods = session.store(for: Pod.self).items
         let usage = ClusterUsage.compute(nodes: nodes, nodeMetrics: nodeMetrics, pods: pods.isEmpty ? nil : pods)
         if let sample = UsageSample(usage: usage) { UsageHistory.shared.record(sample, key: session.id) }
+    }
+}
+
+
+/// Resumes a continuation exactly once, whether the change or the cancellation arrives first.
+private final class ChangeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var fired = false
+
+    func install(_ c: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if fired { lock.unlock(); c.resume(); return }
+        continuation = c
+        lock.unlock()
+    }
+
+    func fire() {
+        lock.lock()
+        fired = true
+        let c = continuation
+        continuation = nil
+        lock.unlock()
+        c?.resume()
     }
 }

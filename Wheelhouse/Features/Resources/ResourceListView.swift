@@ -344,6 +344,11 @@ private struct ListScreen: View {
         let client = session.client, kind = kind, ns = effectiveNamespace
         var failures = 0
         while !Task.isCancelled {
+            // Low Power Mode / hot device: keep what we have, stop sampling.
+            if !EnergyPolicy.current.allowsLiveSampling, !usage.isEmpty {
+                try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(30)))
+                continue
+            }
             do {
                 var map: [String: PodUsageSample] = [:]
                 if kind == .pod {
@@ -359,7 +364,7 @@ private struct ListScreen: View {
                 usage = [:]
                 failures += 1
             }
-            try? await Task.sleep(for: .seconds(failures == 0 ? 30 : min(30 * Double(1 << min(failures, 4)), 300)))
+            try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(failures == 0 ? 30 : min(30 * Double(1 << min(failures, 4)), 300))))
         }
     }
 

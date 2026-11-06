@@ -272,14 +272,19 @@ public struct SectionHeader<Trailing: View>: View {
     }
 }
 
-/// Pulsing green dot for "live"; static under Reduce Motion.
+/// Green dot for "live". Pulses a few times when it appears, then stays static: an endless symbol animation keeps the
+/// render server and the display link running for as long as the screen is open (a measurable battery cost).
+/// Static under Reduce Motion, Low Power Mode and thermal pressure.
 public struct LiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulses = 0
     private let tone: StatusTone
     public init(tone: StatusTone = .healthy) { self.tone = tone }
     public var body: some View {
         Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(tone.color)
-            .symbolEffect(.pulse, isActive: !reduceMotion && tone == .healthy)
+            // Discrete effect: runs 3 pulses each time `pulses` changes (on appear), then the symbol is static.
+            .symbolEffect(.pulse, options: .repeat(3), value: pulses)
+            .onAppear { if !reduceMotion, tone == .healthy, EnergyMonitor.shared.policy.allowsLiveCharts { pulses += 1 } }
             .accessibilityHidden(true)
     }
 }

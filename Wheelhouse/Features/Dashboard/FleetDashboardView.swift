@@ -41,7 +41,7 @@ struct FleetDashboardView: View {
         }
         .refreshable { await model.refresh(registry: registry) }
         .sheet(item: $editingCluster) { cfg in NavigationStack { AddClusterView(editing: cfg, registry: registry) } }
-        .task(id: "\(scenePhase == .active)-\(preferences.refreshInterval)") {
+        .task(id: "\(scenePhase == .active)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
             guard scenePhase == .active else { return }
             await model.run(registry: registry, interval: preferences.refreshInterval)
         }

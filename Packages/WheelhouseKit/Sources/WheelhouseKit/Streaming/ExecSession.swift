@@ -202,12 +202,22 @@ public actor ExecSession {
         }
         if let url = error as? URLError {
             let failure = ws.tlsFailure()
+            // The upgrade response already arrived: the TLS handshake is over, so a later SSL-domain / -1005 error is a dropped socket.
+            let upgraded = ws.task.response != nil
+            let identityFailure = ws.identityFailure()
+            let certMissing = ws.clientCertificateMissing()
             switch url.code {
             case .cancelled: return failure == nil ? .cancelled : .tlsUntrusted(summary: failure?.summary)
-            case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .secureConnectionFailed,
+            case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
                  .serverCertificateNotYetValid:
                 return .tlsUntrusted(summary: failure?.summary)
-            case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            case .secureConnectionFailed, .clientCertificateRejected, .clientCertificateRequired:
+                if upgraded { return .unreachable(cause: url.localizedDescription) }
+                if failure != nil { return .tlsUntrusted(summary: failure?.summary) }
+                return TLSDiagnostics.handshakeError(for: url, clientIdentityFailure: identityFailure, clientCertificateMissing: certMissing) ?? .unreachable(cause: url.localizedDescription)
+            case .networkConnectionLost:
+                if !upgraded, failure == nil, TLSDiagnostics.extract(from: url).isSSLDomain,
+                   let e = TLSDiagnostics.handshakeError(for: url, clientIdentityFailure: identityFailure, clientCertificateMissing: certMissing) { return e }
                 return .unreachable(cause: url.localizedDescription)
             default: return .unreachable(cause: url.localizedDescription)
             }

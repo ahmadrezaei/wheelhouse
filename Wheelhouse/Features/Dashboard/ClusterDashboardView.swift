@@ -51,17 +51,22 @@ struct ClusterDashboardView: View {
             }
         }
         .onChange(of: effectiveID) { _, _ in model.reset() }
-        .task(id: "\(effectiveID ?? "")-\(scenePhase == .active)-\(preferences.refreshInterval)") {
+        .task(id: "\(effectiveID ?? "")-\(scenePhase == .active)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
             guard let session, scenePhase == .active else { return }
             // Metrics first sample quickly so the live chart has two points soon after opening.
             var first = true
             let configured = preferences.refreshInterval
             while !Task.isCancelled {
+                // A restart (energy policy changed) must not refresh again right away.
+                if configured > 0, let last = model.lastRefresh {
+                    let remaining = EnergyPolicy.current.interval(Double(configured)) - Date().timeIntervalSince(last)
+                    if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)); if Task.isCancelled { return } }
+                }
                 await model.refresh(session, range: range)
                 guard configured > 0 else { return }   // Manual: refresh once, then only on pull-to-refresh
                 let interval = first && UsageHistory.shared.samples(for: session.id).count < 2 ? min(6, configured) : configured
                 first = false
-                try? await Task.sleep(for: .seconds(interval))
+                try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(Double(interval))))
             }
         }
         .onChange(of: range) { _, new in
@@ -267,7 +272,7 @@ struct ClusterDashboardView: View {
                 return (s, alloc, false)
             }
             let samples = history.samples(for: session.id)
-            guard samples.count >= 2 else { return nil }
+            guard samples.count >= 2, EnergyMonitor.shared.policy.allowsLiveCharts else { return nil }
             var s = [ChartSeries(name: name, color: color, style: .area, points: samples.map { MetricPoint(time: $0.time, value: resource == .cpu ? $0.cpuUsage : $0.memUsage) })]
             let reqs = samples.compactMap { smp in (resource == .cpu ? smp.cpuRequests : smp.memRequests).map { MetricPoint(time: smp.time, value: $0) } }
             if reqs.count > 1 { s.append(ChartSeries(name: "Requests", color: Palette.chartRequests, style: .requests, points: reqs)) }
@@ -323,7 +328,7 @@ struct ClusterDashboardView: View {
                         if chart.capacity != nil { legend(Palette.chartCapacity, "Capacity") }
                     }
                 } else if availability.hasLiveUsage {
-                    Label(model.isLoadingHistory ? "Loading history…" : "Collecting live samples…", systemImage: "chart.line.uptrend.xyaxis")
+                    Label(model.isLoadingHistory ? "Loading history…" : (EnergyMonitor.shared.policy.allowsLiveCharts ? "Collecting live samples…" : "Live chart paused to save energy"), systemImage: "chart.line.uptrend.xyaxis")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if availability.hasHistory, model.historyFailed {
                     Label("Prometheus returned no data for this range.", systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.secondary)
