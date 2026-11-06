@@ -1,0 +1,146 @@
+name: Wheelhouse
+options:
+  bundleIdPrefix: app.wheelhouse
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: 72JX858R3K
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+packages:
+  WheelhouseKit:
+    path: Packages/WheelhouseKit
+  # SwiftTerm 1.99.2 is intentionally NOT linked yet: it ships a SwiftPM build-tool plugin
+  # ("SwiftTermBuildInfoPlugin") that Xcode must be told to trust once (Xcode GUI "Trust & Enable", or
+  # xcodebuild -skipPackagePluginValidation). Uncomment the three SwiftTerm blocks after the owner of the
+  # Sessions feature has approved that.
+  # SwiftTerm:
+  #   url: https://github.com/migueldeicaza/SwiftTerm
+  #   exactVersion: 1.99.2
+targets:
+  Wheelhouse:
+    type: application
+    platform: iOS
+    sources:
+      - path: Wheelhouse
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+      # - package: SwiftTerm
+      #   product: SwiftTerm
+      - target: WheelhouseWidgets
+        embed: true
+    entitlements:
+      path: Wheelhouse/Wheelhouse.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.wheelhouse
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)app.wheelhouse.shared
+    info:
+      path: Wheelhouse/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        LSSupportsOpeningDocumentsInPlace: false
+        NSFaceIDUsageDescription: Wheelhouse uses Face ID to unlock the app and to reveal Secret values.
+        NSLocalNetworkUsageDescription: Wheelhouse connects to clusters and Prometheus servers on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.wheelhouse.refresh
+        UIBackgroundModes:
+          - fetch
+        CFBundleURLTypes:
+          - CFBundleURLName: app.wheelhouse.ios
+            CFBundleURLSchemes:
+              - wheelhouse
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Kubeconfig
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.yaml
+              - app.wheelhouse.kubeconfig
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: app.wheelhouse.kubeconfig
+            UTTypeDescription: Kubernetes kubeconfig
+            UTTypeConformsTo:
+              - public.yaml
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - kubeconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.wheelhouse.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+  WheelhouseWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: WheelhouseWidgets
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+    entitlements:
+      path: WheelhouseWidgets/WheelhouseWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.wheelhouse
+    info:
+      path: WheelhouseWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse Widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.wheelhouse.ios.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: NO
+schemes:
+  Wheelhouse:
+    build:
+      targets:
+        Wheelhouse: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - package: WheelhouseKit/WheelhouseKitTests
+    profile:
+      config: Release

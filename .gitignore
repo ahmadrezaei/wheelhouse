@@ -1,0 +1,8 @@
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.testcluster/
+.swiftpm/
+xcuserdata/
+.DS_Store

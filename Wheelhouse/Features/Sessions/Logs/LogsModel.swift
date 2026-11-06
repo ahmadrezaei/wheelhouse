@@ -1,0 +1,289 @@
+import SwiftUI
+import WheelhouseKit
+
+/// How far back to read.
+enum LogSince: Hashable, CaseIterable, Identifiable {
+    case all, minutes5, hour1, hours6, hours24
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .minutes5: "5 min"
+        case .hour1: "1 hour"
+        case .hours6: "6 hours"
+        case .hours24: "24 hours"
+        }
+    }
+    var seconds: Int? {
+        switch self {
+        case .all: nil
+        case .minutes5: 300
+        case .hour1: 3600
+        case .hours6: 6 * 3600
+        case .hours24: 24 * 3600
+        }
+    }
+}
+
+enum LogTail: Int, CaseIterable, Identifiable {
+    case l100 = 100, l500 = 500, l1000 = 1000, l5000 = 5000, all = 0
+    var id: Int { rawValue }
+    var title: String { self == .all ? "All lines" : "Last \(rawValue)" }
+    var lines: Int? { self == .all ? nil : rawValue }
+}
+
+/// Compiled search query (plain text or regex, case-insensitive).
+struct LogMatcher {
+    private let needle: String
+    private let regex: NSRegularExpression?
+
+    init?(query: String, regex useRegex: Bool) {
+        guard !query.isEmpty else { return nil }
+        needle = query
+        if useRegex {
+            guard let r = try? NSRegularExpression(pattern: query, options: [.caseInsensitive]) else { return nil }
+            regex = r
+        } else { regex = nil }
+    }
+
+    func ranges(in text: String) -> [NSRange] {
+        let ns = text as NSString
+        if let regex {
+            return regex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)).map(\.range).filter { $0.length > 0 }
+        }
+        var out: [NSRange] = []
+        var search = NSRange(location: 0, length: ns.length)
+        while search.length > 0 {
+            let r = ns.range(of: needle, options: [.caseInsensitive, .literal], range: search)
+            if r.location == NSNotFound { break }
+            out.append(r)
+            let next = r.location + max(r.length, 1)
+            search = NSRange(location: next, length: ns.length - next)
+        }
+        return out
+    }
+
+    func matches(_ text: String) -> Bool {
+        if regex != nil { return !ranges(in: text).isEmpty }
+        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+    }
+}
+
+/// State of one log screen: the stream, display options, search and follow behaviour.
+@MainActor @Observable
+final class LogsModel: Identifiable {
+    let id = UUID()
+    let pod: ResourceRef
+    let requestedContainer: String?
+    let clusterSession: ClusterSession
+    let stream: LogStream
+    let startedAt = Date()
+
+    // Source
+    private(set) var container: String?
+    private(set) var containers: [String] = []
+    private(set) var allContainers = false
+    private(set) var previous: Bool
+    var since: LogSince = .all
+    var tail: LogTail = .l1000
+    private(set) var podLoaded = false
+    private(set) var podError: KubeError?
+    private(set) var suggestPrevious = false
+    private(set) var terminationNote: String?
+
+    // Display
+    var timestamps = false
+    var wrap = true
+    var fontSize: CGFloat
+    var follow = true
+
+    // Visible lines + search
+    private(set) var visible: [LogLine] = []
+    var query = "" { didSet { if oldValue != query { queryChanged() } } }
+    var useRegex = false { didSet { if oldValue != useRegex { queryChanged() } } }
+    var matchesOnly = false { didSet { if oldValue != matchesOnly { syncFromStream(force: true) } } }
+    private(set) var matcher: LogMatcher?
+    private(set) var matchIDs: [Int] = []
+    private(set) var currentMatch: Int?
+    private(set) var scrollTarget: ScrollTarget?
+    private(set) var newLinesWhileAway = 0
+    var isSearching = false
+
+    struct ScrollTarget: Equatable { var lineID: Int; var token: Int }
+
+    @ObservationIgnored private var scannedUpTo = -1
+    @ObservationIgnored private var lastCount = 0
+    @ObservationIgnored private var token = 0
+    @ObservationIgnored private var markerAdded = false
+
+    /// `maxLines` and `fontSize` come from Settings (`AppPreferences.logMaxLines` / `logFontSize`).
+    init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12) {
+        self.stream = LogStream(capacity: min(max(maxLines, 1_000), 500_000))
+        self.fontSize = CGFloat(min(max(fontSize, 9), 22))
+        self.pod = pod
+        self.requestedContainer = container
+        self.container = container
+        self.previous = previous
+        self.clusterSession = session
+        self.follow = !previous
+    }
+
+    var currentLineID: Int? { currentMatch.flatMap { matchIDs.indices.contains($0) ? matchIDs[$0] : nil } }
+    var isLive: Bool { stream.isLive }
+    var title: String { allContainers ? "all containers" : (container ?? "default container") }
+
+    // MARK: Loading
+
+    /// Loads the pod (container names, restart info) and starts streaming.
+    func load() async {
+        podError = nil
+        if let ns = pod.namespace {
+            do {
+                let p = try await clusterSession.client.get(Pod.self, name: pod.name, namespace: ns)
+                containers = (p.spec.initContainers + p.spec.containers).map(\.name)
+                if container == nil { container = p.metadata.annotations["kubectl.kubernetes.io/default-container"] ?? p.spec.containers.first?.name }
+                if let name = container {
+                    let status = (p.status?.containerStatuses ?? []) + (p.status?.initContainerStatuses ?? [])
+                    let s = status.first { $0.name == name }
+                    let crashing = s?.state?.waiting?.reason == "CrashLoopBackOff" || ((s?.restartCount ?? 0) > 0 && s?.state?.running == nil)
+                    suggestPrevious = crashing && !previous && (s?.lastState?.terminated != nil)
+                    terminationNote = Self.termination(from: previous ? s?.lastState?.terminated : s?.state?.terminated)
+                }
+                podLoaded = true
+            } catch let e as KubeError {
+                podError = e
+                if case .notFound = e { stream.appendMarker("Pod no longer exists") }
+            } catch {}
+        }
+        startStream()
+    }
+
+    private static func termination(from t: ContainerState.Terminated?) -> String? {
+        guard let t else { return nil }
+        return "Container terminated · \(t.reason ?? "Exited") · exit \(t.exitCode)"
+    }
+
+    func startStream() {
+        guard let ns = pod.namespace else { return }
+        markerAdded = false
+        let targets: [String?] = allContainers ? containers.map { Optional($0) } : [container]
+        var options = LogOptions(follow: !previous, previous: previous, timestamps: true, tailLines: tail.lines, sinceSeconds: since.seconds)
+        options.container = container
+        stream.start(client: clusterSession.client, namespace: ns, pod: pod.name, containers: targets, options: options)
+        visible = []; matchIDs = []; scannedUpTo = -1; lastCount = 0; currentMatch = nil; newLinesWhileAway = 0
+    }
+
+    func reload() { startStream() }
+    func stop() { stream.stop(to: .idle) }
+
+    func clear() {
+        stream.clear()
+        visible = []; matchIDs = []; scannedUpTo = -1; currentMatch = nil; lastCount = 0
+    }
+
+    // MARK: Lifecycle
+
+    func appDidEnterBackground() { if stream.isLive { stream.stop(to: .paused) } }
+
+    func appWillEnterForeground() { if stream.state == .paused { stream.resume() } }
+
+    // MARK: Settings
+
+    func setContainer(_ name: String?) {
+        if let name { allContainers = false; container = name } else { allContainers = true }
+        Task { await load() }
+    }
+
+    func setPrevious(_ on: Bool) {
+        guard on != previous else { return }
+        previous = on
+        follow = !on
+        suggestPrevious = false
+        Task { await load() }
+    }
+
+    // MARK: Stream sync
+
+    /// Called when `stream.revision` changes.
+    func syncFromStream(force: Bool = false) {
+        let all = stream.buffer.lines
+        if matchesOnly, let matcher {
+            visible = all.filter { $0.kind == .marker || matcher.matches($0.message) }
+        } else {
+            visible = Array(all)
+        }
+        if !follow, visible.count > lastCount { newLinesWhileAway += visible.count - lastCount }
+        if follow { newLinesWhileAway = 0 }
+        lastCount = visible.count
+        rescanMatches(incremental: !force)
+        if stream.state == .finished, !markerAdded, let note = terminationNote {
+            markerAdded = true
+            stream.appendMarker(note)
+        }
+    }
+
+    // MARK: Search
+
+    private func queryChanged() {
+        matcher = LogMatcher(query: query, regex: useRegex)
+        scannedUpTo = -1
+        matchIDs = []
+        currentMatch = nil
+        if matchesOnly { syncFromStream(force: true) } else { rescanMatches(incremental: false) }
+        if !matchIDs.isEmpty { currentMatch = matchIDs.count - 1; jumpToCurrent() }
+    }
+
+    private func rescanMatches(incremental: Bool) {
+        guard let matcher else { matchIDs = []; currentMatch = nil; return }
+        if !incremental { matchIDs = []; scannedUpTo = -1 }
+        // Drop matches that scrolled out of the ring buffer.
+        if let first = visible.first?.id { matchIDs.removeAll { $0 < first } }
+        let start = visible.firstIndex { $0.id > scannedUpTo } ?? visible.count
+        for line in visible[start...] where line.kind == .line {
+            if matcher.matches(line.message) { matchIDs.append(line.id) }
+        }
+        scannedUpTo = visible.last?.id ?? scannedUpTo
+        if matchIDs.isEmpty { currentMatch = nil } else if let c = currentMatch, c >= matchIDs.count { currentMatch = matchIDs.count - 1 }
+    }
+
+    func nextMatch() {
+        guard !matchIDs.isEmpty else { return }
+        currentMatch = ((currentMatch ?? -1) + 1) % matchIDs.count
+        jumpToCurrent()
+    }
+
+    func previousMatch() {
+        guard !matchIDs.isEmpty else { return }
+        currentMatch = ((currentMatch ?? 0) - 1 + matchIDs.count) % matchIDs.count
+        jumpToCurrent()
+    }
+
+    private func jumpToCurrent() {
+        guard let id = currentLineID else { return }
+        follow = false
+        token += 1
+        scrollTarget = ScrollTarget(lineID: id, token: token)
+    }
+
+    func jumpToLive() {
+        follow = true
+        newLinesWhileAway = 0
+        token += 1
+        scrollTarget = ScrollTarget(lineID: -1, token: token)
+    }
+
+    func userScrolledAway() { if follow { follow = false } }
+    func userReachedBottom() { if !follow { follow = true; newLinesWhileAway = 0 } }
+
+    // MARK: Export
+
+    func exportText() -> String {
+        visible.map { $0.kind == .marker ? "── \($0.message) ──" : $0.text(timestamps: true) }.joined(separator: "\n") + "\n"
+    }
+
+    func exportFileURL() -> URL? {
+        let name = "\(pod.name)-\(container ?? "logs")-\(Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted)))"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).log")
+        do { try exportText().write(to: url, atomically: true, encoding: .utf8); return url } catch { return nil }
+    }
+}

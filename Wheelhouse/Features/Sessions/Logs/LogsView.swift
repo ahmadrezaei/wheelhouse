@@ -1,0 +1,319 @@
+import SwiftUI
+import WheelhouseKit
+import WheelhouseUI
+
+/// S12 — live and previous container logs. `container == nil` → default/first container.
+struct LogsView: View {
+    let pod: ResourceRef
+    var container: String?
+    var previous = false
+
+    @Environment(ClusterRegistry.self) private var registry
+    @Environment(AppPreferences.self) private var preferences
+    @State private var model: LogsModel?
+    @State private var detail: LogLine?
+    @State private var shareURL: ShareItem?
+    @FocusState private var searchFocused: Bool
+    private let hub = SessionsHub.shared
+
+    private var session: ClusterSession? { registry.session(for: pod.clusterID) }
+
+    var body: some View {
+        Group {
+            if let session, let model {
+                content(session: session, model: model)
+            } else if session == nil {
+                EmptyState(.empty(title: "Cluster Not Found", systemImage: "server.rack", hint: "This cluster was removed."))
+            } else {
+                EmptyState(.loading)
+            }
+        }
+        .navigationTitle("Logs")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: pod) { await start() }
+    }
+
+    private func start() async {
+        guard let session else { return }
+        if let existing = hub.existingLogs(for: pod, container: container, previous: previous) { model = existing; return }
+        let m = LogsModel(pod: pod, container: container, previous: previous, session: session,
+                          maxLines: preferences.logMaxLines, fontSize: preferences.logFontSize)
+        hub.register(m)
+        model = m
+        await m.load()
+    }
+
+    // MARK: Content
+
+    @ViewBuilder
+    private func content(session: ClusterSession, model: LogsModel) -> some View {
+        @Bindable var model = model
+        VStack(spacing: 0) {
+            ContextLine(cluster: session.config, namespace: pod.namespace, kind: "pod/\(pod.name)")
+                .padding(.horizontal, Spacing.l).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            chips(model)
+            if model.isSearching { searchBar(model) }
+            if model.suggestPrevious { suggestionBanner(model) }
+            ZStack(alignment: .bottom) {
+                list(model, session: session)
+                if !model.follow && !model.visible.isEmpty { jumpToLive(model) }
+            }
+            footer(model)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .toolbar { toolbar(model) }
+        .onChange(of: model.stream.revision) { _, _ in model.syncFromStream() }
+        .onChange(of: model.stream.state) { _, _ in model.syncFromStream() }
+        .sheet(item: $detail) { LogLineDetailSheet(line: $0) }
+        .sheet(item: $shareURL) { ShareSheet(url: $0.url) }
+        .background { shortcuts(model) }
+    }
+
+    @ViewBuilder
+    private func list(_ model: LogsModel, session: ClusterSession) -> some View {
+        if let error = model.podError, model.visible.isEmpty, model.stream.state != .streaming {
+            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { Task { await model.load() } } }
+        } else if case .failed(let error) = model.stream.state, model.visible.isEmpty {
+            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { model.reload() } }
+        } else if model.visible.isEmpty {
+            if model.stream.state == .connecting || model.stream.state == .idle {
+                EmptyState(.loading)
+            } else if model.matchesOnly, model.matcher != nil {
+                EmptyState(.filteredEmpty(filter: model.query))
+            } else {
+                EmptyState(.empty(title: model.previous ? "No Previous Logs" : "No Log Output",
+                                  systemImage: "text.alignleft",
+                                  hint: model.previous ? "This container has not been restarted, so there is no previous instance." : "This container has not written anything yet\(model.since == .all ? "" : " in the selected time range").")) {
+                    if model.previous { Button("Show Current Logs") { model.setPrevious(false) } }
+                }
+            }
+        } else {
+            LogsTableView(
+                lines: model.visible,
+                settings: LogsDisplaySettings(wrap: model.wrap, timestamps: model.timestamps, fontSize: model.fontSize, query: model.query,
+                                              useRegex: model.useRegex, currentLineID: model.currentLineID),
+                matcher: model.matcher, follow: model.follow, scrollTarget: model.scrollTarget,
+                onUserScrolledAway: { model.userScrolledAway() }, onReachedBottom: { model.userReachedBottom() },
+                onSelect: { detail = $0 }
+            )
+            .accessibilityLabel("Log lines")
+        }
+    }
+
+    // MARK: Chips
+
+    private func chips(_ model: LogsModel) -> some View {
+        @Bindable var model = model
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if model.containers.count > 1 {
+                    Menu {
+                        ForEach(model.containers, id: \.self) { name in
+                            Button { model.setContainer(name) } label: { Label(name, systemImage: (!model.allContainers && model.container == name) ? "checkmark" : "") }
+                        }
+                        Divider()
+                        Button { model.setContainer(nil) } label: { Label("All containers", systemImage: model.allContainers ? "checkmark" : "") }
+                    } label: { chip(model.title, symbol: "shippingbox", selected: false, chevron: true) }
+                } else {
+                    chip(model.title, symbol: "shippingbox", selected: false)
+                }
+                Button { model.follow ? (model.follow = false) : model.jumpToLive() } label: { chip("Follow", symbol: model.isLive ? "dot.radiowaves.left.and.right" : "arrow.down.to.line", selected: model.follow) }
+                    .disabled(model.previous)
+                Button { model.setPrevious(!model.previous) } label: { chip("Previous", symbol: "clock.arrow.circlepath", selected: model.previous) }
+                Button { model.timestamps.toggle() } label: { chip("Timestamps", symbol: "clock", selected: model.timestamps) }
+                Button { model.wrap.toggle() } label: { chip("Wrap", symbol: "text.word.spacing", selected: model.wrap) }
+                Menu {
+                    Picker("Since", selection: $model.since) { ForEach(LogSince.allCases) { Text($0.title).tag($0) } }
+                } label: { chip("Since: \(model.since.title)", symbol: "calendar.badge.clock", selected: model.since != .all, chevron: true) }
+                    .onChange(of: model.since) { _, _ in model.reload() }
+                Menu {
+                    Picker("Lines", selection: $model.tail) { ForEach(LogTail.allCases) { Text($0.title).tag($0) } }
+                } label: { chip(model.tail.title, symbol: "list.number", selected: false, chevron: true) }
+                    .onChange(of: model.tail) { _, _ in model.reload() }
+            }
+            .padding(.horizontal, Spacing.l)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func chip(_ title: String, symbol: String, selected: Bool, chevron: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.caption.weight(.semibold))
+            Text(title).font(.subheadline.weight(.medium)).lineLimit(1)
+            if chevron { Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary) }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .foregroundStyle(selected ? Palette.onTint : Color.primary)
+        .background(selected ? AnyShapeStyle(Palette.tint) : AnyShapeStyle(Palette.fieldFill), in: Capsule())
+        .frame(minHeight: Spacing.minHit - 8)
+        .contentShape(Capsule())
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // MARK: Search
+
+    private func searchBar(_ model: LogsModel) -> some View {
+        @Bindable var model = model
+        return HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField(model.useRegex ? "Regex" : "Search logs", text: $model.query)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().focused($searchFocused)
+                    .font(.whCode).submitLabel(.search).onSubmit { model.nextMatch() }
+                if !model.query.isEmpty {
+                    Text(model.matchIDs.isEmpty ? "0" : "\((model.currentMatch ?? 0) + 1)/\(model.matchIDs.count)")
+                        .font(.caption.monospacedDigit()).foregroundStyle(model.matchIDs.isEmpty ? Palette.criticalText : Color.secondary)
+                    Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
+            Button { model.previousMatch() } label: { Image(systemName: "chevron.up") }.disabled(model.matchIDs.isEmpty).accessibilityLabel("Previous match")
+            Button { model.nextMatch() } label: { Image(systemName: "chevron.down") }.disabled(model.matchIDs.isEmpty).accessibilityLabel("Next match")
+            Menu {
+                Toggle("Regular expression", isOn: $model.useRegex)
+                Toggle("Show matching lines only", isOn: $model.matchesOnly)
+            } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Search options")
+        }
+        .padding(.horizontal, Spacing.l).padding(.bottom, 6)
+        .onAppear { searchFocused = true }
+    }
+
+    private func suggestionBanner(_ model: LogsModel) -> some View {
+        StateBanner(.custom(tone: .warning, symbol: "arrow.triangle.2.circlepath", title: "Container is crash-looping",
+                            message: "The previous instance usually holds the error that killed it.")) {
+            Button("Show Previous Logs") { model.setPrevious(true) }.font(.footnote.weight(.semibold)).padding(.top, 2)
+        }
+        .padding(.horizontal, Spacing.l).padding(.bottom, 6)
+    }
+
+    // MARK: Overlay & footer
+
+    private func jumpToLive(_ model: LogsModel) -> some View {
+        Button { model.jumpToLive() } label: {
+            Label(model.newLinesWhileAway > 0 ? "Jump to Live · \(model.newLinesWhileAway) new" : "Jump to Live", systemImage: "arrow.down.to.line")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .padding(.bottom, 12)
+        .transition(.scale.combined(with: .opacity))
+        .accessibilityLabel("Jump to live, \(model.newLinesWhileAway) new lines")
+    }
+
+    private func footer(_ model: LogsModel) -> some View {
+        HStack(spacing: 8) {
+            switch model.stream.state {
+            case .streaming: HStack(spacing: 4) { LiveDot(); Text("Live").foregroundStyle(Palette.healthyText) }
+            case .connecting: HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Connecting") }
+            case .finished: Label(model.previous ? "Previous instance" : "Stream ended", systemImage: "checkmark.circle")
+            case .paused: Label("Paused in background", systemImage: "pause.circle")
+            case .failed(let e): Label(e.summary, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.criticalText)
+            case .idle: EmptyView()
+            }
+            Spacer()
+            if model.stream.droppedCount > 0 { Text("\(model.stream.droppedCount.formatted()) older dropped").foregroundStyle(Palette.warningText) }
+            Text("\(model.visible.count.formatted()) lines").monospacedDigit()
+            if model.stream.state == .finished || model.stream.state == .paused || model.stream.state.isFailed {
+                Button("Resume") { model.stream.resume() }.font(.caption.weight(.semibold))
+            }
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .padding(.horizontal, Spacing.l).padding(.vertical, 6)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Toolbar & shortcuts
+
+    @ToolbarContentBuilder
+    private func toolbar(_ model: LogsModel) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { model.isSearching.toggle(); if !model.isSearching { model.query = "" } } label: { Image(systemName: model.isSearching ? "magnifyingglass.circle.fill" : "magnifyingglass") }
+                .accessibilityLabel("Search")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { if let url = model.exportFileURL() { shareURL = ShareItem(url: url) } } label: { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Share logs").disabled(model.visible.isEmpty)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Menu("Font Size", systemImage: "textformat.size") {
+                    Button("Larger", systemImage: "plus") { model.fontSize = min(model.fontSize + 1, 22) }
+                    Button("Smaller", systemImage: "minus") { model.fontSize = max(model.fontSize - 1, 9) }
+                }
+                Button { model.clear() } label: { Label("Clear", systemImage: "trash") }
+                Button { model.reload() } label: { Label("Reload", systemImage: "arrow.clockwise") }
+                Button { UIPasteboard.general.string = model.exportText() } label: { Label("Copy All Lines", systemImage: "doc.on.doc") }
+                Divider()
+                Button(role: .destructive) { hub.close(model); self.model = nil } label: { Label("Stop Stream", systemImage: "stop.circle") }
+            } label: { Image(systemName: "ellipsis.circle") }
+            .accessibilityLabel("Log options")
+        }
+    }
+
+    /// iPad: ⌘F search, ⌘K clear, ⌘↓ jump to live, ⌘+ / ⌘- font size.
+    @ViewBuilder
+    private func shortcuts(_ model: LogsModel) -> some View {
+        Group {
+            Button("Search") { model.isSearching.toggle() }.keyboardShortcut("f", modifiers: .command)
+            Button("Clear") { model.clear() }.keyboardShortcut("k", modifiers: .command)
+            Button("Jump to Live") { model.jumpToLive() }.keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Larger") { model.fontSize = min(model.fontSize + 1, 22) }.keyboardShortcut("+", modifiers: .command)
+            Button("Smaller") { model.fontSize = max(model.fontSize - 1, 9) }.keyboardShortcut("-", modifiers: .command)
+        }
+        .hidden()
+    }
+}
+
+private extension LogStream.State {
+    var isFailed: Bool { if case .failed = self { true } else { false } }
+}
+
+struct ShareItem: Identifiable { let id = UUID(); let url: URL }
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}
+
+/// Detail of one log line: pretty-printed JSON when the line is JSON.
+private struct LogLineDetailSheet: View {
+    let line: LogLine
+    @Environment(\.dismiss) private var dismiss
+
+    private var pretty: String? {
+        guard line.message.hasPrefix("{") || line.message.hasPrefix("["), let data = line.message.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else { return nil }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.m) {
+                    if let ts = line.timestamp { LabeledContent("Time", value: ts).font(.footnote.monospaced()) }
+                    if line.level != .none { LabeledContent("Level", value: line.level.label).font(.footnote) }
+                    if let source = line.source { LabeledContent("Container", value: source).font(.footnote) }
+                    Text(pretty ?? line.message)
+                        .font(.whCode).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Spacing.m)
+                        .background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
+                }
+                .padding(Spacing.l)
+            }
+            .navigationTitle(pretty == nil ? "Log Line" : "JSON Line")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Copy") { UIPasteboard.general.string = pretty ?? line.message } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
