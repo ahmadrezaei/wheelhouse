@@ -273,6 +273,37 @@ struct HelmRepositoryTests {
         #expect(try HelmRepositories.parseIndex(Data("apiVersion: v1\nentries: {}\n".utf8), repository: "e").charts.isEmpty)
     }
 
+    @Test func entriesLineWithATrailingCommentIsStillBlockEntries() throws {
+        let text = "apiVersion: v1\nentries: # the charts\n  alpha:\n  - name: alpha\n    version: 1.0.0\n"
+        #expect(try HelmRepositories.parseIndex(Data(text.utf8), repository: "r").charts.map(\.name) == ["alpha"])
+    }
+
+    @Test func aBareDashItemDoesNotStartANewChart() throws {
+        let text = "apiVersion: v1\nentries:\n  alpha:\n  -\n    name: alpha\n    version: 2.0.0\n  -\n    name: alpha\n    version: 1.0.0\n  beta:\n  - name: beta\n    version: 0.1.0\n"
+        let parsed = try HelmRepositories.parseIndex(Data(text.utf8), repository: "r")
+        #expect(parsed.charts.map(\.name) == ["alpha", "beta"])
+        #expect(parsed.charts[0].versions.map(\.version) == ["2.0.0", "1.0.0"])
+    }
+
+    @Test func flowStyleEntriesFallBackToAWholeFileParseWhenSmall() throws {
+        let text = "apiVersion: v1\nentries: {alpha: [{name: alpha, version: 1.2.0, appVersion: '9'}], beta: [{name: beta, version: 0.1.0}]}\ngenerated: '2026-11-01'\n"
+        let parsed = try HelmRepositories.parseIndex(Data(text.utf8), repository: "r")
+        #expect(parsed.charts.map(\.name) == ["alpha", "beta"] && parsed.charts[0].latest.appVersion == "9" && parsed.generated == "2026-11-01")
+    }
+
+    @Test func aChunkThatFailsToComposeFallsBackAndAnUnreadableIndexFails() throws {
+        // A tab in indentation breaks one chart's chunk; the whole-file parse is also invalid, so the index fails, not "0 charts".
+        let broken = "apiVersion: v1\nentries:\n  alpha:\n  - name: alpha\n    version: [1.0\n  beta:\n  - name: beta\n    version: 1.0.0\n"
+        #expect(throws: HelmRepositoryError.notAnIndex) { try HelmRepositories.parseIndex(Data(broken.utf8), repository: "r") }
+    }
+
+    @Test func aHugeFlowStyleIndexFailsInsteadOfShowingZeroCharts() throws {
+        let padding = String(repeating: "# padding line to make the file large\n", count: 250_000)       // over 8 MB
+        let text = "apiVersion: v1\nentries: {alpha: [{name: alpha, version: 1.0.0}]}\n" + padding
+        #expect(text.utf8.count > HelmRepositories.wholeFileParseLimit)
+        #expect(throws: HelmRepositoryError.notAnIndex) { try HelmRepositories.parseIndex(Data(text.utf8), repository: "r") }
+    }
+
     @Test func searchRanksNameMatchesFirst() throws {
         let charts = try HelmRepositories.parseIndex(Data(Self.index.utf8), repository: "r").charts
         #expect(HelmRepositories.search("redis", in: charts).map(\.name) == ["redis"])

@@ -117,14 +117,16 @@ public enum HelmRepositories {
     /// one chart's versions, not a node tree of the whole file (composing a 19 MB index whole cost over 130 MB).
     public static func parseIndex(_ data: Data, repository: String, sourceSize: Int = 0, sourceModified: TimeInterval = 0) throws -> HelmRepositoryIndex {
         var generated: String?
-        var sawAPIVersion = false, sawEntries = false, inEntries = false
+        var sawAPIVersion = false, sawEntries = false, sawBlockEntries = false, inEntries = false
+        var failedChunks = 0
         var entryIndent: Int?
         var chunk = ""
         var charts: [HelmChartSummary] = []
 
         func flush() {
             defer { chunk = "" }
-            guard !chunk.isEmpty, let node = try? Yams.compose(yaml: chunk), case .mapping(let one) = node else { return }
+            guard !chunk.isEmpty else { return }
+            guard let node = try? Yams.compose(yaml: chunk), case .mapping(let one) = node else { failedChunks += 1; return }
             for (nameNode, versionsNode) in one {
                 if let chart = chartSummary(name: nameNode.scalar?.string, versions: versionsNode, repository: repository) { charts.append(chart) }
             }
@@ -152,7 +154,10 @@ public enum HelmRepositories {
                     if inEntries { flush(); inEntries = false }
                     if trimmed.hasPrefix("entries:") {
                         sawEntries = true
-                        inEntries = trimmed == "entries:"
+                        var bare = trimmed
+                        if let hash = bare.range(of: " #") { bare = String(bare[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
+                        inEntries = bare == "entries:"
+                        if inEntries { sawBlockEntries = true }
                         entryIndent = nil
                     } else if trimmed.hasPrefix("apiVersion:") {
                         sawAPIVersion = true
@@ -165,14 +170,38 @@ public enum HelmRepositories {
                 if entryIndent == nil { entryIndent = indent }
                 // A chart starts at the entries' own indentation with a key; list items (`- `) at that indentation belong to the
                 // chart above (the layout Go's YAML writer produces).
-                if indent == entryIndent, !trimmed.hasPrefix("- ") { flush() }
+                if indent == entryIndent, !(trimmed == "-" || trimmed.hasPrefix("- ")) { flush() }
                 chunk += line + "\n"
             }
         }
         if inEntries { flush() }
         guard sawAPIVersion || sawEntries else { throw HelmRepositoryError.notAnIndex }
+        if (sawEntries && !sawBlockEntries) || failedChunks > 0 {
+            // A layout the chunker does not follow (flow-style entries, an odd chunk): parse the whole file, but only when that is
+            // cheap. A silent "0 charts" must never be shown for an index we could not read.
+            guard data.count <= wholeFileParseLimit else { throw HelmRepositoryError.notAnIndex }
+            return try parseWhole(data, repository: repository, sourceSize: sourceSize, sourceModified: sourceModified)
+        }
         charts.sort { $0.name < $1.name }
         return HelmRepositoryIndex(repository: repository, generated: generated, charts: charts, sourceSize: sourceSize, sourceModified: sourceModified)
+    }
+
+    static let wholeFileParseLimit = 8 * 1024 * 1024
+
+    private static func parseWhole(_ data: Data, repository: String, sourceSize: Int, sourceModified: TimeInterval) throws -> HelmRepositoryIndex {
+        guard let text = String(data: data, encoding: .utf8), let root = try? Yams.compose(yaml: text), case .mapping(let top) = root,
+              top["entries"] != nil || top["apiVersion"] != nil else { throw HelmRepositoryError.notAnIndex }
+        var charts: [HelmChartSummary] = []
+        if case .mapping(let entries)? = top["entries"] {
+            for (nameNode, versionsNode) in entries {
+                guard let chart = chartSummary(name: nameNode.scalar?.string, versions: versionsNode, repository: repository) else {
+                    throw HelmRepositoryError.notAnIndex            // an entry we cannot read is a failed index, not a smaller one
+                }
+                charts.append(chart)
+            }
+        }
+        charts.sort { $0.name < $1.name }
+        return HelmRepositoryIndex(repository: repository, generated: top["generated"]?.scalar?.string, charts: charts, sourceSize: sourceSize, sourceModified: sourceModified)
     }
 
     private static func chartSummary(name: String?, versions versionsNode: Yams.Node, repository: String) -> HelmChartSummary? {
