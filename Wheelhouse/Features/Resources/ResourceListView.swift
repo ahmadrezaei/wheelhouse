@@ -24,25 +24,27 @@ struct ResourceListView: View {
     }
 }
 
-private struct ListScreen: View {
+struct ListScreen: View {
     let session: ClusterSession
     let baseKind: ResourceKind
-    @Environment(AppRouter.self) private var router
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.routeColumn) private var column
+    @Environment(AppRouter.self) var router
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.routeColumn) var column
 
-    @State private var kind: ResourceKind
-    @State private var namespace: String?
-    @State private var search = ""
-    @State private var sort: ListSort = .status
-    @State private var labelSelector = ""
-    @State private var showLabelSheet = false
-    @State private var rows: [ListRowModel] = []
-    @State private var usage: [String: PodUsageSample] = [:]
-    @State private var columns: [CRDColumn] = []
-    @State private var cache = SummaryCache()
-    @State private var host: ActionHost
-    @State private var secretStores = SecretStoreCache()
+    @State var kind: ResourceKind
+    @State var namespace: String?
+    @State var search = ""
+    @State var sort: ListSort = .status
+    /// Mac table headers: a second click on the active column reverses the order (iOS never sets it).
+    @State var sortReversed = false
+    @State var labelSelector = ""
+    @State var showLabelSheet = false
+    @State var rows: [ListRowModel] = []
+    @State var usage: [String: PodUsageSample] = [:]
+    @State var columns: [CRDColumn] = []
+    @State var cache = SummaryCache()
+    @State var host: ActionHost
+    @State var secretStores = SecretStoreCache()
 
     init(session: ClusterSession, baseKind: ResourceKind, initialNamespace: String?) {
         self.session = session
@@ -52,28 +54,28 @@ private struct ListScreen: View {
         _host = State(initialValue: ActionHost(session: session))
     }
 
-    private var effectiveNamespace: String? { kind.namespaced ? namespace : nil }
-    private var selector: String? { labelSelector.isEmpty ? nil : labelSelector }
-    private var store: ResourceStore<Unstructured> {
+    var effectiveNamespace: String? { kind.namespaced ? namespace : nil }
+    var selector: String? { labelSelector.isEmpty ? nil : labelSelector }
+    var store: ResourceStore<Unstructured> {
         // Secret lists never hold values in memory (they are blanked on ingest); detail fetches the full object on demand.
         if kind == .secret { return secretStores.store(session: session, namespace: effectiveNamespace, labelSelector: selector) }
         return session.unstructuredStore(kind: kind, namespace: effectiveNamespace, labelSelector: selector)
     }
     /// Actions stay hidden on read-only clusters and while the cluster is unreachable (cached data only).
-    private var canMutate: Bool { host.canMutate && store.error == nil }
-    private var storeKey: String { "\(kind.id)|\(effectiveNamespace ?? "*")|\(labelSelector)" }
-    private var siblings: [ResourceKind] { baseKind.section == .custom ? [] : ResourceKind.builtIn(in: baseKind.section) }
-    private var hasFilters: Bool { !search.isEmpty || !labelSelector.isEmpty }
+    var canMutate: Bool { host.canMutate && store.error == nil }
+    var storeKey: String { "\(kind.id)|\(effectiveNamespace ?? "*")|\(labelSelector)" }
+    var siblings: [ResourceKind] { baseKind.section == .custom ? [] : ResourceKind.builtIn(in: baseKind.section) }
+    var hasFilters: Bool { !search.isEmpty || !labelSelector.isEmpty }
 
-    private struct Token: Hashable { var key: String; var updated: Date?; var search: String; var sort: ListSort; var usageCount: Int; var columns: Int }
-    private var token: Token { Token(key: storeKey, updated: store.lastUpdated, search: search, sort: sort, usageCount: usage.count, columns: columns.count) }
+    private struct Token: Hashable { var key: String; var updated: Date?; var search: String; var sort: ListSort; var reversed: Bool; var usageCount: Int; var columns: Int }
+    private var token: Token { Token(key: storeKey, updated: store.lastUpdated, search: search, sort: sort, reversed: sortReversed, usageCount: usage.count, columns: columns.count) }
 
     var body: some View {
         let store = store
         Group {
             if store.isLoading { loading }
             else if let error = store.error, store.items.isEmpty { errorState(error) }
-            else { list(store) }
+            else { platformList(store) }
         }
         .navigationTitle(kind.displayName)
         .whLargeNavigationTitle()
@@ -91,7 +93,15 @@ private struct ListScreen: View {
 
     // MARK: Content
 
-    private func list(_ store: ResourceStore<Unstructured>) -> some View {
+    @ViewBuilder func platformList(_ store: ResourceStore<Unstructured>) -> some View {
+        #if os(macOS)
+        macList(store)
+        #else
+        list(store)
+        #endif
+    }
+
+    func list(_ store: ResourceStore<Unstructured>) -> some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -126,11 +136,11 @@ private struct ListScreen: View {
         }
     }
 
-    private var loading: some View {
+    var loading: some View {
         ScrollView { SkeletonList(rows: 8).padding(.top, Spacing.m) }.scrollDisabled(true)
     }
 
-    private func errorState(_ error: KubeError) -> some View {
+    func errorState(_ error: KubeError) -> some View {
         EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) {
             VStack {
                 if case .forbidden = error, namespace != nil, kind.namespaced {
@@ -141,7 +151,7 @@ private struct ListScreen: View {
         }
     }
 
-    private var emptyState: some View {
+    var emptyState: some View {
         EmptyState(.empty(title: "No \(kind.displayName)\(effectiveNamespace.map { " in \($0)" } ?? "")", systemImage: kind.symbol,
                           hint: labelSelector.isEmpty ? "Nothing to show here yet." : "No objects match \(labelSelector).")) {
             VStack {
@@ -152,19 +162,19 @@ private struct ListScreen: View {
         }
     }
 
-    private var filteredEmpty: some View {
+    var filteredEmpty: some View {
         EmptyState(.filteredEmpty(filter: search.isEmpty ? labelSelector : search)) {
             Button("Clear Filters") { search = ""; labelSelector = "" }.buttonStyle(.bordered)
         }
         .background(Palette.groupedBackground)
     }
 
-    private func summaryLine(_ store: ResourceStore<Unstructured>) -> String {
+    func summaryLine(_ store: ResourceStore<Unstructured>) -> String {
         let count = rows.count == store.items.count ? "\(rows.count)" : "\(rows.count) of \(store.items.count)"
         return "\(count) \(kind.displayName.lowercased()) · sorted by \(sort.rawValue.lowercased())\(store.isRefreshing ? " · Updating…" : "")"
     }
 
-    private var kindChips: some View {
+    var kindChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(siblings) { k in
@@ -180,7 +190,7 @@ private struct ListScreen: View {
         }
     }
 
-    private var filterChip: some View {
+    var filterChip: some View {
         Button { labelSelector = "" } label: {
             HStack(spacing: 6) {
                 Image(systemName: "tag").imageScale(.small)
@@ -194,7 +204,7 @@ private struct ListScreen: View {
 
     // MARK: Toolbar
 
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+    @ToolbarContentBuilder var toolbar: some ToolbarContent {
         if kind.namespaced {
             ToolbarItem(placement: .whTrailing) {
                 NamespaceMenu(session: session, namespace: $namespace)
@@ -220,9 +230,9 @@ private struct ListScreen: View {
 
     // MARK: Actions
 
-    private func target(_ row: ListRowModel) -> ResourceTarget { ResourceTarget(kind: kind, object: row.object) }
+    func target(_ row: ListRowModel) -> ResourceTarget { ResourceTarget(kind: kind, object: row.object) }
 
-    @ViewBuilder private func trailingSwipe(_ row: ListRowModel) -> some View {
+    @ViewBuilder func trailingSwipe(_ row: ListRowModel) -> some View {
         if canMutate {
             let t = target(row)
             Button(role: .destructive) { host.delete(t) } label: { Label("Delete", systemImage: "trash") }
@@ -241,7 +251,7 @@ private struct ListScreen: View {
         }
     }
 
-    @ViewBuilder private func leadingSwipe(_ row: ListRowModel) -> some View {
+    @ViewBuilder func leadingSwipe(_ row: ListRowModel) -> some View {
         if canMutate {
             let t = target(row)
             switch kind.kind {
@@ -254,7 +264,7 @@ private struct ListScreen: View {
         }
     }
 
-    @ViewBuilder private func menu(_ row: ListRowModel) -> some View {
+    @ViewBuilder func menu(_ row: ListRowModel) -> some View {
         let t = target(row)
         let ref = ResourceRef(clusterID: session.id, kind: kind, namespace: row.object.metadata.namespace, name: row.object.metadata.name)
         Button { Pasteboard.copy(row.object.metadata.name) } label: { Label("Copy Name", systemImage: "doc.on.doc") }
@@ -286,13 +296,13 @@ private struct ListScreen: View {
         }
     }
 
-    private func setNamespace(_ ns: String?) {
+    func setNamespace(_ ns: String?) {
         namespace = ns
     }
 
     // MARK: Data
 
-    private func rebuild() {
+    func rebuild() {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         var built: [ListRowModel] = store.items.compactMap { obj in
             let s = cache.summary(kind: kind, object: obj)
@@ -300,10 +310,11 @@ private struct ListScreen: View {
             return ListRowModel(object: obj, summary: s, extra: extraColumns(for: obj))
         }
         built.sort(by: comparator())
+        if sortReversed { built.reverse() }
         rows = built
     }
 
-    private func comparator() -> (ListRowModel, ListRowModel) -> Bool {
+    func comparator() -> (ListRowModel, ListRowModel) -> Bool {
         let u = usage
         func use(_ r: ListRowModel) -> PodUsageSample? { usageSample(r, in: u) }
         let byName: (ListRowModel, ListRowModel) -> Bool = { ($0.object.metadata.namespace ?? "", $0.object.metadata.name) < ($1.object.metadata.namespace ?? "", $1.object.metadata.name) }
@@ -317,7 +328,7 @@ private struct ListScreen: View {
         }
     }
 
-    private func usageSample(_ row: ListRowModel, in map: [String: PodUsageSample]? = nil) -> PodUsageSample? {
+    func usageSample(_ row: ListRowModel, in map: [String: PodUsageSample]? = nil) -> PodUsageSample? {
         let m = map ?? usage
         switch kind.kind {
         case "Pod": return m["\(row.object.metadata.namespace ?? "")/\(row.object.metadata.name)"]
@@ -326,20 +337,20 @@ private struct ListScreen: View {
         }
     }
 
-    private func extraColumns(for obj: Unstructured) -> [String] {
+    func extraColumns(for obj: Unstructured) -> [String] {
         columns.prefix(3).compactMap { col in
             JSONPathLite.display(JSONPathLite.evaluate(col.jsonPath, in: obj.raw)).flatMap { $0.isEmpty ? nil : "\(col.name): \($0)" }
         }
     }
 
-    private func labelSuggestions(_ store: ResourceStore<Unstructured>) -> [String] {
+    func labelSuggestions(_ store: ResourceStore<Unstructured>) -> [String] {
         var counts: [String: Int] = [:]
         for o in store.items { for (k, v) in o.metadata.labels where !k.hasPrefix("pod-template-hash") { counts["\(k)=\(v)", default: 0] += 1 } }
         return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(8).map(\.key)
     }
 
     /// metrics-server usage, refreshed every 30 s while the list is on screen.
-    private func pollUsage() async {
+    func pollUsage() async {
         guard kind == .pod || kind == .node else { usage = [:]; return }
         let client = session.client, kind = kind, ns = effectiveNamespace
         var failures = 0
@@ -369,7 +380,7 @@ private struct ListScreen: View {
     }
 
     /// Custom resources: columns from the CRD's `additionalPrinterColumns` (evaluated client-side with a JSONPath subset).
-    private func loadColumns() async {
+    func loadColumns() async {
         columns = []
         guard kind.section == .custom else { return }
         guard let raw = try? await session.client.getRaw(.customResourceDefinition, name: "\(kind.plural).\(kind.group)", namespace: nil),
