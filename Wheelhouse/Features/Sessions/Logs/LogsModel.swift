@@ -128,7 +128,8 @@ final class LogsModel: Identifiable {
 
     /// `maxLines` and `fontSize` come from Settings (`AppPreferences.logMaxLines` / `logFontSize`).
     init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12) {
-        self.stream = LogStream(capacity: min(max(maxLines, 1_000), 500_000))
+        let limits = LogLimits.platformDefault
+        self.stream = LogStream(capacity: min(max(maxLines, 1_000), limits.maxLines), limits: limits)
         self.fontSize = CGFloat(min(max(fontSize, 9), 22))
         self.pod = pod
         self.requestedContainer = container
@@ -215,11 +216,13 @@ final class LogsModel: Identifiable {
     /// Leaving the screen closes the follow connection (the kubelet holds an inotify watcher per follow) unless pinned.
     func screenDidDisappear() {
         isOnScreen = false
+        stream.isVisible = false
         if !pinned { stream.suspend(reason: .screenLeft) }
     }
 
     func screenDidAppear() {
         isOnScreen = true
+        stream.isVisible = true
         if stream.state == .paused, stream.pauseReason == .screenLeft { stream.resume() }
         startDeferredIfPossible()
     }

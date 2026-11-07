@@ -110,6 +110,19 @@ public final class ResourceStore<T: KubeObject> {
         task = Task { [weak self] in await self?.reflect() }
     }
 
+    /// Drops the cached items of a store nobody is using (memory pressure). Does nothing while a consumer is registered.
+    /// Returns whether anything was dropped.
+    @discardableResult
+    public func dropCachedItemsIfIdle() -> Bool {
+        guard refCount == 0, !items.isEmpty else { return false }
+        objects = [:]
+        items = []
+        resourceVersion = nil
+        phase = .idle
+        lastUpdated = nil
+        return true
+    }
+
     /// Cancels the reflector and drops all consumers (cluster removed or its credentials replaced).
     public func invalidate() {
         refCount = 0

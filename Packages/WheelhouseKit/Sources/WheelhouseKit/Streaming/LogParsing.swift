@@ -146,34 +146,117 @@ public enum LogLevelDetector {
     }
 }
 
-/// Fixed-capacity FIFO of log lines. Dropping the oldest lines is O(1) amortised.
+/// Byte limits for a log stream (ARCHITECTURE-MAC section 12.3.2). iOS keeps `.unlimited` (behaviour unchanged); the Mac uses
+/// `.desktop`: at most 50,000 lines and 16 MB of stored text per stream, and a line over 16 KB is truncated on ingest.
+public struct LogLimits: Sendable, Equatable {
+    /// Hard maximum of lines per stream (the capacity is clamped to it).
+    public var maxLines: Int
+    /// Lines longer than this are cut on ingest ("... N bytes truncated").
+    public var maxLineBytes: Int
+    /// Stored text per stream; the oldest lines are dropped to stay under it.
+    public var maxBufferBytes: Int
+    /// All streams together; beyond it the oldest lines of non-visible streams are dropped first. 0 = not enforced.
+    public var maxTotalBytes: Int
+
+    public init(maxLines: Int, maxLineBytes: Int, maxBufferBytes: Int, maxTotalBytes: Int) {
+        self.maxLines = maxLines; self.maxLineBytes = maxLineBytes; self.maxBufferBytes = maxBufferBytes; self.maxTotalBytes = maxTotalBytes
+    }
+
+    public static let unlimited = LogLimits(maxLines: 500_000, maxLineBytes: .max, maxBufferBytes: .max, maxTotalBytes: 0)
+    public static let desktop = LogLimits(maxLines: 50_000, maxLineBytes: 16 * 1024, maxBufferBytes: 16 * 1024 * 1024, maxTotalBytes: 64 * 1024 * 1024)
+
+    public static var platformDefault: LogLimits {
+        #if os(macOS)
+        .desktop
+        #else
+        .unlimited
+        #endif
+    }
+
+    public var isUnlimited: Bool { self == .unlimited }
+
+    /// Stored size of a line, in bytes of text.
+    public static func storedBytes(_ line: LogLine) -> Int {
+        line.message.utf8.count + (line.timestamp?.utf8.count ?? 0) + (line.source?.utf8.count ?? 0)
+    }
+
+    /// The line with its message cut to `maxLineBytes` (on a character boundary) and a suffix naming how much was dropped.
+    public func truncated(_ line: LogLine) -> LogLine {
+        guard maxLineBytes != .max else { return line }
+        let total = line.message.utf8.count
+        guard total > maxLineBytes else { return line }
+        var cut = line
+        var end = line.message.utf8.index(line.message.utf8.startIndex, offsetBy: maxLineBytes)
+        while end > line.message.utf8.startIndex, end.samePosition(in: line.message) == nil { end = line.message.utf8.index(before: end) }
+        cut.message = String(line.message[..<end.samePosition(in: line.message)!]) + " \u{2026} \(total - line.message.utf8.distance(from: line.message.utf8.startIndex, to: end)) bytes truncated"
+        return cut
+    }
+}
+
+/// Fixed-capacity FIFO of log lines. Dropping the oldest lines is O(1) amortised. With `limits` it also keeps the stored text under
+/// `maxBufferBytes`.
 public struct LogRingBuffer: Sendable {
     public let capacity: Int
+    public let limits: LogLimits
     private var storage: [LogLine] = []
     private var head = 0
     /// Total lines discarded because of the capacity.
     public private(set) var droppedCount = 0
+    /// Bytes of text currently stored (tracked only when `limits` are enforced).
+    public private(set) var byteCount = 0
 
-    public init(capacity: Int = 20_000) { self.capacity = max(1, capacity) }
+    public init(capacity: Int = 20_000, limits: LogLimits = .unlimited) {
+        self.limits = limits
+        self.capacity = min(max(1, capacity), limits.maxLines)
+    }
 
     public var count: Int { storage.count - head }
     public var isEmpty: Bool { count == 0 }
     public subscript(i: Int) -> LogLine { storage[head + i] }
     public var lines: ArraySlice<LogLine> { storage[head...] }
 
+    private var tracksBytes: Bool { limits.maxBufferBytes != .max }
+
     /// Appends; returns how many old lines were dropped by this call.
     @discardableResult
     public mutating func append(contentsOf new: [LogLine]) -> Int {
         storage.append(contentsOf: new)
+        if tracksBytes { byteCount += new.reduce(0) { $0 + LogLimits.storedBytes($1) } }
         var dropped = 0
-        if count > capacity {
-            dropped = count - capacity
-            head += dropped
-            droppedCount += dropped
-            if head > capacity { storage.removeFirst(head); head = 0 }
+        if count > capacity { dropped = count - capacity }
+        if tracksBytes, byteCount - bytes(ofFirst: dropped) > limits.maxBufferBytes {
+            // Drop whole lines from the front until the text fits (always keeping the newest line).
+            var extra = dropped
+            var total = byteCount - bytes(ofFirst: dropped)
+            while total > limits.maxBufferBytes, count - extra > 1 { total -= LogLimits.storedBytes(storage[head + extra]); extra += 1 }
+            dropped = extra
         }
+        if dropped > 0 { drop(dropped) }
         return dropped
     }
 
-    public mutating func removeAll() { storage.removeAll(); head = 0; droppedCount = 0 }
+    private func bytes(ofFirst n: Int) -> Int {
+        guard tracksBytes, n > 0 else { return 0 }
+        var t = 0
+        for i in 0..<min(n, count) { t += LogLimits.storedBytes(storage[head + i]) }
+        return t
+    }
+
+    private mutating func drop(_ n: Int) {
+        if tracksBytes { byteCount -= bytes(ofFirst: n) }
+        head += n
+        droppedCount += n
+        if head > capacity { storage.removeFirst(head); head = 0 }
+    }
+
+    /// Keeps only the last `n` lines (memory-pressure trimming). Returns how many were dropped.
+    @discardableResult
+    public mutating func trim(keepingLast n: Int) -> Int {
+        let extra = count - max(0, n)
+        guard extra > 0 else { return 0 }
+        drop(extra)
+        return extra
+    }
+
+    public mutating func removeAll() { storage.removeAll(); head = 0; droppedCount = 0; byteCount = 0 }
 }
