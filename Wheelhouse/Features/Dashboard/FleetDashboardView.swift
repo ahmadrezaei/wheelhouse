@@ -155,7 +155,7 @@ struct FleetDashboardView: View {
         return RouteLink(route: .cluster(cluster.id)) {
             ClusterCard(cluster: cluster, health: registry.health(for: cluster.id), version: session?.version?.gitVersion,
                         cpu: usage?.cpuFraction, memory: usage?.memFraction, sparkline: model.sparklines[cluster.id] ?? [],
-                        credentialsMissing: session?.credentialsMissing ?? false, onEdit: { editingCluster = cluster }) {
+                        credentialsMissing: session?.credentialsMissing ?? false, credentialsProblem: session?.credentialsProblem, onEdit: { editingCluster = cluster }) {
                 Task { await session?.refreshHealth() }
             }
         }

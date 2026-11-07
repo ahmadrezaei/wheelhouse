@@ -75,10 +75,11 @@ public struct ClusterCard: View {
     private let sparkline: [Double]
     private let onRetry: (() -> Void)?
     private let credentialsMissing: Bool
+    private let credentialsProblem: String?
     private let onEdit: (() -> Void)?
 
     public init(cluster: ClusterConfig, health: ClusterHealth?, version: String? = nil, cpu: Double? = nil, memory: Double? = nil,
-                sparkline: [Double] = [], credentialsMissing: Bool = false, onEdit: (() -> Void)? = nil, onRetry: (() -> Void)? = nil) {
+                sparkline: [Double] = [], credentialsMissing: Bool = false, credentialsProblem: String? = nil, onEdit: (() -> Void)? = nil, onRetry: (() -> Void)? = nil) {
         self.cluster = cluster
         self.health = health
         self.version = version
@@ -86,7 +87,8 @@ public struct ClusterCard: View {
         self.memory = memory
         self.sparkline = sparkline
         self.onRetry = onRetry
-        self.credentialsMissing = credentialsMissing
+        self.credentialsProblem = credentialsProblem
+        self.credentialsMissing = credentialsMissing || credentialsProblem != nil
         self.onEdit = onEdit
     }
 
@@ -117,7 +119,7 @@ public struct ClusterCard: View {
             HStack(alignment: .firstTextBaseline) {
                 if credentialsMissing {
                     Image(systemName: "key.slash").foregroundStyle(Palette.warningText).imageScale(.small)
-                    Text("Credentials not on this device").font(.footnote).foregroundStyle(Palette.warningText).lineLimit(2)
+                    Text(credentialsProblem ?? "Credentials not on this device").font(.footnote).foregroundStyle(Palette.warningText).lineLimit(2)
                     Spacer()
                     if let onEdit { Button("Edit Cluster", action: onEdit).buttonStyle(.bordered).controlSize(.small) }
                 } else {

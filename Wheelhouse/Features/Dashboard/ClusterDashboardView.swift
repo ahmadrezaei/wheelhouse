@@ -126,7 +126,7 @@ struct ClusterDashboardView: View {
 
         var body: some View {
             Group {
-                if session.credentialsMissing {
+                if session.credentialsMissing || session.credentialsProblem != nil {
                     credentialsMissing
                 } else if session.health?.isReachable == false {
                     unreachable
@@ -161,7 +161,7 @@ struct ClusterDashboardView: View {
             ScrollView {
                 VStack(spacing: Spacing.cardGap) {
                     ContextLine(cluster: session.config, namespace: nil, showsNamespace: false)
-                    EmptyState(.credentialsMissing(clusterName: session.config.name)) {
+                    EmptyState(session.credentialsProblem.map { .error(message: $0) } ?? .credentialsMissing(clusterName: session.config.name)) {
                         Button("Edit Cluster") { editing = session.config }.buttonStyle(.borderedProminent)
                     }
                     .frame(minHeight: 320)

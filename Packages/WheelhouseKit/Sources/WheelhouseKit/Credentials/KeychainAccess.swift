@@ -1,15 +1,37 @@
 import Foundation
 import Security
 
-public enum KeychainError: Error, Equatable, Sendable {
+public enum KeychainError: Error, Equatable, Sendable, LocalizedError {
     case status(OSStatus)
     case encoding
+    /// A stored item exists but this build cannot decode it (typically written by a newer app). It is left untouched.
+    case unreadable
+
+    public var errorDescription: String? {
+        switch self {
+        case .status(let s): "The Keychain returned an error (\(s))."
+        case .encoding: "The credentials could not be encoded."
+        case .unreadable: "These credentials were saved by a newer version of Wheelhouse. Update the app to change them."
+        }
+    }
 }
 
 /// Shared low-level keychain helpers.
 enum KeychainAccess {
     /// `<TeamPrefix>.com.ahmadrezaei.wheelhouse.shared`, discovered at runtime from the app's default access group so the same
     /// code works with any development team. nil when unsigned (unit tests, some simulator builds); items then use the default group.
+    static let defaultGroupSuffix = "com.ahmadrezaei.wheelhouse.shared"
+
+    /// Suffix of the shared access group. Optional Info.plist key `WHKeychainGroupSuffix` overrides it (a target that needs a
+    /// different group sets it); the iOS app, widget and share extension do not, so they keep ``defaultGroupSuffix``.
+    static func groupSuffix(in bundle: Bundle = .main) -> String {
+        guard let custom = bundle.object(forInfoDictionaryKey: "WHKeychainGroupSuffix") as? String else { return defaultGroupSuffix }
+        let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultGroupSuffix : trimmed
+    }
+
+    static func accessGroup(prefix: String, suffix: String) -> String { "\(prefix).\(suffix)" }
+
     static let sharedGroup: String? = {
         let probe: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword, kSecAttrService: "app.wheelhouse.probe", kSecAttrAccount: "probe",
@@ -28,16 +50,16 @@ enum KeychainAccess {
         }
         guard status == errSecSuccess, let attrs = result as? [String: Any], let group = attrs[kSecAttrAccessGroup as String] as? String,
               let dot = group.firstIndex(of: ".") else { return nil }
-        let prefix = group[..<dot]
-        return "\(prefix).com.ahmadrezaei.wheelhouse.shared"
+        return accessGroup(prefix: String(group[..<dot]), suffix: groupSuffix())
     }()
 
-    static func baseQuery(service: String, account: String) -> [CFString: Any] {
+    /// `accessGroup` defaults to ``sharedGroup`` (today's behaviour); nil leaves the item in the app's default group.
+    static func baseQuery(service: String, account: String, accessGroup: String? = KeychainAccess.sharedGroup) -> [CFString: Any] {
         var q: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account,
             kSecUseDataProtectionKeychain: true,
         ]
-        if let g = sharedGroup { q[kSecAttrAccessGroup] = g }
+        if let g = accessGroup { q[kSecAttrAccessGroup] = g }
         return q
     }
 
@@ -53,6 +75,11 @@ enum KeychainAccess {
         try backend.delete(service: service, account: account, synchronizable: !synchronizable)
     }
 
+    /// Every stored variant of the item (see ``KeychainBackend/readAll(service:account:)``).
+    static func readAll(service: String, account: String, in backend: any KeychainBackend = SystemKeychain()) throws -> [Data] {
+        try backend.readAll(service: service, account: account)
+    }
+
     /// Removes both variants.
     static func delete(service: String, account: String, in backend: any KeychainBackend = SystemKeychain()) throws {
         try backend.delete(service: service, account: account, synchronizable: nil)
@@ -63,15 +90,19 @@ enum KeychainAccess {
 protocol KeychainBackend: Sendable {
     /// Either variant (device-only preferred).
     func read(service: String, account: String) throws -> Data?
+    /// Every stored variant (device-only and synchronizable are queried separately); empty when there is no item.
+    func readAll(service: String, account: String) throws -> [Data]
     func upsert(_ data: Data, service: String, account: String, synchronizable: Bool) throws
     /// `synchronizable == nil` deletes both variants.
     func delete(service: String, account: String, synchronizable: Bool?) throws
 }
 
 struct SystemKeychain: KeychainBackend {
+    var accessGroup: String? = KeychainAccess.sharedGroup
+
     func read(service: String, account: String) throws -> Data? {
         for variant in [false, true] {
-            var q = KeychainAccess.baseQuery(service: service, account: account)
+            var q = KeychainAccess.baseQuery(service: service, account: account, accessGroup: accessGroup)
             q[kSecAttrSynchronizable] = variant
             q[kSecReturnData] = true
             q[kSecMatchLimit] = kSecMatchLimitOne
@@ -84,8 +115,24 @@ struct SystemKeychain: KeychainBackend {
         return nil
     }
 
+    func readAll(service: String, account: String) throws -> [Data] {
+        var out: [Data] = []
+        for variant in [false, true] {
+            var q = KeychainAccess.baseQuery(service: service, account: account, accessGroup: accessGroup)
+            q[kSecAttrSynchronizable] = variant
+            q[kSecReturnData] = true
+            q[kSecMatchLimit] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(q as CFDictionary, &result)
+            if status == errSecItemNotFound { continue }
+            guard status == errSecSuccess else { throw KeychainError.status(status) }
+            if let data = result as? Data { out.append(data) }
+        }
+        return out
+    }
+
     func upsert(_ data: Data, service: String, account: String, synchronizable: Bool) throws {
-        var q = KeychainAccess.baseQuery(service: service, account: account)
+        var q = KeychainAccess.baseQuery(service: service, account: account, accessGroup: accessGroup)
         q[kSecAttrSynchronizable] = synchronizable
         // Synchronizable items cannot be ThisDeviceOnly. AfterFirstUnlock is required for background refresh.
         let accessible = synchronizable ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -100,7 +147,7 @@ struct SystemKeychain: KeychainBackend {
     }
 
     func delete(service: String, account: String, synchronizable: Bool?) throws {
-        var q = KeychainAccess.baseQuery(service: service, account: account)
+        var q = KeychainAccess.baseQuery(service: service, account: account, accessGroup: accessGroup)
         q[kSecAttrSynchronizable] = synchronizable ?? kSecAttrSynchronizableAny
         let status = SecItemDelete(q as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
@@ -117,6 +164,9 @@ final class InMemoryKeychain: KeychainBackend, @unchecked Sendable {
 
     func read(service: String, account: String) throws -> Data? {
         lock.withLock { items[Key(service: service, account: account, synchronizable: false)] ?? items[Key(service: service, account: account, synchronizable: true)] }
+    }
+    func readAll(service: String, account: String) throws -> [Data] {
+        lock.withLock { [false, true].compactMap { items[Key(service: service, account: account, synchronizable: $0)] } }
     }
     func upsert(_ data: Data, service: String, account: String, synchronizable: Bool) throws {
         try lock.withLock {

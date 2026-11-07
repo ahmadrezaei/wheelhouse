@@ -51,6 +51,9 @@ public final class ClusterSession: Identifiable {
     /// True when the cluster needs credentials that are not stored on this device (see `ClusterSecrets.isMissingCredentials`).
     /// Such sessions are never cached by the registry; UI shows "Credentials not on this device" instead of unreachable/unauthorized.
     public internal(set) var credentialsMissing = false
+    /// Set when the stored credentials exist but were written by a newer app and cannot be read here (`KeychainError.unreadable`).
+    /// UI shows this message instead of "unauthorized".
+    public internal(set) var credentialsProblem: String?
     public var status: HealthStatus { health?.status ?? .unknown }
     public var isReadOnly: Bool { config.readOnly }
     /// Built once (with the Prometheus bearer token, if the user stored one) and rebuilt by ``update(config:)``.

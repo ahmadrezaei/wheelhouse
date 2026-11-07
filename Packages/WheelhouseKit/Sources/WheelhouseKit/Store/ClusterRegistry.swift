@@ -112,12 +112,16 @@ public final class ClusterRegistry {
         guard let config = config(for: id) else { return nil }
         var credentialsUsable = true
         var missing = false
+        var problem: String?
         let secrets: ClusterSecrets
-        do { secrets = try credentials.load(clusterID: id) } catch { secrets = ClusterSecrets(); credentialsUsable = false }
+        do { secrets = try credentials.load(clusterID: id) } catch KeychainError.unreadable {
+            secrets = ClusterSecrets(); credentialsUsable = false; problem = KeychainError.unreadable.errorDescription
+        } catch { secrets = ClusterSecrets(); credentialsUsable = false }
         if !config.isDemo && credentialsUsable && secrets.isMissingCredentials(for: config.authKind) { missing = true; credentialsUsable = false }
         if secrets.isEmpty && config.authKind != .none && !config.isDemo { credentialsUsable = false }
         let s = ClusterSession(config: config, client: clientFactory(config, secrets))
         s.credentialsMissing = missing
+        s.credentialsProblem = problem
         if credentialsUsable { sessions[id] = s } else { transientSessions[id] = (s, Date()) }
         return s
     }
@@ -251,6 +255,7 @@ public final class ClusterRegistry {
         probe.name = old.name; probe.color = old.color; probe.defaultNamespace = old.defaultNamespace
         probe.pinnedNamespaces = old.pinnedNamespaces; probe.provider = old.provider; probe.region = old.region
         probe.prometheusURL = old.prometheusURL; probe.iCloudSync = old.iCloudSync; probe.modifiedAt = old.modifiedAt
+        probe.unknownColorRaw = old.unknownColorRaw   // cosmetic: never a reason to rebuild the client
         return probe != old
     }
 

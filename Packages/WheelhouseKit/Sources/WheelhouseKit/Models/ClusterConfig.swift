@@ -43,6 +43,15 @@ public enum ClusterColor: String, Codable, CaseIterable, Sendable, Identifiable 
     public var id: String { rawValue }
 }
 
+/// Coding key for arbitrary (unknown) JSON object keys.
+struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+    init(_ s: String) { stringValue = s }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
+}
+
 public struct ClusterConfig: Identifiable, Codable, Hashable, Sendable {
     public var id: ClusterID
     public var name: String
@@ -60,12 +69,18 @@ public struct ClusterConfig: Identifiable, Codable, Hashable, Sendable {
     public var tlsServerName: String?
     public var defaultNamespace: String?
     public var pinnedNamespaces: [String]
-    public var color: ClusterColor
+    public var color: ClusterColor { didSet { if color != oldValue { unknownColorRaw = nil } } }
     public var provider: String?
     public var region: String?
     public var isDemo: Bool
     public var createdAt: Date
     public var modifiedAt: Date
+    /// Keys this build does not know (written by a newer app). Ignored when reading, written back unchanged when the config is
+    /// re-saved, so an older device never strips data another device added.
+    public internal(set) var unknownFields: [String: JSONValue] = [:]
+    /// Raw `color` string when it is a value this build does not know (cosmetic only, shown as gray). Written back unchanged until
+    /// the user picks a colour here. Unknown values of any other enum are NOT tolerated (see `init(from:)`).
+    var unknownColorRaw: String?
 
     public init(id: ClusterID = UUID().uuidString.lowercased(), name: String, server: URL,
                 authKind: ClusterAuthKind = .token, environment: ClusterEnvironment = .development,
@@ -94,6 +109,71 @@ public struct ClusterConfig: Identifiable, Codable, Hashable, Sendable {
         self.modifiedAt = modifiedAt
     }
 
+    // MARK: Codable (tolerant of newer writers)
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, name, server, authKind, environment, readOnly, allowExecInReadOnly, iCloudSync, skipTLSVerify, prometheusURL
+        case tlsServerName, defaultNamespace, pinnedNamespaces, color, provider, region, isDemo, createdAt, modifiedAt
+    }
+
+    /// Compatibility policy: unknown KEYS are ignored on read and kept in ``unknownFields``. An unknown raw value of a
+    /// safety-relevant enum (`environment`, `authKind`) deliberately FAILS the decode instead of being mapped to a guess: the
+    /// caller (`ClusterMetadataStore`) then keeps the whole element as raw JSON, hidden on this device and written back untouched,
+    /// so a future environment can never be treated as less safe than it is. Only `color` (cosmetic) falls back (to gray).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(ClusterID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        server = try c.decode(URL.self, forKey: .server)
+        authKind = try c.decode(ClusterAuthKind.self, forKey: .authKind)
+        environment = try c.decode(ClusterEnvironment.self, forKey: .environment)
+        readOnly = try c.decode(Bool.self, forKey: .readOnly)
+        allowExecInReadOnly = try c.decode(Bool.self, forKey: .allowExecInReadOnly)
+        iCloudSync = try c.decode(Bool.self, forKey: .iCloudSync)
+        skipTLSVerify = try c.decode(Bool.self, forKey: .skipTLSVerify)
+        prometheusURL = try c.decodeIfPresent(URL.self, forKey: .prometheusURL)
+        tlsServerName = try c.decodeIfPresent(String.self, forKey: .tlsServerName)
+        defaultNamespace = try c.decodeIfPresent(String.self, forKey: .defaultNamespace)
+        pinnedNamespaces = try c.decode([String].self, forKey: .pinnedNamespaces)
+        let rawColor = try c.decode(String.self, forKey: .color)
+        if let known = ClusterColor(rawValue: rawColor) { color = known } else { color = .gray; unknownColorRaw = rawColor }
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        region = try c.decodeIfPresent(String.self, forKey: .region)
+        isDemo = try c.decode(Bool.self, forKey: .isDemo)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        let all = try decoder.container(keyedBy: DynamicCodingKey.self)
+        let known = Set(CodingKeys.allCases.map(\.stringValue))
+        for key in all.allKeys where !known.contains(key.stringValue) {
+            unknownFields[key.stringValue] = try all.decode(JSONValue.self, forKey: key)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var extra = encoder.container(keyedBy: DynamicCodingKey.self)
+        for (k, v) in unknownFields { try extra.encode(v, forKey: DynamicCodingKey(k)) }
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(server, forKey: .server)
+        try c.encode(authKind, forKey: .authKind)
+        try c.encode(environment, forKey: .environment)
+        try c.encode(readOnly, forKey: .readOnly)
+        try c.encode(allowExecInReadOnly, forKey: .allowExecInReadOnly)
+        try c.encode(iCloudSync, forKey: .iCloudSync)
+        try c.encode(skipTLSVerify, forKey: .skipTLSVerify)
+        try c.encodeIfPresent(prometheusURL, forKey: .prometheusURL)
+        try c.encodeIfPresent(tlsServerName, forKey: .tlsServerName)
+        try c.encodeIfPresent(defaultNamespace, forKey: .defaultNamespace)
+        try c.encode(pinnedNamespaces, forKey: .pinnedNamespaces)
+        try c.encode(unknownColorRaw ?? color.rawValue, forKey: .color)
+        try c.encodeIfPresent(provider, forKey: .provider)
+        try c.encodeIfPresent(region, forKey: .region)
+        try c.encode(isDemo, forKey: .isDemo)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(modifiedAt, forKey: .modifiedAt)
+    }
+
     public var isProduction: Bool { environment == .production }
 
     /// The effective skip-TLS flag: never true for production-tagged clusters.
@@ -117,6 +197,8 @@ public struct ClusterSecrets: Codable, Hashable, Sendable {
     public var clientCertificatePEM: String?
     public var clientKeyPEM: String?
     public var caPEM: String?
+    /// Keys written by a newer app: ignored here, written back unchanged on re-save.
+    public internal(set) var unknownFields: [String: JSONValue] = [:]
     public init(token: String? = nil, clientCertificatePEM: String? = nil, clientKeyPEM: String? = nil, caPEM: String? = nil) {
         self.token = token
         self.clientCertificatePEM = clientCertificatePEM
@@ -124,4 +206,29 @@ public struct ClusterSecrets: Codable, Hashable, Sendable {
         self.caPEM = caPEM
     }
     public var isEmpty: Bool { token == nil && clientCertificatePEM == nil && clientKeyPEM == nil && caPEM == nil }
+
+    private enum CodingKeys: String, CodingKey, CaseIterable { case token, clientCertificatePEM, clientKeyPEM, caPEM }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token = try c.decodeIfPresent(String.self, forKey: .token)
+        clientCertificatePEM = try c.decodeIfPresent(String.self, forKey: .clientCertificatePEM)
+        clientKeyPEM = try c.decodeIfPresent(String.self, forKey: .clientKeyPEM)
+        caPEM = try c.decodeIfPresent(String.self, forKey: .caPEM)
+        let all = try decoder.container(keyedBy: DynamicCodingKey.self)
+        let known = Set(CodingKeys.allCases.map(\.stringValue))
+        for key in all.allKeys where !known.contains(key.stringValue) {
+            unknownFields[key.stringValue] = try all.decode(JSONValue.self, forKey: key)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var extra = encoder.container(keyedBy: DynamicCodingKey.self)
+        for (k, v) in unknownFields { try extra.encode(v, forKey: DynamicCodingKey(k)) }
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(token, forKey: .token)
+        try c.encodeIfPresent(clientCertificatePEM, forKey: .clientCertificatePEM)
+        try c.encodeIfPresent(clientKeyPEM, forKey: .clientKeyPEM)
+        try c.encodeIfPresent(caPEM, forKey: .caPEM)
+    }
 }

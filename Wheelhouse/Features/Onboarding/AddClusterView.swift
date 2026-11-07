@@ -251,9 +251,12 @@ struct AddClusterView: View {
         if config.violatesHTTPProductionRule { saveError = ClusterDraft.Problem.httpNotAllowedForProduction.message; return }
         let isFirstRealCluster = !isEditing && (registry.isDemoMode || registry.clusters.isEmpty)
         do {
-            let secrets = draft.makeSecrets(existing: existingSecrets())
+            let existing = existingSecrets()
+            let secrets = draft.makeSecrets(existing: existing)
             if isEditing {
-                try registry.update(config, secrets: secrets)
+                // Unchanged secrets are not re-saved: a cluster whose credentials this build cannot read stays editable
+                // (rename, safety flags) and its stored credentials are never touched.
+                try registry.update(config, secrets: secrets == existing ? nil : secrets)
             } else {
                 if registry.isDemoMode { preferences.demoMode = false; registry.exitDemoMode() }
                 try registry.add(config, secrets: secrets)

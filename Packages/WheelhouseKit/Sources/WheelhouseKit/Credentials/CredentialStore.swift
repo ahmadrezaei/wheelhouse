@@ -18,15 +18,26 @@ public struct KeychainCredentialStore: CredentialStoring {
 
     public func load(clusterID: ClusterID) throws -> ClusterSecrets {
         guard let data = try KeychainAccess.read(service: Self.service, account: clusterID, in: backend) else { return ClusterSecrets() }
-        return try JSONDecoder().decode(ClusterSecrets.self, from: data)
+        do { return try JSONDecoder().decode(ClusterSecrets.self, from: data) } catch { throw KeychainError.unreadable }
+    }
+
+    /// True when ANY variant (device-only or synchronizable) holds an item this build cannot decode (written by a newer app).
+    /// Such an item is never overwritten or deleted.
+    private func existingItemIsUnreadable(_ clusterID: ClusterID) throws -> Bool {
+        try KeychainAccess.readAll(service: Self.service, account: clusterID, in: backend)
+            .contains { (try? JSONDecoder().decode(ClusterSecrets.self, from: $0)) == nil }
     }
 
     public func save(_ secrets: ClusterSecrets, clusterID: ClusterID, synchronizable: Bool) throws {
+        if try existingItemIsUnreadable(clusterID) { throw KeychainError.unreadable }
         try KeychainAccess.write(try JSONEncoder().encode(secrets), service: Self.service, account: clusterID, synchronizable: synchronizable, in: backend)
     }
 
     public func delete(clusterID: ClusterID) throws {
-        try KeychainAccess.delete(service: Self.service, account: clusterID, in: backend)
+        // An unreadable item may hold data a newer app understands: leave it alone (the cluster itself is still removed).
+        if try !existingItemIsUnreadable(clusterID) {
+            try KeychainAccess.delete(service: Self.service, account: clusterID, in: backend)
+        }
         ClientIdentityBuilder.remove(label: ClientIdentityBuilder.label(for: clusterID))
     }
 }
