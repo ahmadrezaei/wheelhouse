@@ -23,7 +23,7 @@ struct MacCommands: Commands {
     var body: some Commands {
         // Wheelhouse
         CommandGroup(after: .appInfo) {
-            Button("Check for Updates…") {}.disabled(true)
+            CheckForUpdatesCommand()
         }
         CommandGroup(after: .appSettings) {
             Button("Lock Wheelhouse") { env.lock.lockNow() }.disabled(!env.lock.canLock)

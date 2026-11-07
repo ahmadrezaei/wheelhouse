@@ -1636,6 +1636,7 @@ Wave 6:                          M14 (with P2)
   - M6a owns `LiveKubeClient+Metadata.swift` (the live `listMetadata`);
   - M9 owns `LiveKubeClient+Proxy.swift` (the live `proxyRequest`);
   - M1a owns `ConfirmRequest.origin`, `ChangeOrigin` and `MutationPolicy`; M5a adds the Gangway classes in a new file `MutationPolicy+Gangway.swift`; M11a only fills the `OriginBadge` visuals.
+  - **Toolbox tool families (M11a).** The Helm, GitOps, Survey and schema tools plug into `ClusterToolbox` through `ToolboxExtensionProviding` (`Toolbox/ToolboxExtensionProviding.swift`, one conforming type per family, passed in `ClusterToolbox(extensions:)`). M6a, M9, M8a and M7 each add a new file in `Toolbox/` (for example `HelmToolboxProvider.swift`) and the app passes it at construction; they do not edit `ClusterToolbox.swift`. Until a provider exists the tool answers `unavailable`. A provider runs only after the permission gate and gets read-only access (`ReadOnlyKubeAccess`) and the `Redactor`.
 - **Import** (`WheelhouseMac/Import/`) belongs to M1b; M3 plugs in through `MooringsSourceAdding` without editing it.
 - **Fixtures:** each milestone adds its own `scripts/testcluster-fixtures.d/<milestone>.sh`; the preamble belongs to M1a.
 - **Perf files:** each milestone adds its own `perf/baselines/<milestone>.json`; `perf/budgets.json` changes only in P1 and P2.

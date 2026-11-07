@@ -5,10 +5,18 @@ import Synchronization
 /// REST client for a real cluster. One instance per cluster; owns its `URLSession` and TLS delegate.
 public actor LiveKubeClient: KubeClientProtocol {
     public nonisolated let config: ClusterConfig
-    private nonisolated let session: URLSession
+    nonisolated let session: URLSession
     nonisolated let delegate: ClusterSessionDelegate
-    private nonisolated let token: String?
-    private nonisolated let identity: LazyClientIdentity?
+    /// Where bearer tokens come from (`LiveKubeClient+TokenSource.swift`). iOS always uses `.static`.
+    nonisolated let tokenSource: BearerTokenSource
+    /// Desktop gate, checked again for every request (connect time) and on redirects. nil on iOS.
+    nonisolated let hostAllowed: (@Sendable (URL) -> Bool)?
+    /// The client-certificate identity. Fixed at init for stored credentials; replaced once per credential for a dynamic source.
+    nonisolated let identityBox: IdentityHolder
+    /// The token a dynamic source produced for the synchronous WebSocket builders (set by `prepareStreaming()`).
+    nonisolated let streamingToken = Mutex<String?>(nil)
+    /// When a dynamic credential was last invalidated after a 401 (rate limit: once per 10 s).
+    nonisolated let lastUnauthorizedInvalidation = Mutex<Date?>(nil)
     private nonisolated let anchors: [SecCertificate]
     private nonisolated let hasConnected = Mutex(false)
     private nonisolated let auxiliary = Mutex<URLSession?>(nil)
@@ -17,13 +25,21 @@ public actor LiveKubeClient: KubeClientProtocol {
 
     /// `tlsServerName` is the kubeconfig `tls-server-name`: the name the server certificate must be valid for.
     public init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil) {
-        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, protocolClasses: nil)
+        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, tokenSource: nil, protocolClasses: nil)
+    }
+
+    /// Desktop: `tokenSource` is `.dynamic` for exec credential plugins. Nil keeps the stored token (`.static`).
+    public init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource?,
+                hostAllowed: (@Sendable (URL) -> Bool)? = nil) {
+        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, tokenSource: tokenSource, hostAllowed: hostAllowed, protocolClasses: nil)
     }
 
     /// `protocolClasses` lets tests install a `URLProtocol` that captures outgoing requests.
-    init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, protocolClasses: [AnyClass]?) {
+    init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource? = nil,
+         hostAllowed: (@Sendable (URL) -> Bool)? = nil, protocolClasses: [AnyClass]?) {
         self.config = config
-        self.token = secrets.token?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.hostAllowed = hostAllowed
+        self.tokenSource = tokenSource ?? .static(secrets.token?.trimmingCharacters(in: .whitespacesAndNewlines))
 
         let anchors = secrets.caPEM.map { PEM.decode($0).filter { $0.label == "CERTIFICATE" }.compactMap { SecCertificateCreateWithData(nil, $0.der as CFData) } } ?? []
         var lazyIdentity: LazyClientIdentity?
@@ -32,18 +48,22 @@ public actor LiveKubeClient: KubeClientProtocol {
             // The keychain work (SecItemAdd, identity query) happens off the main thread: prewarmed here, awaited on first use.
             lazyIdentity = LazyClientIdentity { try ClientIdentityBuilder.build(certificatePEM: cert, keyPEM: key, label: ClientIdentityBuilder.label(for: id)) }
         }
-        self.identity = lazyIdentity
+        let box = IdentityHolder(lazyIdentity)
+        self.identityBox = box
         self.anchors = anchors
         // Production clusters can never skip verification (see ClusterConfig.allowsInsecureTLS).
-        let provider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = lazyIdentity.map { li in
-            { @Sendable in
-                let r = li.resolve()
-                if let built = r.built { return .success(built) }
-                return .failure(r.error ?? .identityNotFound)
-            }
-        }
+        // A dynamic source may supply the client certificate later, so the provider is installed for it too.
+        var wantsIdentity = lazyIdentity != nil
+        if case .dynamic = self.tokenSource { wantsIdentity = true }
+        let provider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = wantsIdentity ? { @Sendable in
+            guard let li = box.withLock({ $0 }) else { return .failure(.identityNotFound) }
+            let r = li.resolve()
+            if let built = r.built { return .success(built) }
+            return .failure(r.error ?? .identityNotFound)
+        } : nil
         let delegate = ClusterSessionDelegate(anchors: anchors, insecure: config.allowsInsecureTLS, serverName: tlsServerName,
                                               identityProvider: provider)
+        delegate.hostAllowed = hostAllowed
         self.delegate = delegate
         let sc = URLSessionConfiguration.ephemeral
         sc.timeoutIntervalForRequest = 30
@@ -91,10 +111,13 @@ public actor LiveKubeClient: KubeClientProtocol {
     /// Refuses cleartext HTTP for production clusters (the bearer token would travel unencrypted) and surfaces a client
     /// certificate that could not be loaded.
     private nonisolated func guardTransport() throws {
+        if let hostAllowed, !hostAllowed(config.server) {
+            throw KubeError.unreachable(cause: "Blocked in development builds: \(config.host) is not a test cluster.")
+        }
         if config.isProduction, config.server.scheme?.lowercased() == "http" {
             throw KubeError.unreachable(cause: "Plain HTTP is not allowed for production clusters. Use an https:// API server URL.")
         }
-        if let identity, let error = identity.resolve().error {
+        if let identity = identityBox.withLock({ $0 }), let error = identity.resolve().error {
             throw KubeError.unauthorized(message: "Client certificate could not be loaded (\(error))")
         }
     }
@@ -122,7 +145,8 @@ public actor LiveKubeClient: KubeClientProtocol {
         var req = URLRequest(url: try makeURL(path: path, query: query), timeoutInterval: timeout)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token, !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        // A dynamic source adds its header in `authorize(_:)`, right before the request is sent.
+        if case .static(let token) = tokenSource, let token, !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         req.httpBody = body
         return req
@@ -173,7 +197,12 @@ public actor LiveKubeClient: KubeClientProtocol {
         }
     }
 
-    private nonisolated func perform(_ request: URLRequest) async throws -> Data {
+    // internal: LiveKubeClient+Metadata.swift (M6a) reuses it. Every send goes through withAuthorization (M3).
+    nonisolated func perform(_ request: URLRequest) async throws -> Data {
+        try await withAuthorization(request) { try await performAuthorized($0) }
+    }
+
+    private nonisolated func performAuthorized(_ request: URLRequest) async throws -> Data {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
@@ -307,11 +336,12 @@ public actor LiveKubeClient: KubeClientProtocol {
                     if let v = options.labelSelector, !v.isEmpty { q.append(("labelSelector", v)) }
                     if let v = options.fieldSelector, !v.isEmpty { q.append(("fieldSelector", v)) }
                     let request = try makeRequest(path: kind.collectionPath(namespace: namespace), query: q, timeout: TimeInterval(options.timeoutSeconds + 30))
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let (bytes, response) = try await session.bytes(for: try await authorize(request))
                     guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
                     gotResponse = true
                     hasConnected.withLock { $0 = true }
                     guard (200..<300).contains(http.statusCode) else {
+                        if http.statusCode == 401, shouldRetryAfterUnauthorized() { await invalidateDynamicCredential() }
                         var body = Data()
                         for try await b in bytes { body.append(b); if body.count > 8192 { break } }
                         throw httpError(code: http.statusCode, body: body)
@@ -409,11 +439,12 @@ public actor LiveKubeClient: KubeClientProtocol {
                     var request = try makeRequest(path: ResourceKind.pod.itemPath(name: pod, namespace: namespace, subresource: "log"), query: q,
                                                   timeout: options.follow ? 3600 : 60)
                     request.setValue("text/plain, */*", forHTTPHeaderField: "Accept")
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let (bytes, response) = try await session.bytes(for: try await authorize(request))
                     guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
                     gotResponse = true
                     hasConnected.withLock { $0 = true }
                     guard (200..<300).contains(http.statusCode) else {
+                        if http.statusCode == 401, shouldRetryAfterUnauthorized() { await invalidateDynamicCredential() }
                         var body = Data()
                         for try await b in bytes { body.append(b); if body.count > 8192 { break } }
                         throw httpError(code: http.statusCode, body: body)
@@ -458,7 +489,16 @@ public actor LiveKubeClient: KubeClientProtocol {
         try guardTransport()
         // Long timeout: the shell or tunnel may sit idle (the socket sends keepalive pings every 30 s).
         var request = URLRequest(url: try makeURL(path: path, query: query, websocket: true), timeoutInterval: 3600)
-        if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        switch tokenSource {
+        case .static(let token): if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        case .dynamic:
+            // Filled by `prepareStreaming()`, which `ExecSession.start` and the port-forward pump await first.
+            guard let token = streamingToken.withLock({ $0 }) else {
+                if identityBox.withLock({ $0 }) != nil { break }
+                throw KubeError.unauthorized(message: "The credential is not ready yet. Try again.")
+            }
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue(protocols.joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
         let url = request.url
         let delegate = delegate
@@ -489,8 +529,13 @@ final class LazyClientIdentity: Sendable {
     private enum State: Sendable { case pending, built(ClientIdentityBuilder.Result), failed(ClientIdentityError) }
     private let state = Mutex(State.pending)
     private let build: @Sendable () throws -> ClientIdentityBuilder.Result
+    /// Keychain label of the identity (set for identities that rotate; nil for the per-cluster stored one).
+    let label: String?
 
-    init(build: @escaping @Sendable () throws -> ClientIdentityBuilder.Result) { self.build = build }
+    init(label: String? = nil, build: @escaping @Sendable () throws -> ClientIdentityBuilder.Result) {
+        self.label = label
+        self.build = build
+    }
 
     func resolve() -> (built: ClientIdentityBuilder.Result?, error: ClientIdentityError?) {
         state.withLock { state in

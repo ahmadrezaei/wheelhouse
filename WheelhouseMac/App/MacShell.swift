@@ -84,6 +84,7 @@ struct MacShell: View {
         .onChange(of: env.lock.isLocked) { _, locked in
             if locked {
                 router.sheet = nil
+                ChartRoomMemory.scrub()
                 env.importer.dismiss()
             } else {
                 if let url = pendingURL { pendingURL = nil; handle(url) }

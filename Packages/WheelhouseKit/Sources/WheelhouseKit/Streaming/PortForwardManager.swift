@@ -111,7 +111,7 @@ public actor PortForwardManager {
         entry.resolved = (endpoint, Date())
         let (listener, port) = try await bind(entry)
         // The cluster may have been removed or edited while we were resolving / binding.
-        guard clusterEpoch[clusterID, default: 0] == epoch else { listener.cancel(); throw CancellationError() }
+        guard clusterEpoch[clusterID, default: 0] == epoch else { Self.discard(listener); throw CancellationError() }
         entry.listener = listener
         entry.localPort = port
         entries[entry.id] = entry
@@ -164,8 +164,8 @@ public actor PortForwardManager {
             do {
                 let (listener, port) = try await bind(e)
                 // `stop()`, removal or a new `pauseAll()` may have run while we awaited: don't resurrect the forward.
-                guard entries[e.id] === e, e.state == .reconnecting else { listener.cancel(); continue }
-                e.listener?.cancel()
+                guard entries[e.id] === e, e.state == .reconnecting else { Self.discard(listener); continue }
+                if let old = e.listener { Self.discard(old) }
                 e.listener = listener
                 e.localPort = port
                 e.state = .active
@@ -180,6 +180,13 @@ public actor PortForwardManager {
     }
 
     public func info(id: UUID) -> PortForwardInfo? { entries[id].map(info(for:)) }
+
+    /// Cancels a listener after clearing its handlers, as `tearDown` does, so a late state callback cannot revive it.
+    private static func discard(_ listener: NWListener) {
+        listener.stateUpdateHandler = nil
+        listener.newConnectionHandler = nil
+        listener.cancel()
+    }
 
     private func tearDown(_ e: Entry) {
         e.retryTask?.cancel(); e.retryTask = nil
@@ -257,8 +264,8 @@ public actor PortForwardManager {
         guard let e = entries[id], e.state == .reconnecting else { return true }
         do {
             let (listener, port) = try await bind(e)
-            guard entries[id] === e, e.state == .reconnecting else { listener.cancel(); return true }
-            e.listener?.cancel()
+            guard entries[id] === e, e.state == .reconnecting else { Self.discard(listener); return true }
+            if let old = e.listener { Self.discard(old) }
             e.listener = listener
             e.localPort = port
             e.state = .active
@@ -320,6 +327,7 @@ enum ForwardPump {
         for attempt in 0..<2 {
             do {
                 let endpoint = try await resolve(attempt > 0)
+                try await client.prepareStreaming()
                 let ws = try client.portForwardWebSocket(namespace: target.namespace, pod: endpoint.pod, ports: [endpoint.port])
                 ws.resume()
                 let result = await tunnel(conn: conn, ws: ws, port: endpoint.port, counters: counters)

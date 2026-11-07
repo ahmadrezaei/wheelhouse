@@ -155,8 +155,12 @@ public actor ExecSession {
 
     /// Opens the socket and starts reading. Throws immediately for errors known before connecting
     /// (read-only cluster, demo mode, invalid credentials); connection failures arrive as `.closed(error:)`.
-    public func start(cols: Int = 80, rows: Int = 24) throws {
+    public func start(cols: Int = 80, rows: Int = 24) async throws {
         guard socket == nil else { return }
+        // A dynamic credential (exec plugin) is resolved before the synchronous socket builder runs. No-op for stored tokens.
+        try await client.prepareStreaming()
+        // The actor was released at the await: another start or a close may have run meanwhile.
+        guard socket == nil, !finished else { return }
         let ws = try client.execWebSocket(namespace: namespace, pod: pod, options: options)
         socket = ws
         ws.resume()

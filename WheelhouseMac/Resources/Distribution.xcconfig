@@ -1,4 +1,4 @@
 // Owned by M2 (Distribution). Applied to every configuration of the WheelhouseMac target through project.yml `configFiles`, so M2 never
 // edits project.yml: the Sparkle EdDSA public key (from `generate_keys`, ARCHITECTURE-MAC section 2.5) goes here.
 // Debug and Profile never start the updater whatever this says (the Sparkle feed is empty and the safety gate is on).
-WH_SU_PUBLIC_ED_KEY =
+WH_SU_PUBLIC_ED_KEY = DCEyBc83VWcClG/hRf6+9TgkfkxaH36zXjcnEPKYpng=

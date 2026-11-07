@@ -269,6 +269,8 @@ targets:
         SUPublicEDKey: $(WH_SU_PUBLIC_ED_KEY)                # set by M2 from generate_keys
         SUEnableAutomaticChecks: $(WH_SU_AUTO_CHECKS)        # NO in Debug and Profile
         SUScheduledCheckInterval: 86400
+        SURequireSignedFeed: true                            # the appcast and its notes must carry an EdDSA signature
+        SUVerifyUpdateBeforeExtraction: true                 # verify the download's signature before unpacking it
         SUShowReleaseNotes: false                            # no WebView for release notes (§12.3.4); the alert links to the notes page
         WHKeychainGroupSuffix: $(WH_KEYCHAIN_GROUP_SUFFIX)                   # shared group, read by KeychainAccess (§1.5)
         WHKeychainPrivateGroupSuffix: $(WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX)    # Mac-private group (§1.8)

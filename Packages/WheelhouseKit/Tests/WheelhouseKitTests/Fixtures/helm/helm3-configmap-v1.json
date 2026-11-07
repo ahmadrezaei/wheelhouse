@@ -1,0 +1,20 @@
+{
+ "apiVersion": "v1",
+ "data": {
+  "release": "H4sIAAAAAAAC/7xWUXObuhL+K4zuK3YAx27MTB9qnxqTOsnUTsBw3ekIIYNsIWmQAONO/vsdYTvJnSade+7DeUOrXenbb5dP+wswWGDggibvoQKYgLAtB+4vsCWlVD9TLChvcQpc4FjOqGfbPevTo3XtXo9ca9i/sa3hTc+6cS0LmIDCvxuRYopV59stJCqJUIQz4AKfSQUpNRAvhHYCJpAKqkoCF7zcYQLGFZYn+FtyUFWJjS4Tg0iDnI7AqUGYthYj2ENF31hhbORKCeleXeED1Of3ES+uUo7khoFnE6AclkqzUGAFU6ig/n4l6nwTMEGNS3nCa/XtvvVbFmGOMc15JbEx1WcaS84L4zV+j9uGl6kE7r9B8+ILTHBx+WGCAhKmIGG41G4vOF6PBs8/TAAFCV7A1A7QFvFqsc/wVCt0MBSCEgQ7lM8moBztgcsqSk2gcCEo7Fh9vezFeHX/8Ph11VcHpXPtmAGpk6m4oNfpPGjj1eQTbr9UT0Ug43B2jFfDhyi0qT+3x75Hj75HKzRY5ol3oPF0IhLyvj8aTPLIecq2a6vyZ/c0Xk14Ol826MjrhRNcR6HdJN5TFTljtXCWdTS4+waezXcAI862JCug6LewoK+oo/VEBEXQIofWyY5n6e7rN+jQKv6LZ9+dcRUXlD2Gs2Za2DT1ZvtovcwfMp753jBPwqeRP1ef/OlwFYcHGq3v6WLf2TViFZ3jp8UyT72voyn5kqEiaBKP7qL13SU2jMKDHa/vqjd72XY6OaTh2IpXk/H2u76PqihM6cOZqaCYyTQMjoviZF+wW4q88RGulzVie33/CA9ktqBxnswDitqhSMIZi1dDKwqR3v+AqZzz/T9IEvTGNWy076xKirEVrZcicYbHLn76JfOLnCaeVSEnqzvf1h/580mNBt8VDIfH1JvJZHpoksG9tVgHTTy4zWPv6VsXO73lcXhQC3bPF05eJ45UqROI2Mktf8czf/dEdFH86RcCvUAmq+ERTsc8ccblIlzSxAuseGU3iXMQ0WBPHsiExGFco+LphLu1d6gI8tSjdZKJt3nXqafzvs2TjH9+n2iJy5og/De4fnKCNi3oLv4uVLxe5rE3s6JH/s2fTir9uzyQj3+7xfreiRpxRF6w6zDO73V+u9Qbtxeuo/Wk+dMZXQN74zad343OvKmuFuz77818wboaNsng1uris8+fO5mqIa20tPzSgvXI95idxB9WKtdWAaXUiniyVhKXZ/ZSXHAtVaSAGdaeJRZcEsXLFrigxBmRqmz7+xvZJ/xKwJOMKpgBFwz6tqVjS9ypngSubYJzEbpLuVb7G+vGen42gUQ5LnRBcOvvkXPP49DO/R0ncL600F9af8Qxca7VZW9RjNu4He9RMSvSqdXct+Nj5OQ0Cb/ufNKQdE6beOWP/GJMYBHs0qkvfTZpk8GEIrYU8fqOPDBJ3qhAt36No1XqBSxe+2QxvdXNL5J1oPwdb7brM7n6yaCaWa3iz/rVYGSLpQIu6PV6G/YvY8WrEmHXeH3Arj5SyQ17fU5co7Y3bE9Y6hrTzusOig27vIzuhhmGrpF7enh7p5M27GXzwrprbIC9AdrUFdE13q2aq6u1Yf8L6Lf/0UeQVyefPwCWNdowKTDqdiSmGCledgvDgEKc/fRaN4o87/S6lWvottkwYAItn//1aJ6O12b90hOmm/qFQWACAXXPg3dTe6vFb0r5/5dFH6htkDGuuof/ksgG5JgWfZl3l26AawguVe88PZndohJZCVP8XkCvwSTLlY7bgOGpvr/5nAa9nuCUoFa7JnjLS9yh6qESd4De9Iwe61yjhJpXXGOmugnpLS7N3xtkelDq5s+yYvqXlgqWCqc/ofpoEL12xtbwZRK9jJl/jBiNhs5LhMih1FVeVQhhnOJUK8yJC+AOL7Ptzy5l0k1T4L2kwY9OFi+Dmm123SMFROcWOk2t4Pk/AQAA///B2CrQqgsAAA=="
+ },
+ "kind": "ConfigMap",
+ "metadata": {
+  "creationTimestamp": "2026-11-07T12:46:05Z",
+  "labels": {
+   "modifiedAt": "1794055565",
+   "name": "wh-cm",
+   "owner": "helm",
+   "status": "deployed",
+   "version": "1"
+  },
+  "name": "sh.helm.release.v1.wh-cm.v1",
+  "namespace": "wh-m6a-cm",
+  "resourceVersion": "133749"
+ }
+}

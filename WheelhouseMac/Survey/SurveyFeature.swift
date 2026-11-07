@@ -1,7 +1,9 @@
 import SwiftUI
 import WheelhouseKit
 
-/// Stub. M8a replaces the contents of this file (and only this folder).
+/// Survey: the security center (DESIGN-MAC §6.9). M8a ships the built-in access and workload rules (Overview, Access risks and
+/// Workload risks), finding detail with fix guidance and suggested patches, accepted risks and exports. The vulnerability tab arrives
+/// with M8b. Rules live in Kit (`WheelhouseKit/Security`); this folder is the UI and the per-cluster model.
 enum SurveyFeature: WheelhouseFeature {
     static var id: FeatureID { .survey }
     static var title: String { "Survey" }
@@ -9,6 +11,10 @@ enum SurveyFeature: WheelhouseFeature {
         if case .survey = destination { return true }
         if case .surveyFinding = destination { return true }
         return false
+    }
+
+    static var commands: [WorkspaceCommand] {
+        [WorkspaceCommand(id: "survey.export", title: "Export Survey Findings…", symbol: "square.and.arrow.up", key: "E")]
     }
 
     static var sidebarNodes: [SidebarNodeTemplate] {
@@ -21,6 +27,10 @@ enum SurveyFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Survey", milestone: "M8a")
+        switch destination {
+        case .survey(let scope): SurveyRootView(scope: scope)
+        case .surveyFinding(let id): SurveyFindingPane(findingID: id)
+        default: EmptyView()
+        }
     }
 }

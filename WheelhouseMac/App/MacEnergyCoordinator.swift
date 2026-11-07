@@ -126,10 +126,12 @@ final class MacEnergyCoordinator {
             memoryWarnings += 1
             trimLogBuffers()
             registry.trimCaches()
+            ChartRoomMemory.trim()
         case .critical:
             memoryCriticals += 1
             trimLogBuffers()
             registry.trimCaches()
+            ChartRoomMemory.trim()
             // Every non-visible consumer goes now; with a window visible only the idle caches are dropped above.
             if !windowsVisible { release() }
         }

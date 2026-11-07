@@ -25,6 +25,7 @@ struct WheelhouseMacApp: App {
         Window("Wheelhouse", id: "workspace") {
             MacShell()
                 .environment(env)
+                .environment(\.gitOpsOwnership, GitOpsOwnershipDetector())   // M9: fills the ownership badge slots
                 .task { _ = EnergyMonitor.shared }   // follow Low Power Mode and the thermal state
         }
         .defaultSize(width: 1_280, height: 780)
@@ -41,6 +42,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var environment: MacAppEnvironment?
 
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
+        MacUpdater.shared.start()   // starts Sparkle only when the feed is set and the safety gate is off
         // Performance scenarios (`-WHPerfScenario <name>`) are honoured only while the safety gate is active.
         let env = Self.environment
         env?.start()

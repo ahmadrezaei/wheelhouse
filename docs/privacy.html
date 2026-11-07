@@ -10,10 +10,10 @@
 <body>
 <main>
   <header><a href="./"><img src="icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse</span><h1>Privacy Policy</h1></div></header>
-  <p class="muted">Effective November 6, 2026</p>
+  <p class="muted">Effective November 7, 2026</p>
   <div class="card"><strong>In short:</strong> Wheelhouse does not collect, sell or share any personal data. It has no accounts, no analytics, no advertising and no tracking. Everything you enter stays on your device, or in your own iCloud Keychain if you turn sync on.</div>
 
-  <h2>What the app stores, and where</h2>
+  <h2>iPhone and iPad: what the app stores, and where</h2>
   <ul>
     <li><strong>Cluster settings</strong> (names, server addresses, colours, safety options) are stored on your device, in the app’s own container.</li>
     <li><strong>Credentials</strong> (tokens, client certificates and keys, Prometheus tokens) are stored in the iOS Keychain on your device. If you turn on <em>iCloud Sync</em> for a cluster, that cluster’s credentials are synced by Apple’s iCloud Keychain, which is end-to-end encrypted. Sync is off by default.</li>
@@ -21,10 +21,19 @@
     <li><strong>Widgets and alerts</strong> use a summary cached on your device. Notifications are generated on the device itself.</li>
   </ul>
 
-  <h2>Network connections</h2>
+  <h2>iPhone and iPad: network connections</h2>
   <p>Wheelhouse connects only to the Kubernetes API servers and Prometheus addresses that you add. It does not contact any server run by the developer, and it contains no third-party analytics, advertising or crash-reporting SDKs.</p>
 
-  <h2>Face ID</h2>
+  <h2 id="mac">Wheelhouse for Mac</h2>
+  <p>The Mac app follows the same principles: no accounts, no analytics, no advertising and no tracking, and nothing is sent to a server run by the developer. Three things are specific to the Mac.</p>
+  <ul>
+    <li><strong>Update checks.</strong> The app checks for updates about once a day (you can turn this off in Settings, Updates). The check requests a small update feed from GitHub Pages, and an update is downloaded from GitHub Releases. As with any web request, GitHub receives your IP address and the app version in the request. No cluster information is included.</li>
+    <li><strong>Ask AI (First Mate).</strong> The app contacts the Anthropic API only when you use First Mate, and only with your own API key. What you ask, and the cluster information you let it read to answer, is sent to Anthropic under your own account and terms. The key is stored in the Mac’s keychain on this device only. If you never use First Mate, the app never contacts Anthropic.</li>
+    <li><strong>Local-only data.</strong> Cluster settings, window layout, history, command output and credentials stay on your Mac, in the app’s folders and keychain. Clusters you choose to sync appear through iCloud Keychain exactly as on iPhone and iPad.</li>
+  </ul>
+  <p>The Mac app also connects to the Kubernetes API servers and Prometheus addresses you add, and runs the tools you have installed (such as kubectl and your cloud command-line tools) on your behalf.</p>
+
+  <h2>Face ID (iPhone and iPad)</h2>
   <p>App Lock uses Face ID or Touch ID through iOS. The app only learns whether authentication succeeded; it never has access to biometric data.</p>
 
   <h2>Diagnostics</h2>
