@@ -31,9 +31,9 @@ extension LiveKubeClient {
     /// - A method other than GET or HEAD is a mutation and follows the cluster's read-only policy.
     /// - Caller headers can never carry a cluster credential: `Authorization`, `Proxy-Authorization` and `Impersonate-*` are dropped.
     ///   Other headers, such as `Cookie`, are forwarded by the proxy.
-    /// - M3: this builds its own send path instead of `perform`, so the 401 token refresh that M3 adds to `perform` does not cover it.
-    ///   When M3 lands, route the send below through the same refresh-and-retry step.
-    public func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
+    /// - The send goes through `withAuthorization`, so an exec-credential cluster gets its bearer token. Because a 401 is returned
+    ///   rather than thrown, a 401 with a dynamic token source invalidates the credential and retries once (rate limited).
+    public nonisolated func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                              headers: [String: String], body: Data?) async throws -> ProxyResponse {
         let verb = method.uppercased()
         if verb != "GET" && verb != "HEAD",
@@ -48,12 +48,19 @@ extension LiveKubeClient {
             request.setValue(value, forHTTPHeaderField: name)
         }
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
-            var out: [String: String] = [:]
-            for (k, v) in http.allHeaderFields { if let k = k as? String, let v = v as? String { out[k] = v } }
-            return ProxyResponse(statusCode: http.statusCode, headers: out, body: data)
+            let first = try await withAuthorization(request) { try await proxySend($0) }
+            guard first.statusCode == 401, shouldRetryAfterUnauthorized() else { return first }
+            await invalidateDynamicCredential()
+            return try await withAuthorization(request) { try await proxySend($0) }
         } catch { throw mapTransportError(error) }
+    }
+
+    private nonisolated func proxySend(_ request: URLRequest) async throws -> ProxyResponse {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
+        var out: [String: String] = [:]
+        for (k, v) in http.allHeaderFields { if let k = k as? String, let v = v as? String { out[k] = v } }
+        return ProxyResponse(statusCode: http.statusCode, headers: out, body: data)
     }
 }
 

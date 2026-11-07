@@ -133,3 +133,51 @@ struct TokenSourceTests {
         ws.close()
     }
 }
+
+@Suite("Proxy request authorization")
+struct ProxyAuthorizationTests {
+    private func proxy(_ client: LiveKubeClient, headers: [String: String] = [:]) async throws -> ProxyResponse {
+        try await client.proxyRequest(method: "GET", namespace: "argocd", service: "https:argocd-server", port: "443",
+                                      path: "api/v1/applications", query: [:], headers: headers, body: nil)
+    }
+
+    @Test func anExecCredentialClusterSendsItsBearerToken() async throws {
+        let (client, host) = makeClient(source: .dynamic(CountingProvider()))
+        let r = try await proxy(client)
+        #expect(r.statusCode == 200)
+        #expect(ScriptedAuthProtocol.authorizations(host: host) == ["Bearer t1"])
+    }
+
+    @Test func a401OnADynamicSourceInvalidatesAndRetriesOnce() async throws {
+        let provider = CountingProvider()
+        let (client, host) = makeClient(source: .dynamic(provider), statuses: [401])
+        let r = try await proxy(client)
+        #expect(r.statusCode == 200)
+        #expect(provider.invalidations == 1)
+        #expect(ScriptedAuthProtocol.authorizations(host: host) == ["Bearer t1", "Bearer t2"])
+    }
+
+    @Test func aPersistent401IsRetriedOnceAndThenReturned() async throws {
+        let provider = CountingProvider()
+        let (client, host) = makeClient(source: .dynamic(provider), statuses: [401, 401, 401])
+        let r = try await proxy(client)
+        #expect(r.statusCode == 401)
+        #expect(ScriptedAuthProtocol.authorizations(host: host).count == 2)
+    }
+
+    @Test func aStaticTokenClusterIsNotRetried() async throws {
+        let (client, host) = makeClient(source: nil, statuses: [401])
+        let r = try await proxy(client)
+        #expect(r.statusCode == 401)
+        #expect(ScriptedAuthProtocol.authorizations(host: host) == ["Bearer stored"])
+    }
+
+    @Test func aCallerAuthorizationHeaderIsStillDropped() async throws {
+        let (dynamic, dynamicHost) = makeClient(source: .dynamic(CountingProvider()))
+        _ = try await proxy(dynamic, headers: ["Authorization": "Bearer attacker", "authorization": "Bearer attacker2"])
+        #expect(ScriptedAuthProtocol.authorizations(host: dynamicHost) == ["Bearer t1"])
+        let (plain, plainHost) = makeClient(source: nil)
+        _ = try await proxy(plain, headers: ["Authorization": "Bearer attacker"])
+        #expect(ScriptedAuthProtocol.authorizations(host: plainHost) == ["Bearer stored"])
+    }
+}
