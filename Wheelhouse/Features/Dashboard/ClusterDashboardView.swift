@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import WheelhouseKit
 import WheelhouseUI
 
@@ -38,14 +37,14 @@ struct ClusterDashboardView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .background(Palette.groupedBackground)
         .navigationTitle(session?.config.name ?? "Cluster")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .principal) { switcher }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .whTrailing) {
                 Menu {
                     if let session {
                         Button { Task { await model.refresh(session, range: range) } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                        Button { UIPasteboard.general.string = session.config.server.absoluteString } label: { Label("Copy Server URL", systemImage: "doc.on.doc") }
+                        Button { Pasteboard.copy(session.config.server.absoluteString) } label: { Label("Copy Server URL", systemImage: "doc.on.doc") }
                     }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("More")
             }

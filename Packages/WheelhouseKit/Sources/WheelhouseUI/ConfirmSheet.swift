@@ -36,6 +36,9 @@ public struct ConfirmRequest: Identifiable {
     /// Production clusters demand type-to-confirm by default. Set to false ONLY for requests where a plain button is the
     /// deliberate design (opening a shell); `alwaysRequireTyping` still wins.
     public var typeToConfirmOnProduction: Bool
+    /// Where the request came from. nil means the UI (a person pressed the button), so iOS call sites do not change.
+    /// AI, MCP, terminal and extension origins can never use the typing exemption on Production (`MutationPolicy`).
+    public var origin: ChangeOrigin?
     /// Server dry-run; the primary button stays disabled until it passes.
     public var dryRun: (@MainActor @Sendable () async -> DryRunOutcome)?
     public var action: @MainActor @Sendable () async throws -> Void
@@ -45,6 +48,7 @@ public struct ConfirmRequest: Identifiable {
 
     public init(title: String, message: String, verb: String, isDestructive: Bool = false, cluster: ClusterConfig, namespace: String? = nil,
                 resource: String, confirmationText: String, facts: [Fact] = [], isDisruptive: Bool = true, alwaysRequireTyping: Bool = false, typeToConfirmOnProduction: Bool = true,
+                origin: ChangeOrigin? = nil,
                 dryRun: (@MainActor @Sendable () async -> DryRunOutcome)? = nil, action: @escaping @MainActor @Sendable () async throws -> Void) {
         self.title = title
         self.message = message
@@ -58,20 +62,29 @@ public struct ConfirmRequest: Identifiable {
         self.isDisruptive = isDisruptive
         self.alwaysRequireTyping = alwaysRequireTyping
         self.typeToConfirmOnProduction = typeToConfirmOnProduction
+        self.origin = origin
         self.dryRun = dryRun
         self.action = action
     }
+
+    /// Input from AI, MCP, terminal and extension origins is ignored for this long after the sheet appears, so a keystroke in flight
+    /// cannot confirm it (ARCHITECTURE-MAC section 9.2). UI-origin sheets have no delay.
+    public static let nonUIInputDelay: TimeInterval = 1.0
+    public var inputDelay: TimeInterval { origin?.isNonUI == true ? Self.nonUIInputDelay : 0 }
 
     /// Production clusters: every mutation requires typing the confirmation text.
     public var requiresTyping: Bool { requiresTyping(for: cluster) }
 
     /// Typing requirement evaluated against a (possibly newer) cluster configuration.
-    public func requiresTyping(for live: ClusterConfig) -> Bool { alwaysRequireTyping || (typeToConfirmOnProduction && live.environment.requiresTypeToConfirm) }
+    public func requiresTyping(for live: ClusterConfig) -> Bool {
+        MutationPolicy.requiresTyping(cluster: live, origin: origin, exemption: typeToConfirmOnProduction ? nil : .interactiveShell,
+                                      alwaysRequireTyping: alwaysRequireTyping)
+    }
 
     /// Why the action must not run against `live`, or nil when it may proceed. `live == nil` means the cluster no longer exists.
     public func refusal(live: ClusterConfig?) -> String? {
         guard let live else { return "This cluster was removed." }
-        if live.readOnly { return "This cluster is read-only. Turn off read-only mode in cluster settings to make changes." }
+        if case .refuse(let reason) = MutationPolicy.decide(.mutation(dryRun: false), cluster: live, origin: origin) { return reason }
         return nil
     }
 }
@@ -85,6 +98,8 @@ public struct ConfirmSheet: View {
     @State private var dryRun: DryRunState = .idle
     @State private var isRunning = false
     @State private var failure: String?
+    /// False during the input delay of a non-UI-origin sheet: buttons and the typed field ignore input.
+    @State private var inputEnabled = true
     @FocusState private var fieldFocused: Bool
 
     enum DryRunState { case idle, running, outcome(DryRunOutcome) }
@@ -106,7 +121,7 @@ public struct ConfirmSheet: View {
         if case .outcome(.passed) = dryRun { return true }
         return false
     }
-    private var canConfirm: Bool { typingOK && dryRunOK && !isRunning && refusal == nil }
+    private var canConfirm: Bool { typingOK && dryRunOK && !isRunning && refusal == nil && inputEnabled }
 
     public var body: some View {
         NavigationStack {
@@ -118,6 +133,7 @@ public struct ConfirmSheet: View {
                     LabeledContent("Cluster") { HStack(spacing: 6) { Text(request.cluster.name); EnvBadge(request.cluster.environment) } }
                     if let ns = request.namespace { LabeledContent("Namespace", value: ns) }
                     LabeledContent("Resource") { Text(request.resource).font(.whCode).multilineTextAlignment(.trailing) }
+                    if let origin = request.origin, origin != .ui { LabeledContent("Requested by") { OriginBadge(origin) } }
                     ForEach(request.facts) { LabeledContent($0.label, value: $0.value) }
                 }
                 if request.dryRun != nil {
@@ -128,8 +144,9 @@ public struct ConfirmSheet: View {
                 }
                 if requiresTyping {
                     Section {
-                        TextField("Type \(request.confirmationText)", text: $typed)
-                            .font(.whCode).whNoAutocapitalization().autocorrectionDisabled().focused($fieldFocused)
+                        ConfirmationTextField("Type \(request.confirmationText)", text: $typed)
+                            .focused($fieldFocused)
+                            .disabled(!inputEnabled)
                             .overlay(alignment: .trailing) {
                                 if typingOK { Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.healthy) }
                             }
@@ -147,7 +164,7 @@ public struct ConfirmSheet: View {
             .navigationTitle(request.title)
             .whInlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isRunning) }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isRunning) }   // never disabled by the input delay
                 ToolbarItem(placement: .confirmationAction) {
                     Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
                         .buttonStyle(.glassProminent)
@@ -159,6 +176,13 @@ public struct ConfirmSheet: View {
                 ContextLine(cluster: live ?? request.cluster, namespace: request.namespace, kind: nil).padding(.horizontal, Spacing.l).padding(.bottom, 6)
             }
             .interactiveDismissDisabled(isRunning)
+        }
+        .task {
+            if request.inputDelay > 0 {
+                inputEnabled = false
+                try? await Task.sleep(for: .seconds(request.inputDelay))
+                inputEnabled = true
+            }
         }
         .task { await runDryRun() }
         .presentationDetents([.medium, .large])

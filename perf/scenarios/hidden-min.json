@@ -1,0 +1,12 @@
+{
+  "name": "hidden-min",
+  "description": "idle-1, then every window miniaturised instead of closed.",
+  "clusters": 3,
+  "windows": 1,
+  "tabs": 1,
+  "panes": [
+    "fleet"
+  ],
+  "hideWindowsAfterSeconds": 5,
+  "windowAction": "minimise"
+}

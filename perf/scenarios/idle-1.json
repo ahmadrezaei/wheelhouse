@@ -1,0 +1,12 @@
+{
+  "name": "idle-1",
+  "description": "3 clusters (wh-perf-01..03), 1 window, 1 tab: Fleet in one pane, cluster overview of wh-perf-01 (charts on), Pods table of wh-perf (100 rows); sidebar with wh-perf-01 expanded. M1a: the placeholder window on the Demo Fleet.",
+  "clusters": 3,
+  "windows": 1,
+  "tabs": 1,
+  "panes": [
+    "fleet",
+    "cluster-overview:wh-perf-01",
+    "pods:wh-perf-01/wh-perf"
+  ]
+}

@@ -52,7 +52,7 @@ struct AddClusterView: View {
             if isEditing { deleteSection }
         }
         .navigationTitle(isEditing ? "Edit Cluster" : "Add Cluster")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar {
             if !isEditing {
                 ToolbarItem(placement: .cancellationAction) {
@@ -90,10 +90,10 @@ struct AddClusterView: View {
 
     private var clusterSection: some View {
         Section {
-            TextField("Name", text: $draft.name).textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("Name", text: $draft.name).whNoAutocapitalization().autocorrectionDisabled()
             TextField("API server URL", text: $draft.serverText, prompt: Text("https://api.example.com:6443"))
-                .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-            TextField("Default namespace (optional)", text: $draft.defaultNamespace).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .whKeyboard(.url).textContentType(.URL).whNoAutocapitalization().autocorrectionDisabled()
+            TextField("Default namespace (optional)", text: $draft.defaultNamespace).whNoAutocapitalization().autocorrectionDisabled()
             if showProblems || draft.problems.contains(.httpNotAllowedForProduction) { ForEach(draft.problems, id: \.self) { Text($0.message).font(.footnote).foregroundStyle(Palette.criticalText) } }
             if draft.serverIsLocalhost {
                 Label("127.0.0.1 / localhost only works from the Simulator or the Mac itself. On a real iPhone use the machine’s LAN address.", systemImage: "exclamationmark.triangle.fill")
@@ -115,7 +115,7 @@ struct AddClusterView: View {
             default:
                 HStack {
                     SecureField(isEditing ? "Bearer token (unchanged)" : "Bearer token", text: $draft.token)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().textContentType(.password)
+                        .whNoAutocapitalization().autocorrectionDisabled().textContentType(.password)
                     PasteButton(payloadType: String.self) { items in if let s = items.first { draft.token = s.trimmingCharacters(in: .whitespacesAndNewlines) } }
                         .labelStyle(.iconOnly).buttonBorderShape(.capsule)
                 }
@@ -196,8 +196,8 @@ struct AddClusterView: View {
     private var metricsSection: some View {
         Section {
             TextField("Prometheus URL", text: $draft.prometheusText, prompt: Text("https://prometheus.example.com"))
-                .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-            if !draft.prometheusText.isEmpty { SecureField("Prometheus bearer token (optional)", text: $prometheusToken).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                .whKeyboard(.url).whNoAutocapitalization().autocorrectionDisabled()
+            if !draft.prometheusText.isEmpty { SecureField("Prometheus bearer token (optional)", text: $prometheusToken).whNoAutocapitalization().autocorrectionDisabled() }
         } header: { Text("Metrics (optional)") } footer: {
             Text("Leave empty to use metrics-server, or to auto-discover Prometheus inside the cluster.")
         }
@@ -206,7 +206,7 @@ struct AddClusterView: View {
     private var advancedSection: some View {
         Section {
             TextField("TLS server name (optional)", text: $draft.tlsServerName, prompt: Text("api.cluster.example"))
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .whNoAutocapitalization().autocorrectionDisabled()
         } header: { Text("Advanced") } footer: {
             Text("The name the server certificate must be valid for, when it differs from the host in the server URL (kubeconfig tls-server-name).")
         }

@@ -81,9 +81,9 @@ public actor LiveKubeClient: KubeClientProtocol {
     // MARK: Request plumbing
 
     private nonisolated func guardMutable(_ kind: ResourceKind? = nil) throws {
-        if config.readOnly {
-            // Access reviews are POSTs but read-only in effect.
-            if let kind, kind == .selfSubjectAccessReview || kind == .selfSubjectRulesReview { return }
+        // Access reviews are POSTs but read-only in effect. The policy is shared with ConfirmRequest and Gangway.
+        let isReview = kind.map { $0 == .selfSubjectAccessReview || $0 == .selfSubjectRulesReview } ?? false
+        if case .refuse = MutationPolicy.decide(isReview ? .review : .mutation(dryRun: false), cluster: config, origin: nil) {
             throw KubeError.readOnly
         }
     }
@@ -454,7 +454,7 @@ public actor LiveKubeClient: KubeClientProtocol {
     // MARK: WebSockets
 
     private nonisolated func webSocket(path: String, query: [(String, String)], protocols: [String]) throws -> KubeWebSocket {
-        if config.readOnly && !config.allowExecInReadOnly { throw KubeError.readOnly }
+        if case .refuse = MutationPolicy.decide(.exec(interactive: true), cluster: config, origin: nil) { throw KubeError.readOnly }
         try guardTransport()
         // Long timeout: the shell or tunnel may sit idle (the socket sends keepalive pings every 30 s).
         var request = URLRequest(url: try makeURL(path: path, query: query, websocket: true), timeoutInterval: 3600)

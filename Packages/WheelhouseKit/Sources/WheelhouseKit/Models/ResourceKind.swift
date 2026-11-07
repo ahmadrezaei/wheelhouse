@@ -50,6 +50,22 @@ public struct ResourceKind: Hashable, Codable, Sendable, Identifiable {
         self.section = section
     }
 
+    private enum CodingKeys: String, CodingKey { case kind, plural, group, version, namespaced, symbol, displayName, section }
+
+    /// Persisted workspaces reference a kind by identity (group, version, kind, plural, namespaced). The cosmetic fields are
+    /// encoded as before but are optional when decoding, so a later change to them never orphans a saved pane.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        plural = try c.decode(String.self, forKey: .plural)
+        group = try c.decode(String.self, forKey: .group)
+        version = try c.decode(String.self, forKey: .version)
+        namespaced = try c.decode(Bool.self, forKey: .namespaced)
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol) ?? "cube.transparent"
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? kind
+        section = (try? c.decodeIfPresent(ResourceSection.self, forKey: .section)) ?? .custom
+    }
+
     /// Stable identifier, e.g. `apps/v1/deployments` or `v1/pods`.
     public var id: String { group.isEmpty ? "\(version)/\(plural)" : "\(group)/\(version)/\(plural)" }
     public var apiVersion: String { group.isEmpty ? version : "\(group)/\(version)" }

@@ -7,3 +7,5 @@ DerivedData/
 xcuserdata/
 .DS_Store
 .secrets/
+Vendor/helm/bin/
+Vendor/helm/*.tar.gz

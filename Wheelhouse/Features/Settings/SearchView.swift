@@ -179,7 +179,7 @@ struct SearchView: View {
                 }
                 Section { } footer: { Text("Searches names and container images. Secrets and events are not searched.") }
             }
-            .listStyle(.insetGrouped)
+            .whGroupedListStyle()
         }
     }
 

@@ -1,0 +1,101 @@
+{
+  "_comment": "Absolute budgets of ARCHITECTURE-MAC section 12.3.2. Edited only in P1 and P2, with the reviewer's sign-off. scripts/perf-sample.sh and scripts/perf-check.sh read this file.",
+  "version": 1,
+  "regressionTolerancePct": 10,
+  "milestones": [
+    "M0",
+    "M1a",
+    "M1b",
+    "P1",
+    "M2",
+    "M3",
+    "M4a",
+    "M4b",
+    "M5a",
+    "M5b",
+    "M6a",
+    "M6b",
+    "M7",
+    "M8a",
+    "M8b",
+    "M9",
+    "M10",
+    "M11a",
+    "M11b",
+    "M12",
+    "M13",
+    "M14",
+    "P2"
+  ],
+  "informationalMetrics": [
+    "energyImpact"
+  ],
+  "_energyNote": "energyImpact is top's POWER column. It tracks CPU% closely (it is not Activity Monitor's energy model, and no root-free source of that exists), so a breach only warns. The battery-menu check by hand in P1 and P2 is the real energy gate. IDLEW (idleWakeupsPerSec) counts only interrupt/idle wakeups that top attributes to the process and undercounts timers coalesced by the kernel; treat it as a lower bound.",
+  "notMeasuredUntil": {
+    "hidden.minPeriodicIntervalSec": "M4b",
+    "hidden-min.minPeriodicIntervalSec": "M4b"
+  },
+  "_notMeasuredUntil": "A budgeted metric that is missing from a result FAILS scripts/perf-check.sh, unless it is listed here as '<scenario>.<metric>': '<first milestone that measures it>' and the milestone being checked is earlier. Edited only in P1 and P2.",
+  "idle-1": {
+    "cpuAvgPct": 0.5,
+    "cpuMaxSamplePct": 2.0,
+    "idleWakeupsPerSec": 3,
+    "footprintMB": 150,
+    "energyImpact": 1.0
+  },
+  "busy-10": {
+    "cpuAvgPct": 1.0,
+    "footprintMB": 300
+  },
+  "hidden": {
+    "cpuAvgPct": 0.1,
+    "idleWakeupsPerSec": 0.1,
+    "footprintMB": 100,
+    "energyImpact": 0.1,
+    "minPeriodicIntervalSec": 60
+  },
+  "hidden-min": {
+    "cpuAvgPct": 0.1,
+    "idleWakeupsPerSec": 0.1,
+    "footprintMB": 100,
+    "energyImpact": 0.1,
+    "minPeriodicIntervalSec": 60
+  },
+  "soak-5": {
+    "footprintGrowthMB": 15,
+    "leaks": 0,
+    "threadsOverBaseline": 4,
+    "fdsOverBaseline": 8
+  },
+  "testLaunch": {
+    "coldLaunchP90Sec": 1.0
+  },
+  "ui": {
+    "viewUpdatesPerSecMax": 4,
+    "badgeStatusChartUpdatesPerSecMax": 1,
+    "gangwayP50MsMax": 2,
+    "keyToEchoMsMax": 5,
+    "compassWarmMsMax": 50,
+    "sidebarFilterMsMax": 16,
+    "tableScrollFps": 120
+  },
+  "caps": {
+    "logLinesDefault": 20000,
+    "logLinesMax": 50000,
+    "logBytesMaxPerStream": 16777216,
+    "logLineTruncateBytes": 16384,
+    "logTotalBytesMax": 67108864,
+    "logConcurrentFollowsMax": 6,
+    "terminalScrollbackDefault": 5000,
+    "terminalScrollbackMax": 20000,
+    "signInScrollback": 1000,
+    "terminalScrollbackMBPer5000Lines": null,
+    "subprocessStdoutBytes": 67108864,
+    "subprocessStderrTailBytes": 1048576,
+    "compassIndexMB": 64,
+    "schemaCacheMemoryMB": 32,
+    "schemaCacheDiskMB": 512,
+    "helmReleaseCacheMB": 32,
+    "chartCacheDiskGB": 1
+  }
+}

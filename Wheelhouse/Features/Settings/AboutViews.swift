@@ -24,7 +24,7 @@ struct AboutTextView: View {
     let text: String
     var body: some View {
         ScrollView { Text(text).padding(Spacing.l).frame(maxWidth: .infinity, alignment: .leading) }
-            .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(title).whInlineNavigationTitle()
     }
 }
 
@@ -42,6 +42,6 @@ struct AcknowledgementsView: View {
             .padding(.vertical, 4)
             .accessibilityElement(children: .combine)
         }
-        .navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Acknowledgements").whInlineNavigationTitle()
     }
 }

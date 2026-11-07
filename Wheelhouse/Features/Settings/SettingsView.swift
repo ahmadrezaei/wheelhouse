@@ -9,7 +9,7 @@ struct SettingsView: View {
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppPreferences.self) private var preferences
     @Environment(AppRouter.self) private var router
-    @Environment(\.editMode) private var editMode
+    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var alerts = AlertSettingsEditor()
@@ -35,7 +35,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { router.dismissSheet() } }
-            if !registry.isDemoMode && registry.clusters.count > 1 { ToolbarItem(placement: .cancellationAction) { EditButton() } }
+            if !registry.isDemoMode && registry.clusters.count > 1 { ToolbarItem(placement: .cancellationAction) { WHEditButton() } }
         }
         .confirmationDialog("Remove \(pendingDelete?.name ?? "cluster")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
             Button("Remove Cluster", role: .destructive) {
@@ -177,13 +177,13 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Notifications are turned off for Wheelhouse, so alerts can’t be delivered.", systemImage: "bell.slash").font(.subheadline).foregroundStyle(Palette.warningText)
                 Button("Open iOS Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    if let url = PlatformActions.notificationSettingsURL { openURL(url) }
                 }
                 .font(.subheadline.weight(.semibold))
             }
         case .notDetermined?:
             Label("Wheelhouse will ask for permission to send notifications.", systemImage: "bell.badge").font(.footnote).foregroundStyle(.secondary)
-        case .authorized?, .provisional?, .ephemeral?:
+        case let s? where AlertNotifier.isAuthorized(s):
             Label("Notifications allowed", systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.secondary)
         default:
             EmptyView()

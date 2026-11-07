@@ -83,7 +83,7 @@ struct LabelFilterSheet: View {
             Form {
                 Section {
                     TextField("app=web,tier in (api,worker),!canary", text: $text)
-                        .font(.whCode).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.whCode).whNoAutocapitalization().autocorrectionDisabled()
                     if let problem { Label(problem, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Palette.criticalText) }
                 } header: { Text("Label selector") } footer: { Text("Equality (`=`, `!=`), set-based (`in`, `notin`) and existence (`key`, `!key`) requirements, comma separated.") }
                 if !suggestions.isEmpty {
@@ -95,7 +95,7 @@ struct LabelFilterSheet: View {
                 }
             }
             .navigationTitle("Filter by Labels")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Apply") { applied = text.trimmingCharacters(in: .whitespaces); dismiss() }.disabled(problem != nil) }

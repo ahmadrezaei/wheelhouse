@@ -29,7 +29,7 @@ struct DrainSheet: View {
                 else { form }
             }
             .navigationTitle(runner == nil ? "Drain \(target.name)" : "Draining")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .safeAreaInset(edge: .top, spacing: 0) {
                 ContextLine(cluster: host.cluster, kind: "Node \(target.name)", showsNamespace: false).padding(.horizontal, Spacing.l).padding(.bottom, 6)
             }

@@ -79,7 +79,7 @@ struct AlertsInboxView: View {
         .navigationTitle("Alerts")
         .navigationSubtitle(all.isEmpty ? "" : "\(seen.unseenCount(in: all)) unseen of \(all.count)")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .whTrailing) {
                 Menu {
                     Picker("Group by", selection: $grouping) { ForEach(Grouping.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Severity", selection: $filter) {
@@ -92,7 +92,7 @@ struct AlertsInboxView: View {
                 } label: { Image(systemName: filter != nil || unseenOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }
                     .accessibilityLabel("Filter and group")
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .whTrailing) {
                 Button { seen.markSeen(all.map(\.id)) } label: { Image(systemName: "checkmark.circle") }
                     .disabled(seen.unseenCount(in: all) == 0).accessibilityLabel("Mark all seen")
             }

@@ -62,7 +62,7 @@ struct LockScreenView: View {
         Spacer()
         VStack(spacing: Spacing.m) {
             Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                if let url = PlatformActions.biometrySettingsURL { openURL(url) }
             } label: { Label("Open Settings", systemImage: "gearshape").frame(maxWidth: 300, minHeight: 36) }
                 .buttonStyle(.glassProminent)
             Button("Try Again") { Task { await attempt() } }.frame(minHeight: Spacing.minHit)

@@ -33,7 +33,7 @@ struct PortForwardBrowserView: View {
                 }
             }
             .navigationTitle(controller.title ?? "Browser")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .bottomBar) {

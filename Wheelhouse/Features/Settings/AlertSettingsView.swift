@@ -37,7 +37,7 @@ struct AlertSettingsView: View {
             } header: { Text("How alerts work") }
         }
         .navigationTitle("Alerts")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
     }
 
     private func ruleBinding(_ rule: AlertRule) -> Binding<Bool> {

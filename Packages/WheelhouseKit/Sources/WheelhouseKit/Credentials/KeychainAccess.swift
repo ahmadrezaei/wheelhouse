@@ -25,6 +25,7 @@ enum KeychainAccess {
     /// Suffix of the shared access group. Optional Info.plist key `WHKeychainGroupSuffix` overrides it (a target that needs a
     /// different group sets it); the iOS app, widget and share extension do not, so they keep ``defaultGroupSuffix``.
     static func groupSuffix(in bundle: Bundle = .main) -> String {
+        if bundle === Bundle.main, let o = IsolationOverride.current { return o.sharedKeychainSuffix }
         guard let custom = bundle.object(forInfoDictionaryKey: "WHKeychainGroupSuffix") as? String else { return defaultGroupSuffix }
         let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? defaultGroupSuffix : trimmed
@@ -32,7 +33,8 @@ enum KeychainAccess {
 
     static func accessGroup(prefix: String, suffix: String) -> String { "\(prefix).\(suffix)" }
 
-    static let sharedGroup: String? = {
+    /// The development team prefix, discovered from the app's default access group (see ``sharedGroup``). nil when unsigned.
+    static let teamPrefix: String? = {
         let probe: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword, kSecAttrService: "app.wheelhouse.probe", kSecAttrAccount: "probe",
             kSecReturnAttributes: true, kSecUseDataProtectionKeychain: true,
@@ -50,8 +52,10 @@ enum KeychainAccess {
         }
         guard status == errSecSuccess, let attrs = result as? [String: Any], let group = attrs[kSecAttrAccessGroup as String] as? String,
               let dot = group.firstIndex(of: ".") else { return nil }
-        return accessGroup(prefix: String(group[..<dot]), suffix: groupSuffix())
+        return String(group[..<dot])
     }()
+
+    static let sharedGroup: String? = teamPrefix.map { accessGroup(prefix: $0, suffix: groupSuffix()) }
 
     /// `accessGroup` defaults to ``sharedGroup`` (today's behaviour); nil leaves the item in the app's default group.
     static func baseQuery(service: String, account: String, accessGroup: String? = KeychainAccess.sharedGroup) -> [CFString: Any] {

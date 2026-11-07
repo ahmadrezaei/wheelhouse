@@ -10,6 +10,6 @@ struct PlaceholderView: View {
     var body: some View {
         EmptyState(.empty(title: title, systemImage: symbol, hint: note))
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
     }
 }

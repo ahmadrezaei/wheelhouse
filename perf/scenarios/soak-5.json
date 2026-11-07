@@ -1,0 +1,11 @@
+{
+  "name": "soak-5",
+  "description": "5 clusters, 2 windows, 4 tabs, a log follow of chatter (10 lines/s), a Deck Terminal running kubectl get pods -n wh-perf -w, and every 5 minutes a scripted cycle that opens and closes 4 tabs, splits a pane and opens Compass. Applied from M4a.",
+  "clusters": 5,
+  "windows": 2,
+  "tabs": 2,
+  "panes": [
+    "logs:chatter",
+    "deck-terminal:kubectl get pods -n wh-perf -w"
+  ]
+}

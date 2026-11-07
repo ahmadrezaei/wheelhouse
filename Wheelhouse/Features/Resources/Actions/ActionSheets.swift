@@ -41,7 +41,7 @@ struct ScaleSheet: View {
                 }
             }
             .navigationTitle("Scale \(target.name)")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .safeAreaInset(edge: .top, spacing: 0) {
                 ContextLine(cluster: host.cluster, namespace: target.namespace, kind: target.kind.kind).padding(.horizontal, Spacing.l).padding(.bottom, 6)
             }
@@ -80,7 +80,7 @@ struct DeleteOptionsSheet: View {
                 } header: { Text("Delete dependents") } footer: { Text(propagation.explanation) }
             }
             .navigationTitle("Delete \(target.name)")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .safeAreaInset(edge: .top, spacing: 0) {
                 ContextLine(cluster: host.cluster, namespace: target.namespace, kind: target.kind.kind).padding(.horizontal, Spacing.l).padding(.bottom, 6)
             }
@@ -127,7 +127,7 @@ struct RollbackSheet: View {
                 }
             }
             .navigationTitle("Roll Back \(target.name)")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .safeAreaInset(edge: .top, spacing: 0) {
                 ContextLine(cluster: host.cluster, namespace: target.namespace, kind: target.kind.kind).padding(.horizontal, Spacing.l).padding(.bottom, 6)
             }

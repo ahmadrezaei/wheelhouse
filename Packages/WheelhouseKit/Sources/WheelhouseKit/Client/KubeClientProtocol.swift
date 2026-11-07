@@ -246,9 +246,56 @@ public protocol KubeClientProtocol: Sendable {
     /// GET through the API server service proxy, e.g. Prometheus `/api/v1/query_range`.
     func proxyGET(namespace: String, service: String, port: String, path: String, query: [String: String]) async throws -> Data
 
+    // Metadata-only reads and generalised proxy (M1a seams: defaults throw `.unsupported`; Demo stubs work;
+    // `LiveKubeClient+Metadata.swift` (M6a) and `LiveKubeClient+Proxy.swift` (M9) provide the live implementations).
+    /// Lists only `metadata` (`Accept: application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1`).
+    func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList
+    /// Any HTTP method through the API server service proxy (generalised ``proxyGET(namespace:service:port:path:query:)``).
+    func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
+                      headers: [String: String], body: Data?) async throws -> ProxyResponse
+
     // Sockets (protocols are implemented by feature code)
     func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket
     func portForwardWebSocket(namespace: String, pod: String, ports: [Int]) throws -> KubeWebSocket
+}
+
+/// Result of ``KubeClientProtocol/listMetadata(kind:namespace:labelSelector:limit:)``.
+public struct ObjectMetadataList: Sendable {
+    public var kind: ResourceKind
+    public var items: [ObjectMeta]
+    public var resourceVersion: String?
+    /// Continue token when `limit` cut the list short.
+    public var continueToken: String?
+    public init(kind: ResourceKind, items: [ObjectMeta], resourceVersion: String? = nil, continueToken: String? = nil) {
+        self.kind = kind
+        self.items = items
+        self.resourceVersion = resourceVersion
+        self.continueToken = continueToken
+    }
+}
+
+/// Result of ``KubeClientProtocol/proxyRequest(method:namespace:service:port:path:query:headers:body:)``.
+public struct ProxyResponse: Sendable {
+    public var statusCode: Int
+    public var headers: [String: String]
+    public var body: Data
+    public init(statusCode: Int, headers: [String: String] = [:], body: Data = Data()) {
+        self.statusCode = statusCode
+        self.headers = headers
+        self.body = body
+    }
+}
+
+// MARK: - Seam defaults
+
+public extension KubeClientProtocol {
+    func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
+        throw KubeError.unsupported("Metadata-only listing is not available for this client.")
+    }
+    func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
+                      headers: [String: String], body: Data?) async throws -> ProxyResponse {
+        throw KubeError.unsupported("Proxy requests are not available for this client.")
+    }
 }
 
 // MARK: - Typed conveniences

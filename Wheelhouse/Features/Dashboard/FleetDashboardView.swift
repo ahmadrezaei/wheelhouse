@@ -35,9 +35,9 @@ struct FleetDashboardView: View {
         .navigationTitle("Fleet")
         .navigationSubtitle(subtitle)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button { router.push(.settings) } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings") }
-            ToolbarItem(placement: .topBarTrailing) { bell(alerts) }
-            ToolbarItem(placement: .topBarTrailing) { Button { router.push(.addCluster) } label: { Image(systemName: "plus") }.accessibilityLabel("Add Cluster") }
+            ToolbarItem(placement: .whLeading) { Button { router.push(.settings) } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings") }
+            ToolbarItem(placement: .whTrailing) { bell(alerts) }
+            ToolbarItem(placement: .whTrailing) { Button { router.push(.addCluster) } label: { Image(systemName: "plus") }.accessibilityLabel("Add Cluster") }
         }
         .refreshable { await model.refresh(registry: registry) }
         .sheet(item: $editingCluster) { cfg in NavigationStack { AddClusterView(editing: cfg, registry: registry) } }

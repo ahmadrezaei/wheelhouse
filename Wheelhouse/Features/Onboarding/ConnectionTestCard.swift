@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import WheelhouseKit
 import WheelhouseUI
 
@@ -69,12 +68,12 @@ struct ConnectionTestCard: View {
         }
         .accessibilityElement(children: .combine)
         Button {
-            UIPasteboard.general.string = Self.diagnosticsReport(for: error, target: target, trace: trace)
+            Pasteboard.copy(Self.diagnosticsReport(for: error, target: target, trace: trace))
             copied = true
         } label: { Label(copied ? "Copied" : "Copy diagnostics", systemImage: copied ? "checkmark" : "doc.on.doc") }
     }
 
-    static func diagnosticsReport(for error: KubeError, target: Target?, trace: TLSTrace? = nil, info: Bundle = .main, os: String = UIDevice.current.systemVersion) -> String {
+    static func diagnosticsReport(for error: KubeError, target: Target?, trace: TLSTrace? = nil, info: Bundle = .main, os: String = PlatformInfo.osVersionString) -> String {
         ConnectionDiagnosticsReport.make(
             host: target?.host ?? "unknown", port: target?.port, authKind: target?.authKind ?? "unknown", error: error, trace: trace,
             osVersion: os,

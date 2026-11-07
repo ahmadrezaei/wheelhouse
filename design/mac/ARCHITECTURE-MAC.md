@@ -240,7 +240,7 @@ targets:
       - name: Verify bundled helm
         # Release and Distribution: fails the build if Vendor/helm/bin/helm is missing or its checksum differs.
         # Debug and Profile: skipped; Chart Room then offers the PATH helm (the bundled one is optional while developing).
-        script: '[ "$WH_REQUIRE_BUNDLED_HELM" = YES ] && scripts/fetch-helm.sh --verify-only || true'
+        script: 'if [ "$WH_REQUIRE_BUNDLED_HELM" = YES ]; then "$SRCROOT/scripts/fetch-helm.sh" --verify-only; fi'   # not `A && B || true`: that swallows the failure
         basedOnDependencyAnalysis: false
     postCompileScripts:
       - name: Copy helm into Contents/Helpers
@@ -312,7 +312,10 @@ targets:
                     CREATE_INFOPLIST_SECTION_IN_BINARY: YES,           # embeds WHAppBundleID / WHAppGroup so the helper finds its own app (§10.1)
                     configs: { Debug: { PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.mcp.debug },
                                Profile: { PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.mcp.debug } } } }
-  WheelhouseMacWidgets: { type: app-extension, platform: macOS, sources: [WheelhouseMacWidgets] }   # M1a: placeholder widget; M14 fills it
+  WheelhouseMacWidgets: { type: app-extension, platform: macOS,    # M1a: placeholder widget; M14 fills it
+                          sources: [WheelhouseMacWidgets, { path: WheelhouseWidgets, includes: [Providers.swift, ClusterIntent.swift] }],
+                          dependencies: [WheelhouseKit, WheelhouseUI],       # Info.plist WHAppGroup = $(WH_APP_GROUP): the Mac group, Debug group in Debug and Profile
+                          settings: { WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse } }
   WheelhouseMacUITests: { type: bundle.ui-testing, platform: macOS, sources: [WheelhouseMacUITests], dependencies: [{ target: WheelhouseMac }] }
   WheelhouseMacPerfTests: { type: bundle.ui-testing, platform: macOS, sources: [WheelhouseMacPerfTests], dependencies: [{ target: WheelhouseMac }] }
 schemes:
@@ -335,6 +338,7 @@ The iOS targets are untouched apart from the exclude pattern `**/*+macOS.swift`,
 ### 1.3 Package.swift
 
 ```swift
+defaultLocalization: "en",                                                  // package-level, for later Kit/UI string catalogs
 platforms: [.iOS("27.0"), .macOS("27.0")],
 products: [
     .library(name: "WheelhouseKit", targets: ["WheelhouseKit"]),
@@ -342,14 +346,19 @@ products: [
     .library(name: "WheelhouseDesktop", targets: ["WheelhouseDesktop"]),   // linked only by the Mac app; every file is #if os(macOS)
 ],
 targets: [
-    .target(name: "WheelhouseKit", dependencies: [.product(name: "Yams", package: "Yams")], swiftSettings: [.swiftLanguageMode(.v6), .enableUpcomingFeature("StrictConcurrency")]),
+    .target(name: "WheelhouseKit", dependencies: [.product(name: "Yams", package: "Yams")], resources: [.copy("BundledData")], swiftSettings: [.swiftLanguageMode(.v6), .enableUpcomingFeature("StrictConcurrency")]),
     .target(name: "WheelhouseUI", dependencies: ["WheelhouseKit"], swiftSettings: [.swiftLanguageMode(.v6)]),
-    .target(name: "WheelhouseDesktop", dependencies: ["WheelhouseKit"], swiftSettings: [.swiftLanguageMode(.v6)],
+    .target(name: "WheelhouseDesktop", dependencies: ["WheelhouseKit"], resources: [.copy("Resources")], swiftSettings: [.swiftLanguageMode(.v6)],
             linkerSettings: [.linkedLibrary("sqlite3")]),
-    .testTarget(name: "WheelhouseKitTests", dependencies: ["WheelhouseKit", "WheelhouseUI"], swiftSettings: [.swiftLanguageMode(.v6)]),
+    .testTarget(name: "WheelhouseKitTests", dependencies: ["WheelhouseKit", "WheelhouseUI"], resources: [.copy("Fixtures")], swiftSettings: [.swiftLanguageMode(.v6)]),
     .testTarget(name: "WheelhouseDesktopTests", dependencies: ["WheelhouseDesktop"], resources: [.copy("Fixtures")], swiftSettings: [.swiftLanguageMode(.v6)]),
 ]
 ```
+
+**Where runtime data lives.** Package resources use `.copy` folders, each created in M1a with a `.gitkeep`, so later milestones add files and never edit `Package.swift`:
+- `WheelhouseKit/BundledData/` (Kit, also on iOS): bundled fallback OpenAPI schemas (M7) and the built-in Rigging packs (M13). Read through `Bundle.module`.
+- `WheelhouseDesktop/Resources/`: **real files** for M5b's shell-integration scripts (zsh, bash, fish) and other Mac-only data.
+- `Tests/WheelhouseKitTests/Fixtures/` and `Tests/WheelhouseDesktopTests/Fixtures/`: test fixtures.
 
 `WheelhouseDesktop` uses Swift's `package` access level to reach Kit internals that must not become public API (for example `LiveKubeClient`'s TLS delegate and identity for the Gangway upstream).
 
@@ -1124,6 +1133,7 @@ If several versions are served, the preferred one is used. Unknown future versio
   - paste is disabled (⌘V, the Edit menu, the context menu, drag and drop and Services are all refused), and autocorrect, autofill and text completion are off;
   - **secure event input** is on while the field is first responder (`EnableSecureEventInput()` on become, `DisableSecureEventInput()` on resign and on sheet close, always balanced);
   - `ConfirmRequest` **forces `typeToConfirmOnProduction = true` whenever `origin` is not nil and not `.ui`**. The only exception is the **interactive pod-shell exemption** (an interactive exec or attach with a TTY, and port-forward), which keeps the button confirmation; non-interactive `kubectl exec` and `kubectl cp` are typed (owner decision 9). This rule lives in `MutationPolicy.requiresTyping` (§1.5).
+- **Delivered in M1a:** the 1.0 s input delay (`ConfirmRequest.inputDelay`, applied by `ConfirmSheet` to the buttons and the typed field for every non-UI origin; Cancel is never delayed) and a test-hook bypass for UI tests: `ConfirmationFieldInputPolicy.allowSyntheticInput()`, called only from `WHTestHooks` in the app target (compiled only under `WH_TEST_HOOKS`, launch argument `-WHTestHooksSyntheticInput`, gate active). The `WHTestHook` symbol exists only in Debug, and `mac-entitlement-check.sh` fails any other configuration that contains it. The "no default button" rule and the one-pending-request-per-client rule arrive with the first non-UI origin (M5a for the terminal, M11b, M12).
 - **Structural guarantees** (verified by tests):
   - `ClusterToolbox` has no mutating API at all; its type exposes only read functions.
   - Proposals reach the cluster only through `ConfirmSheet`.
@@ -1306,7 +1316,7 @@ enum WorkspaceDestination: Codable, Hashable {                       // all case
 }
 ```
 
-- **Frozen payloads.** M1a defines the Codable shape of every payload type (`TerminalSpec`, `ChartRoomSection`, `HelmReleaseRef`, `ChartRef`, `SurveyScope`, `FindingID`, `TidesScope`, `ResourceRef`, `ConversationID`, `StationID`, `RiggingViewRef`) in `WheelhouseMac/Workspace/Destinations.swift`. Later milestones may only **add optional fields**; they never rename, remove or retype a field or case. A golden-JSON test (`WorkspaceCodingTests`) pins the encoding of one sample per case.
+- **Frozen payloads.** M1a defines the Codable shape of every payload type (`TerminalSpec`, `ChartRoomSection`, `HelmReleaseRef`, `ChartRef`, `SurveyScope`, `FindingID`, `TidesScope`, `ResourceRef`, `ConversationID`, `StationID`, `RiggingViewRef`) in `WheelhouseMac/Workspace/Destinations.swift`. Later milestones may only **add optional fields**; they never rename, remove or retype a field or case. A golden-JSON test (`WorkspaceCodingTests`) pins the encoding of one sample per case. It also pins one line per `Route` case (all 16, with an exhaustive switch so a new case fails to compile until it has a golden line), every optional payload field set, and `allCases.map(\.rawValue)` of every payload enum. Kit `ResourceKind` decodes from its identity alone (group, version, kind, plural, namespaced); its cosmetic fields are optional on decode, so a later change to them never orphans a saved pane (the encoding is unchanged).
 - **Lossy decoding per pane.** `WorkspaceStore` decodes window → tab → pane node by node. A pane whose `PaneState` fails to decode (an unknown destination case from a newer build, a payload that no longer decodes) becomes a placeholder pane "This pane couldn't be restored" with **Close Pane**, and its raw JSON is kept and written back unchanged until the user closes it. A pane that points at a removed cluster restores as the cluster's "Source removed" or "Cluster removed" state. A corrupt `workspace.json` is moved aside (`workspace.corrupt-<date>.json`) and a fresh window opens. Stations use the same decoder. One bad pane therefore never loses a window, a tab or a Station.
 
 - **Routing.** Every pane owns its **own `AppRouter`** instance in a new `layout: .paneStack` mode, where `push` appends to `pane.stack`, sheets are per pane, and `open(…)` for an absolute or deep link is delegated to `WorkspaceStore.open(_:in:)`, which focuses an existing pane showing it or opens a tab. Shared feature views keep calling `router.push(route)` and `RouteLink` with **no changes**. This extends the iOS per-scene router to per pane: about 30 lines in `AppRouter` (one enum case and one closure hook). ⌘-click (or ⌘↩) on a `RouteLink` asks the workspace for a new tab instead (a `RouteLink` modifier reads `NSEvent.modifierFlags`).
@@ -1353,7 +1363,9 @@ The owner finds Lens far too heavy: high memory use, and it makes the laptop hot
 | Other caps | Subprocess stdout 64 MB, stderr 1 MB tail (§3.2); Compass metadata index **≤ 64 MB** in total (LRU per cluster beyond that); schema cache in memory ≤ 32 MB (disk cache unbounded by count, LRU 512 MB); decoded Helm releases in an `NSCache` (≤ 32 MB); chart cache on disk 1 GB LRU (§5.3) | — | unit tests | Every cache has a byte limit and is trimmed on memory pressure. |
 | Gangway, terminal, Compass, sidebar, tables | As in DESIGN-MAC §14 (≤ 2 ms p50 per request, ≤ 5 ms key-to-echo, ≤ 50 ms Compass warm, ≤ 16 ms sidebar filter, 120 fps table scrolling with 10,000 rows) | — | signposts, `XCTClockMetric` | |
 
-`perf/budgets.json` holds every number above in machine-readable form (`{"idle-1": {"cpuAvgPct": 0.5, "cpuMaxSamplePct": 2.0, "idleWakeupsPerSec": 3, "footprintMB": 150, "energyImpact": 1.0}, …}`); `scripts/perf-check.sh` and the sampler read it, so a budget changes in one place only, in P1 or P2, with the reviewer's sign-off.
+`perf/budgets.json` holds every number above in machine-readable form (`{"idle-1": {"cpuAvgPct": 0.5, "cpuMaxSamplePct": 2.0, "idleWakeupsPerSec": 3, "footprintMB": 150, "energyImpact": 1.0}, …}`); `scripts/perf-check.sh` and the sampler read it, so a budget changes in one place only, in P1 or P2, with the reviewer's sign-off. The file also holds the ordered `milestones` list (used to pick the previous baseline), `informationalMetrics`, and `notMeasuredUntil` (`"<scenario>.<metric>": "<milestone>"`). **A budgeted metric that is missing from a result fails `perf-check.sh`** unless it is listed there and the milestone being checked is earlier, so a budget can never pass because nothing was measured. Soak metrics are computed by the sampler: `footprintGrowthMB` (last minute minus minute 10), `threadsOverBaseline` and `fdsOverBaseline` (against the first sample).
+
+**Measurement caveats.** `energyImpact` is `top`'s POWER column: it tracks CPU % and is not Activity Monitor's energy model, and there is no root-free source of that model, so it is **informational** (a breach warns); the by-hand battery-menu check in P1 and P2 is the real energy gate. `top`'s IDLEW undercounts wakeups that the kernel coalesces, so `idleWakeupsPerSec` is a lower bound. The sampler's derived data defaults to `~/Library/Caches/wheelhouse-perf` (outside `~/Documents`).
 
 #### 12.3.3 Watches, polling and backoff
 
@@ -1468,9 +1480,9 @@ public enum DevSafety {
 }
 ```
 
-- `CodeSignature.ofRunningApp()` calls `SecCodeCopySelf`, then `SecCodeCheckValidity(code, [], requirement)` with the Developer ID Application requirement `anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "JCZY58QP3L"`. Any error counts as "not Developer ID".
+- `CodeSignature.ofRunningApp()` calls `SecCodeCopySelf`, then `SecCodeCheckValidity(code, [], requirement)` with the Developer ID Application requirement `anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "JCZY58QP3L"`. It then runs `SecCodeCopyStaticCode` and `SecStaticCodeCheckValidity(static, [strictValidate, checkAllArchitectures], requirement)`, so an edited Info.plist (for example `WHDevSafety`) breaks the seal. Any error counts as "not Developer ID".
 - Only the **`Distribution`** configuration (exported only by `release-mac.sh`) sets `WHDevSafety = NO` (§1.2). Local **Release** builds and archives keep `YES`, so they stay safe even when signed with Developer ID; Debug and **Profile** fail on the bundle ID as well.
-- **Allowed hosts.** While active, the only kubeconfig read is the explicit test file: `-WHKubeconfigPath <path>`, else the `WH_KUBECONFIG_PATH` environment variable, else Info.plist `WHDefaultTestKubeconfig` (`$(SRCROOT)/.testcluster/kubeconfig`). The file is refused if its realpath is under `realpath(~/.kube)` (symlinks resolved). `allowedHosts` is the set of server hosts of the clusters in that file, plus the reserved fixture names `*.test`, `*.example` and `*.invalid`, which never resolve. Nothing else is ever allowed; there is **no opt-in flag** (the former `-WHAllowHomeKubeconfig` and `-WHAllowCloudCLIs` are removed).
+- **Allowed hosts.** While active, the only kubeconfig read is the explicit test file: `-WHKubeconfigPath <path>`, else the `WH_KUBECONFIG_PATH` environment variable, else Info.plist `WHDefaultTestKubeconfig` (`$(SRCROOT)/.testcluster/kubeconfig`). The file is refused if its realpath is under `realpath(~/.kube)` (symlinks resolved). `allowedHosts` is the set of server hosts of the clusters in that file, plus the reserved fixture names `*.test`, `*.example` and `*.invalid`, which never resolve. The file is also refused when it **is** `~/.kube/config` or `~/.kube` under another name (a hard link: same device and inode from `stat`, metadata only, never the contents). `allowedHosts` can be set **once** per launch (later calls are ignored). Nothing else is ever allowed; there is **no opt-in flag** (the former `-WHAllowHomeKubeconfig` and `-WHAllowCloudCLIs` are removed).
 
 **What the gate enforces while active** (every row is a case in `DevSafetyTests`):
 
@@ -1487,6 +1499,8 @@ public enum DevSafety {
 | Beacon | The Debug helper (`…mac.mcp.debug`) reaches only the Debug app and app group (§10.1); dev builds register as `wheelhouse-debug` with Claude Code `--scope local` only; **Add to Claude Desktop** is unavailable (§10.3). |
 | Updates | The Sparkle updater is not started (no feed in Debug and Profile; gate check in a local Release build; §2.5). |
 | Perf scenarios | `-WHPerfScenario` is honoured only while the gate is active (§12.3.1). |
+
+**Group isolation while the gate is on.** A local Release build has the production bundle ID, app group and keychain groups in its Info.plist. `MacAppEnvironment.live()` therefore installs `IsolationOverride` (Kit) first thing whenever the gate is active: the app group and both keychain group suffixes are forced to the Debug ones, whatever Info.plist says. Such a build cannot open the production group container or name the shared iCloud group (its entitlements do not list the Debug groups, so the keychain refuses: fail closed). This does not depend on `~/.kube` existing, and it is set once.
 
 **First launch never probes Production** in any build (owner decision 10, §4.4): Production-suggested rows show "Not checked · **Check**", and nothing contacts them until the user clicks Check.
 
@@ -1627,7 +1641,10 @@ Wave 6:                          M14 (with P2)
 - **Perf files:** each milestone adds its own `perf/baselines/<milestone>.json`; `perf/budgets.json` changes only in P1 and P2.
 - **Settings:** each feature has its own pane file in `WheelhouseMac/Settings/Panes/<Feature>Pane.swift` (stubbed in M1a).
 - **Signing and release files:** M1a creates `*.entitlements` (the Debug build needs them on day one); from then on they, `scripts/release-mac.sh` and `docs/mac/` belong to M2 only.
-- Every milestone merges to `main` behind its feature flag (`FeatureRegistry.isEnabled`; Debug is on, Release is on only once the exit criteria pass).
+- Every milestone merges to `main` behind its feature flag (`FeatureRegistry.isEnabled`: every development build, meaning the safety gate is active (Debug, Profile, local Release), shows all features; Distribution shows only `releaseEnabled`, which a milestone adds itself to once its exit criteria pass).
+- **`KUBECACHEDIR`.** `kubectl` writes its discovery cache to `~/.kube/cache` even with `--kubeconfig`. **M3 (`Subprocess`) and M5a (Gangway sessions) set `KUBECACHEDIR` to a directory under `AppPaths.root` for every `kubectl` they spawn**, and `scripts/testcluster-fixtures.sh` sets it to `.testcluster/kubectl-cache`. A test asserts that the environment built for a child process contains it while the gate is active.
+- **Config files owned by a later milestone.** `WheelhouseMac/Resources/Distribution.xcconfig` (the Sparkle public key) is applied to every configuration through `configFiles`; M2 edits that file, not `project.yml`.
+- **Package resources, widget wiring, M14.** M14 adds the Mac widget bundle in `WheelhouseMacWidgets/`; the widget target already depends on Kit and UI and shares the iOS provider and intent, and its `WHAppGroup` is set, so M14 needs no `project.yml` edit.
 
 ---
 

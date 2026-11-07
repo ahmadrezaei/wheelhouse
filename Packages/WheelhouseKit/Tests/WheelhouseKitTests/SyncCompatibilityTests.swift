@@ -476,3 +476,88 @@ struct ReviewFixTests {
 private extension JSONEncoder {
     static var iso: JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }
 }
+
+// MARK: - (d) every synchronizable item: Mac-written payloads with every optional field set, read by the frozen 1.0.1 copies
+
+/// ARCHITECTURE-MAC section 1.4 rule 5. Uses `Frozen_1_0_1` (mirror, `ClusterConfig`) and `Frozen_1_0_1+Secrets` (`ClusterSecrets`,
+/// Prometheus token) so the rule covers the mirror, per-cluster credentials and Prometheus tokens.
+@Suite("Sync compatibility: Mac-written payloads and every frozen 1.0.1 reader")
+struct MacWrittenPayloadTests {
+    /// A fully populated cluster, as the Mac would write it (every optional field set, plus a key a future Mac build adds).
+    private func fullCluster(_ id: String) throws -> ClusterConfig {
+        let base = try JSONEncoder.macIso.encode(ClusterConfig(id: id, name: "mac-\(id)", server: URL(string: "https://\(id).example.com:6443")!, authKind: .clientCertificate,
+                                                            environment: .production, readOnly: true, allowExecInReadOnly: true, iCloudSync: true, skipTLSVerify: false,
+                                                            prometheusURL: URL(string: "https://prom.\(id).example.com"),
+                                                            defaultNamespace: "payments", pinnedNamespaces: ["payments", "kube-system"], color: .indigo,
+                                                            provider: "hetzner", region: "fsn1", isDemo: false, createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                                            modifiedAt: Date(timeIntervalSince1970: 1_750_000_000), tlsServerName: "k8s.internal"))
+        var object = try #require(JSONSerialization.jsonObject(with: base) as? [String: Any])
+        object["macOnlyFutureField"] = ["optional": true]       // a non-essential optional field a later Mac build might add
+        return try JSONDecoder.macIso.decode(ClusterConfig.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    @Test func everyElementOfAMacWrittenMirrorDecodesWithTheFrozenReaderAndTombstonesSurviveAFrozenRoundTrip() throws {
+        let mirror = InMemoryMetadataMirror()
+        let device = try makeDevice(mirror)
+        let a = try fullCluster("alpha"), b = try fullCluster("bravo"), gone = try fullCluster("gone")
+        try device.save([a, b, gone])
+        try device.save([a, b])                                   // tombstone for "gone"
+        let data = try #require(mirror.read())
+
+        let frozen = Frozen_1_0_1.readMirror(data)
+        #expect(Set(frozen.clusters.map(\.id)) == ["alpha", "bravo"])
+        #expect(frozen.deleted["gone"] != nil)
+        let fa = try #require(frozen.clusters.first { $0.id == "alpha" })
+        #expect(fa.environment == .production && fa.authKind == .clientCertificate && fa.readOnly && fa.allowExecInReadOnly)
+        #expect(fa.tlsServerName == "k8s.internal" && fa.defaultNamespace == "payments" && fa.pinnedNamespaces == ["payments", "kube-system"])
+        #expect(fa.provider == "hetzner" && fa.region == "fsn1" && fa.prometheusURL?.host() == "prom.alpha.example.com" && fa.color == .indigo)
+
+        // The frozen device re-saves what it read: no element and no tombstone is lost, and the current code still reads it.
+        let resaved = try Frozen_1_0_1.encoder.encode(frozen)
+        let back = Frozen_1_0_1.readMirror(resaved)
+        #expect(back.clusters.count == 2 && back.deleted["gone"] != nil)
+        let current = ClusterMetadataStore.Mirror.parse(resaved, decoder: JSONDecoder.macIso)
+        #expect(Set(current.clusters.map(\.id)) == ["alpha", "bravo"])
+        #expect(current.deleted["gone"] != nil)
+    }
+
+    @Test func secretsWithEveryFieldDecodeWithTheFrozenCopyThroughTheRealStore() throws {
+        let mem = InMemoryKeychain()
+        let store = KeychainCredentialStore(backend: mem)
+        var secrets = try JSONDecoder().decode(ClusterSecrets.self, from: Data("{\"futureKey\":{\"v\":2}}".utf8))
+        secrets.token = "tok-123"; secrets.clientCertificatePEM = "CERT"; secrets.clientKeyPEM = "KEY"; secrets.caPEM = "CA"
+        try store.save(secrets, clusterID: "alpha", synchronizable: true)
+        let raw = try #require(mem.variants(service: "app.wheelhouse.credentials", account: "alpha").synced)
+        let frozen = try Frozen_1_0_1.readSecrets(raw)
+        #expect(frozen.token == "tok-123" && frozen.clientCertificatePEM == "CERT" && frozen.clientKeyPEM == "KEY" && frozen.caPEM == "CA")
+        // A frozen device re-saves its copy; the current code reads it back without loss of the known fields.
+        let reencoded = try JSONEncoder().encode(frozen)
+        let current = try JSONDecoder().decode(ClusterSecrets.self, from: reencoded)
+        #expect(current.token == "tok-123" && current.caPEM == "CA")
+    }
+
+    @Test func secretsWrittenByTheFrozenCopyAreReadByTheCurrentStore() throws {
+        let mem = InMemoryKeychain()
+        let frozen = Frozen_1_0_1.ClusterSecrets(token: "t", clientCertificatePEM: "c", clientKeyPEM: "k", caPEM: "ca")
+        try mem.upsert(JSONEncoder().encode(frozen), service: "app.wheelhouse.credentials", account: "x", synchronizable: true)
+        let loaded = try KeychainCredentialStore(backend: mem).load(clusterID: "x")
+        #expect(loaded.token == "t" && loaded.clientKeyPEM == "k")
+    }
+
+    @Test func prometheusTokenIsAPlainUTF8StringBothWays() throws {
+        let mem = InMemoryKeychain()
+        #expect(PrometheusTokenStore.save("  prom-token  ", clusterID: "alpha", synchronizable: true, in: mem))
+        let raw = try #require(mem.variants(service: "app.wheelhouse.prometheus", account: "alpha").synced)
+        #expect(Frozen_1_0_1.readPrometheusToken(raw) == "prom-token")
+        // Written by the frozen copy, still not "unreadable" for the current code.
+        try mem.upsert(Frozen_1_0_1.encodePrometheusToken(" other "), service: "app.wheelhouse.prometheus", account: "beta", synchronizable: true)
+        #expect(!PrometheusTokenStore.isUnreadable(clusterID: "beta", in: mem))
+    }
+}
+
+private extension JSONEncoder {
+    static var macIso: JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }
+}
+private extension JSONDecoder {
+    static var macIso: JSONDecoder { let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601; return d }
+}

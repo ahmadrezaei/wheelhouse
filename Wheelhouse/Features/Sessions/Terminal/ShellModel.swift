@@ -5,7 +5,11 @@ import WheelhouseKit
 /// adapter and return it here; nothing else in the Sessions feature depends on the renderer.
 @MainActor
 enum TerminalSurfaceFactory {
+    #if os(macOS)
+    static func make() -> any TerminalSurface { SwiftTermSurface() }
+    #else
     static func make() -> any TerminalSurface { BasicTerminalSurface() }
+    #endif
 }
 
 /// State and plumbing of one interactive shell: owns the surface and the ``ExecSession``.

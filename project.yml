@@ -3,8 +3,15 @@ options:
   bundleIdPrefix: com.ahmadrezaei
   deploymentTarget:
     iOS: "27.0"
+    macOS: "27.0"
   createIntermediateGroups: true
   developmentLanguage: en
+# Profile and Distribution are new. The iOS targets map them to their Release settings (type: release), so iOS is unchanged.
+configs:
+  Debug: debug
+  Profile: release        # optimised, but Debug identity: bundle ID, entitlements, keychain group, app group (Mac)
+  Release: release        # local Release builds and archives: Developer ID identity, DevSafety still ON (Mac)
+  Distribution: release   # used ONLY by scripts/release-mac.sh; the only configuration with WHDevSafety = NO (Mac)
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -18,13 +25,11 @@ settings:
 packages:
   WheelhouseKit:
     path: Packages/WheelhouseKit
-  # SwiftTerm 1.99.2 is intentionally NOT linked yet: it ships a SwiftPM build-tool plugin
-  # ("SwiftTermBuildInfoPlugin") that Xcode must be told to trust once (Xcode GUI "Trust & Enable", or
-  # xcodebuild -skipPackagePluginValidation). Uncomment the three SwiftTerm blocks after the owner of the
-  # Sessions feature has approved that.
-  # SwiftTerm:
-  #   url: https://github.com/migueldeicaza/SwiftTerm
-  #   exactVersion: 1.99.2
+  SwiftTerm:
+    path: Packages/Vendor/SwiftTerm          # vendored, no build plugin (scripts/vendor-swiftterm.sh)
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: "2.10.1"                   # latest 2.x at M1a; reference only, M2 wires the updater
 targets:
   Wheelhouse:
     type: application
@@ -33,13 +38,12 @@ targets:
       - path: Wheelhouse
         excludes:
           - "**/*.entitlements"
+          - "**/*+macOS.swift"
     dependencies:
       - package: WheelhouseKit
         product: WheelhouseKit
       - package: WheelhouseKit
         product: WheelhouseUI
-      # - package: SwiftTerm
-      #   product: SwiftTerm
       - target: WheelhouseWidgets
         embed: true
       - target: WheelhouseShare
@@ -181,6 +185,258 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
         GENERATE_INFOPLIST_FILE: NO
+  WheelhouseMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Wheelhouse
+        excludes:
+          - "**/*+iOS.swift"
+          - "**/*.entitlements"
+          - "Info.plist"
+          - "Resources/**"
+      - path: WheelhouseMac
+        excludes:
+          - "**/*.entitlements"
+          - "Resources/Info.plist"
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+      - package: WheelhouseKit
+        product: WheelhouseDesktop
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: Sparkle
+        product: Sparkle
+      - target: wh-pty-exec
+        embed: true
+        copy: { destination: executables, subpath: ../Helpers }      # Contents/Helpers
+      - target: wheelhouse-mcp
+        embed: true
+        copy: { destination: executables, subpath: ../Helpers }
+      - target: WheelhouseMacWidgets
+        embed: true                                                  # placeholder in M1a, content in M14
+    preBuildScripts:
+      - name: Verify bundled helm
+        # Release and Distribution: fails the build if Vendor/helm/bin/helm is missing or its checksum differs.
+        # Debug and Profile: skipped; Chart Room then offers the PATH helm (the bundled one is optional while developing).
+        script: 'if [ "$WH_REQUIRE_BUNDLED_HELM" = YES ]; then "$SRCROOT/scripts/fetch-helm.sh" --verify-only; fi'
+        basedOnDependencyAnalysis: false
+    postCompileScripts:
+      - name: Copy helm into Contents/Helpers
+        script: '[ -f "$SRCROOT/Vendor/helm/bin/helm" ] && mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers" && ditto "$SRCROOT/Vendor/helm/bin/helm" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/helm" || true'
+        basedOnDependencyAnalysis: false
+    info:
+      path: WheelhouseMac/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse
+        CFBundleShortVersionString: $(MAC_MARKETING_VERSION)
+        CFBundleVersion: $(MAC_BUILD_NUMBER)
+        LSMinimumSystemVersion: "27.0"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSLocalNetworkUsageDescription: Wheelhouse connects to clusters and Prometheus servers on your local network.
+        # Same rationale as iOS (ARCHITECTURE.md, ATS): trust is evaluated strictly in code (TLSValidator).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.ahmadrezaei.wheelhouse.mac
+            CFBundleURLSchemes:
+              - wheelhouse
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Kubeconfig
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.yaml
+              - com.ahmadrezaei.wheelhouse.kubeconfig
+          - CFBundleTypeName: Wheelhouse Station
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.ahmadrezaei.wheelhouse.station
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.ahmadrezaei.wheelhouse.kubeconfig
+            UTTypeDescription: Kubernetes kubeconfig
+            UTTypeConformsTo: [public.yaml, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [kubeconfig]
+          - UTTypeIdentifier: com.ahmadrezaei.wheelhouse.station
+            UTTypeDescription: Wheelhouse Station
+            UTTypeConformsTo: [public.json, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [whstation]
+        SUFeedURL: $(WH_SU_FEED_URL)                         # empty in Debug and Profile: the updater is never started
+        SUPublicEDKey: $(WH_SU_PUBLIC_ED_KEY)                # set by M2 from generate_keys
+        SUEnableAutomaticChecks: $(WH_SU_AUTO_CHECKS)        # NO in Debug and Profile
+        SUScheduledCheckInterval: 86400
+        SUShowReleaseNotes: false                            # no WebView for release notes (§12.3.4); the alert links to the notes page
+        WHKeychainGroupSuffix: $(WH_KEYCHAIN_GROUP_SUFFIX)                   # shared group, read by KeychainAccess (§1.5)
+        WHKeychainPrivateGroupSuffix: $(WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX)    # Mac-private group (§1.8)
+        WHAppGroup: $(WH_APP_GROUP)
+        WHDevSafety: $(WH_DEV_SAFETY)                        # fail-closed gate (§13.2); a missing key counts as YES
+        WHDefaultTestKubeconfig: $(WH_DEFAULT_TEST_KUBECONFIG)   # empty in Distribution
+        WHPerfScenarioDirectory: $(WH_PERF_SCENARIOS)            # empty in Distribution; scenarios are honoured only while the gate is on
+    configFiles:                                   # M2 owns this file (the Sparkle public key); M1a never needs it edited
+      Debug: WheelhouseMac/Resources/Distribution.xcconfig
+      Profile: WheelhouseMac/Resources/Distribution.xcconfig
+      Release: WheelhouseMac/Resources/Distribution.xcconfig
+      Distribution: WheelhouseMac/Resources/Distribution.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Wheelhouse
+        PRODUCT_MODULE_NAME: WheelhouseMac
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac
+        MAC_MARKETING_VERSION: "1.0.0"
+        MAC_BUILD_NUMBER: "1"
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO       # the helm build phases read and write outside the target
+        ARCHS: arm64
+        CODE_SIGN_STYLE: Manual                 # Developer ID Application + Developer ID provisioning profile (from M2)
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        CODE_SIGN_ENTITLEMENTS: WheelhouseMac/Resources/WheelhouseMac.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        WH_KEYCHAIN_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.shared
+        WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mac
+        WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse
+        WH_DEV_SAFETY: "YES"                    # every configuration except Distribution
+        WH_DEFAULT_TEST_KUBECONFIG: $(SRCROOT)/.testcluster/kubeconfig
+        WH_PERF_SCENARIOS: $(SRCROOT)/perf/scenarios
+        WH_SU_FEED_URL: https://ahmadrezaei.github.io/wheelhouse/mac/appcast.xml
+        WH_SU_AUTO_CHECKS: "YES"
+        WH_REQUIRE_BUNDLED_HELM: "YES"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"   # WH_TEST_HOOKS only in Debug (Gangway auto-approve hook, §13.3)
+      configs:
+        Debug: &debugIdentity
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.debug
+          CODE_SIGN_STYLE: Automatic            # Apple Development
+          CODE_SIGN_IDENTITY: "Apple Development"
+          CODE_SIGN_ENTITLEMENTS: WheelhouseMac/Resources/WheelhouseMac-Debug.entitlements
+          WH_KEYCHAIN_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mac.debug
+          WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mac.debug
+          WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.debug
+          WH_SU_FEED_URL: ""
+          WH_SU_AUTO_CHECKS: "NO"
+          WH_REQUIRE_BUNDLED_HELM: "NO"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG WH_TEST_HOOKS"
+        Profile:
+          <<: *debugIdentity                    # same identity as Debug, optimised build, no test hooks
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
+        Distribution:
+          WH_DEV_SAFETY: "NO"                   # the ONLY place this is NO
+          WH_DEFAULT_TEST_KUBECONFIG: ""
+          WH_PERF_SCENARIOS: ""
+  wh-pty-exec:
+    type: tool
+    platform: macOS
+    sources: [Helpers/wh-pty-exec]
+    settings:
+      base:
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.pty
+      configs:
+        Debug: { PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.pty.debug }
+        Profile: { PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.pty.debug }
+  wheelhouse-mcp:
+    type: tool
+    platform: macOS
+    sources: [Helpers/wheelhouse-mcp]
+    settings:
+      base:
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.mcp
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES      # embeds WHAppBundleID / WHAppGroup so the helper finds its own app (§10.1)
+        INFOPLIST_FILE: Helpers/wheelhouse-mcp/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Helpers/wheelhouse-mcp/wheelhouse-mcp.entitlements   # the app group only (team-prefixed: no profile needed)
+        WH_APP_BUNDLE_ID: com.ahmadrezaei.wheelhouse.mac
+        WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse
+      configs:
+        Debug: &mcpDebug { CODE_SIGN_ENTITLEMENTS: Helpers/wheelhouse-mcp/wheelhouse-mcp-Debug.entitlements, PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.mcp.debug, WH_APP_BUNDLE_ID: com.ahmadrezaei.wheelhouse.mac.debug, WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.debug }
+        Profile: *mcpDebug
+  WheelhouseMacWidgets:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: WheelhouseMacWidgets
+        excludes: ["**/*.entitlements"]
+      # The iOS widget's provider and intent are shared (M14 adds the Mac widget bundle in WheelhouseMacWidgets/).
+      - path: WheelhouseWidgets
+        includes: ["Providers.swift", "ClusterIntent.swift"]
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+    info:
+      path: WheelhouseMacWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse Widgets
+        CFBundleShortVersionString: $(MAC_MARKETING_VERSION)
+        CFBundleVersion: $(MAC_BUILD_NUMBER)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        WHAppGroup: $(WH_APP_GROUP)                # the shared Providers.swift reads the Mac group, not the iOS fallback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.widgets
+        MAC_MARKETING_VERSION: "1.0.0"
+        MAC_BUILD_NUMBER: "1"
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: NO
+        WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        CODE_SIGN_ENTITLEMENTS: WheelhouseMacWidgets/WheelhouseMacWidgets.entitlements
+      configs:
+        Debug: &widgetDebug
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.debug.widgets
+          WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.debug
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_IDENTITY: "Apple Development"
+          CODE_SIGN_ENTITLEMENTS: WheelhouseMacWidgets/WheelhouseMacWidgets-Debug.entitlements
+        Profile:
+          <<: *widgetDebug
+  WheelhouseMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [WheelhouseMacTests]
+    dependencies:
+      - target: WheelhouseMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+        ARCHS: arm64
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse
+        BUNDLE_LOADER: $(TEST_HOST)
+  WheelhouseMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [WheelhouseMacUITests]
+    dependencies:
+      - target: WheelhouseMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        ARCHS: arm64
+  WheelhouseMacPerfTests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [WheelhouseMacPerfTests]
+    dependencies:
+      - target: WheelhouseMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.perftests
+        GENERATE_INFOPLIST_FILE: YES
+        ARCHS: arm64
 schemes:
   Wheelhouse:
     build:
@@ -194,3 +450,33 @@ schemes:
         - package: WheelhouseKit/WheelhouseKitTests
     profile:
       config: Release
+  WheelhouseMac:
+    build:
+      targets:
+        WheelhouseMac: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "-WHKubeconfigPath $(SRCROOT)/.testcluster/kubeconfig": true
+    test:
+      config: Debug
+      targets:
+        - package: WheelhouseKit/WheelhouseKitTests
+        - package: WheelhouseKit/WheelhouseDesktopTests
+        - WheelhouseMacTests
+        - WheelhouseMacUITests
+    profile:
+      config: Profile                    # Instruments never runs a Release-identity build
+      commandLineArguments:
+        "-WHKubeconfigPath $(SRCROOT)/.testcluster/perf-kubeconfig": true
+    archive:
+      config: Release                    # local archives keep DevSafety ON; release-mac.sh passes -configuration Distribution
+  WheelhouseMacPerf:                     # perf harness (§12.3.5): optimised build, Debug identity, DevSafety on, no test hooks
+    build:
+      targets:
+        WheelhouseMac: all
+        WheelhouseMacPerfTests: [test]
+    test:
+      config: Profile
+      targets:
+        - WheelhouseMacPerfTests

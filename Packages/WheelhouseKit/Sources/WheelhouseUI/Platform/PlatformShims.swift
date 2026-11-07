@@ -56,6 +56,24 @@ public extension View {
         #endif
     }
 
+    /// `.navigationBarTitleDisplayMode(.large)` on iOS; a no-op on macOS.
+    @ViewBuilder func whLargeNavigationTitle() -> some View {
+        #if os(iOS)
+        navigationBarTitleDisplayMode(.large)
+        #else
+        self
+        #endif
+    }
+
+    /// Forces the dark colour scheme for the navigation bar (iOS) or window toolbar (macOS), used over the terminal.
+    @ViewBuilder func whToolbarColorSchemeDark() -> some View {
+        #if os(iOS)
+        toolbarColorScheme(.dark, for: .navigationBar)
+        #else
+        toolbarColorScheme(.dark, for: .windowToolbar)
+        #endif
+    }
+
     /// Search field in the navigation bar drawer on iOS; the default toolbar placement on macOS.
     @ViewBuilder func whSearchable(text: Binding<String>, prompt: LocalizedStringKey) -> some View {
         #if os(iOS)
@@ -88,8 +106,10 @@ public extension ToolbarItemPlacement {
 
 #if canImport(UIKit)
 public typealias PlatformColor = UIColor
+public typealias PlatformView = UIView
 #else
 public typealias PlatformColor = NSColor
+public typealias PlatformView = NSView
 #endif
 
 public extension Color {
@@ -275,5 +295,41 @@ public enum PlatformInfo {
     public static var osVersionString: String {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         return "\(v.majorVersion).\(v.minorVersion)" + (v.patchVersion > 0 ? ".\(v.patchVersion)" : "")
+    }
+}
+
+// MARK: - Edit button and lifecycle
+
+/// iOS `EditButton` (list reordering); nothing on macOS, where `.onMove` works without an edit mode.
+public struct WHEditButton: View {
+    public init() {}
+    public var body: some View {
+        #if os(iOS)
+        EditButton()
+        #else
+        EmptyView()
+        #endif
+    }
+}
+
+public enum PlatformLifecycle {
+    /// Observes "the app is about to be suspended" and "it is running again".
+    /// iOS: `didEnterBackground` / `willEnterForeground`. macOS: `willSleep` / `didWake` only. The Mac does not suspend
+    /// sessions when the app is deactivated. Keep the returned tokens for as long as the observation should last.
+    @MainActor
+    public static func observe(suspend: @escaping @MainActor () -> Void, resume: @escaping @MainActor () -> Void) -> [NSObjectProtocol] {
+        #if os(iOS)
+        let center = NotificationCenter.default
+        return [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { suspend() } },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { resume() } },
+        ]
+        #else
+        let center = NSWorkspace.shared.notificationCenter
+        return [
+            center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { suspend() } },
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { resume() } },
+        ]
+        #endif
     }
 }

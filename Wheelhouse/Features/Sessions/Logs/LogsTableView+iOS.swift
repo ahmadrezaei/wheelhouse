@@ -3,16 +3,6 @@ import UIKit
 import WheelhouseKit
 import WheelhouseUI
 
-/// Everything the table needs to render; value type so SwiftUI diffing stays cheap.
-struct LogsDisplaySettings: Equatable {
-    var wrap = true
-    var timestamps = false
-    var fontSize: CGFloat = 12
-    var query = ""
-    var useRegex = false
-    var currentLineID: Int?
-}
-
 /// UITableView-backed log list (rows are cheap labels; only visible rows are built, so 20k lines scroll smoothly).
 /// With wrap off the table sits inside a horizontal scroll view sized to the longest line.
 struct LogsTableView: UIViewRepresentable {
@@ -248,8 +238,8 @@ final class LogsContainerView: UIView, UITableViewDataSource, UITableViewDelegat
         guard line.kind == .line else { return nil }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             UIMenu(children: [
-                UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = line.message },
-                UIAction(title: "Copy with Timestamp", image: UIImage(systemName: "clock")) { _ in UIPasteboard.general.string = line.text(timestamps: true) },
+                UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in Pasteboard.copy(line.message) },
+                UIAction(title: "Copy with Timestamp", image: UIImage(systemName: "clock")) { _ in Pasteboard.copy(line.text(timestamps: true)) },
             ])
         }
     }

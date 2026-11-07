@@ -1,0 +1,12 @@
+{
+  "name": "hidden",
+  "description": "idle-1, then every window closed (menu-bar mode, Crow's Nest watching the 3 clusters).",
+  "clusters": 3,
+  "windows": 1,
+  "tabs": 1,
+  "panes": [
+    "fleet"
+  ],
+  "hideWindowsAfterSeconds": 5,
+  "windowAction": "close"
+}

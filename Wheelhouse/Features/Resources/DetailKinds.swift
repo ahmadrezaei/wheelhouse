@@ -521,7 +521,7 @@ struct ConfigMapSections: View {
                         }.buttonStyle(.plain)
                         Spacer()
                         Text("\(value.utf8.count) B").font(.caption).foregroundStyle(.secondary)
-                        Button { UIPasteboard.general.string = value } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy \(key)")
+                        Button { Pasteboard.copy(value) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("Copy \(key)")
                     }
                     if expanded.contains(key) {
                         Text(String(value.prefix(6000))).font(.whCodeSmall).textSelection(.enabled)
@@ -603,7 +603,7 @@ struct SecretSections: View {
 
     private func copy(_ key: String, _ b64: String) async {
         guard await AppLockController.authenticate(reason: "Copy secret value “\(key)”"), let text = SecretDecoder.text(fromBase64: b64) else { note = "Authentication required to copy values."; return }
-        UIPasteboard.general.setItems([["public.utf8-plain-text": text]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
+        Pasteboard.copySensitive(text, clearAfter: 60)
         note = "Copied \(key). The clipboard clears in 60 seconds."
     }
 

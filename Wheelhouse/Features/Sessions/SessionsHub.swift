@@ -1,6 +1,6 @@
 import SwiftUI
-import UIKit
 import WheelhouseKit
+import WheelhouseUI
 
 /// One finished session kept in the "Recent" list (in memory only).
 struct RecentSession: Identifiable {
@@ -40,12 +40,10 @@ final class SessionsHub {
 
     private init() {
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.appDidEnterBackground() }
-        })
-        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.appWillEnterForeground() }
-        })
+        // iOS: background / foreground. Mac: only sleep and wake (the Mac does not suspend sessions on deactivate).
+        observers.append(contentsOf: PlatformLifecycle.observe(
+            suspend: { [weak self] in self?.appDidEnterBackground() },
+            resume: { [weak self] in self?.appWillEnterForeground() }))
         observers.append(center.addObserver(forName: ClusterEvents.invalidated, object: nil, queue: .main) { [weak self] note in
             guard let id = ClusterEvents.clusterID(from: note) else { return }
             let removed = ClusterEvents.wasRemoved(note)

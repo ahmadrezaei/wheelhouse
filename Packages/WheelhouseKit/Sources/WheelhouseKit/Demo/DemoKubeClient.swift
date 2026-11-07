@@ -559,6 +559,25 @@ public actor DemoKubeClient: KubeClientProtocol {
         return try JSONValue.object(["status": "success", "data": ["resultType": .string(isRange ? "matrix" : "vector"), "result": .array(result)]]).data()
     }
 
+    public func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
+        try await simulateLatency()
+        let all = items(kind, namespace: namespace, options: ListOptions(labelSelector: labelSelector))
+        let page = limit.map { Array(all.prefix($0)) } ?? all
+        let metas = try page.compactMap { object -> ObjectMeta? in
+            guard let m = object["metadata"] else { return nil }
+            return try m.decode(ObjectMeta.self)
+        }
+        return ObjectMetadataList(kind: kind, items: metas, resourceVersion: String(resourceVersion),
+                                  continueToken: page.count < all.count ? "demo-\(page.count)" : nil)
+    }
+
+    public func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
+                             headers: [String: String], body: Data?) async throws -> ProxyResponse {
+        guard method.uppercased() == "GET" else { throw KubeError.unsupported("Demo clusters only answer proxied GET requests.") }
+        let data = try await proxyGET(namespace: namespace, service: service, port: port, path: path, query: query)
+        return ProxyResponse(statusCode: 200, headers: ["Content-Type": "application/json"], body: data)
+    }
+
     /// (labels, base, amplitude) tuples for a PromQL query, scaled to this cluster's capacity.
     private func promSeries(for query: String) -> [([String: String], Double, Double)] {
         let cores = profile.nodeCPU * Double(profile.nodeCount)

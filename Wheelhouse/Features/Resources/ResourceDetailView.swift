@@ -50,7 +50,7 @@ private struct DetailScreen: View {
             else { ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }
         .navigationTitle(ref.kind.kind)
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar { if let object { toolbar(object) } }
         .task(id: ref.id) { if usesStore { await store.run() } }
         .task(id: ref.id) { await fetch() }
@@ -184,10 +184,10 @@ private struct DetailScreen: View {
     }
 
     @ToolbarContentBuilder private func toolbar(_ object: Unstructured) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Menu {
-                Button { UIPasteboard.general.string = ref.name } label: { Label("Copy Name", systemImage: "doc.on.doc") }
-                if ref.kind != .secret { Button { UIPasteboard.general.string = ResourceExport.yaml(object.raw) } label: { Label("Copy YAML", systemImage: "doc.on.clipboard") } }
+                Button { Pasteboard.copy(ref.name) } label: { Label("Copy Name", systemImage: "doc.on.doc") }
+                if ref.kind != .secret { Button { Pasteboard.copy(ResourceExport.yaml(object.raw)) } label: { Label("Copy YAML", systemImage: "doc.on.clipboard") } }
                 Button { router.push(.yaml(ref)) } label: { Label("View YAML", systemImage: "curlybraces") }
                 if ref.kind.kind == "Deployment", host.canMutate {
                     let t = ResourceTarget(kind: ref.kind, object: object)

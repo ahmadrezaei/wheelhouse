@@ -47,7 +47,7 @@ private struct YAMLEditorContent: View {
         .background(Palette.groupedBackground)
         .onAppear { model.revealOncePerSession = { [preferences] in preferences.revealSecretsOncePerSession } }
         .navigationTitle(model.ref.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .navigationBarBackButtonHidden(model.isEditing)
         .toolbar { toolbar }
         .task { await model.load() }
@@ -183,7 +183,7 @@ private struct YAMLEditorContent: View {
                 Button("Find", systemImage: "magnifyingglass") { controller.find() }
                     .keyboardShortcut("f", modifiers: .command)
                 if !model.isEditing {
-                    Button("Copy YAML", systemImage: "doc.on.doc") { UIPasteboard.general.string = model.viewText }
+                    Button("Copy YAML", systemImage: "doc.on.doc") { Pasteboard.copy(model.viewText) }
                         .disabled(model.isSecret && !model.secretRevealed)
                     Button("Reload", systemImage: "arrow.clockwise") { Task { await model.load() } }
                 }

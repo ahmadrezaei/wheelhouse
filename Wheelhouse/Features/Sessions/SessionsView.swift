@@ -59,7 +59,7 @@ struct SessionsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .whGroupedListStyle()
         .navigationTitle("Sessions")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -94,7 +94,7 @@ struct SessionsView: View {
                     Button { browserFor = f } label: { Label("Open", systemImage: "globe") }.buttonStyle(.glass)
                 }
                 Button {
-                    UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: f.url?.absoluteString ?? "http://127.0.0.1:\(f.localPort)"]], options: [.localOnly: true])
+                    Pasteboard.copy(f.url?.absoluteString ?? "http://127.0.0.1:\(f.localPort)", localOnly: true)
                     copiedID = f.id
                 } label: { Label(copiedID == f.id ? "Copied" : "Copy", systemImage: copiedID == f.id ? "checkmark" : "doc.on.doc") }.buttonStyle(.glass)
                 Spacer()
@@ -214,7 +214,7 @@ struct NewPortForwardPicker: View {
                 }
             }
             .navigationTitle("New Port Forward")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }

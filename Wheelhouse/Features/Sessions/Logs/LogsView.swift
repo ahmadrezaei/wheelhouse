@@ -29,7 +29,7 @@ struct LogsView: View {
             }
         }
         .navigationTitle("Logs")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .task(id: pod) { await start() }
         // A follow request holds an inotify watcher on the node: close it when the screen is left (unless pinned).
         .onAppear { model?.screenDidAppear() }
@@ -70,7 +70,7 @@ struct LogsView: View {
             }
             footer(model)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(Color.whSystemBackground)
         .toolbar { toolbar(model) }
         .onChange(of: model.stream.revision) { _, _ in model.syncFromStream() }
         .onChange(of: model.stream.state) { _, _ in model.syncFromStream() }
@@ -169,7 +169,7 @@ struct LogsView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField(model.useRegex ? "Regex" : "Search logs", text: $model.query)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().focused($searchFocused)
+                    .whNoAutocapitalization().autocorrectionDisabled().focused($searchFocused)
                     .font(.whCode).submitLabel(.search).onSubmit { model.nextMatch() }
                 if !model.query.isEmpty {
                     Text(model.matchIDs.isEmpty ? "0" : "\((model.currentMatch ?? 0) + 1)/\(model.matchIDs.count)")
@@ -211,8 +211,8 @@ struct LogsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(8).background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
                         HStack {
-                            Button { UIPasteboard.general.string = LogStreamProblem.sysctlCommands } label: { Label("Copy sysctl", systemImage: "doc.on.doc") }
-                            Button { UIPasteboard.general.string = LogStreamProblem.fullFix } label: { Label("Copy all", systemImage: "doc.on.doc.fill") }
+                            Button { Pasteboard.copy(LogStreamProblem.sysctlCommands) } label: { Label("Copy sysctl", systemImage: "doc.on.doc") }
+                            Button { Pasteboard.copy(LogStreamProblem.fullFix) } label: { Label("Copy all", systemImage: "doc.on.doc.fill") }
                         }
                         .buttonStyle(.bordered).controlSize(.small)
                     }
@@ -278,15 +278,15 @@ struct LogsView: View {
     @ToolbarContentBuilder
     private func toolbar(_ model: LogsModel) -> some ToolbarContent {
         @Bindable var model = model
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Button { model.isSearching.toggle(); if !model.isSearching { model.query = "" } } label: { Image(systemName: model.isSearching ? "magnifyingglass.circle.fill" : "magnifyingglass") }
                 .accessibilityLabel("Search")
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Button { if let url = model.exportFileURL() { shareURL = ShareItem(url: url) } } label: { Image(systemName: "square.and.arrow.up") }
                 .accessibilityLabel("Share logs").disabled(model.visible.isEmpty)
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Menu {
                 Menu("Font Size", systemImage: "textformat.size") {
                     Button("Larger", systemImage: "plus") { model.fontSize = min(model.fontSize + 1, 22) }
@@ -295,7 +295,7 @@ struct LogsView: View {
                 Toggle(isOn: $model.pinned) { Label("Keep Streaming When Leaving", systemImage: "pin") }
                 Button { model.clear() } label: { Label("Clear", systemImage: "trash") }
                 Button { model.reload() } label: { Label("Reload", systemImage: "arrow.clockwise") }
-                Button { UIPasteboard.general.string = model.exportText() } label: { Label("Copy All Lines", systemImage: "doc.on.doc") }
+                Button { Pasteboard.copy(model.exportText()) } label: { Label("Copy All Lines", systemImage: "doc.on.doc") }
                 Divider()
                 Button(role: .destructive) { hub.close(model); self.model = nil } label: { Label("Stop Stream", systemImage: "stop.circle") }
             } label: { Image(systemName: "ellipsis.circle") }
@@ -323,11 +323,28 @@ private extension LogStream.State {
 
 struct ShareItem: Identifiable { let id = UUID(); let url: URL }
 
+#if os(iOS)
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url], applicationActivities: nil) }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
+#else
+/// macOS: the system share picker through `ShareLink`. (Save to File… is added with the Mac log toolbar.)
+struct ShareSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing: Spacing.l) {
+            Text(url.lastPathComponent).font(.headline)
+            ShareLink(item: url) { Label("Share…", systemImage: "square.and.arrow.up") }
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
+        .padding(Spacing.xl)
+        .frame(minWidth: 320)
+    }
+}
+#endif
 
 /// Detail of one log line: pretty-printed JSON when the line is JSON.
 private struct LogLineDetailSheet: View {
@@ -357,9 +374,9 @@ private struct LogLineDetailSheet: View {
                 .padding(Spacing.l)
             }
             .navigationTitle(pretty == nil ? "Log Line" : "JSON Line")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Copy") { UIPasteboard.general.string = pretty ?? line.message } }
+                ToolbarItem(placement: .cancellationAction) { Button("Copy") { Pasteboard.copy(pretty ?? line.message) } }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }

@@ -27,13 +27,12 @@ struct ExecTerminalView: View {
             }
         }
         .navigationTitle(model?.title ?? "Shell")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbarBackground(Palette.terminalBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .whInlineNavigationTitle()
+        .whToolbarColorSchemeDark()
+        .whToolbarBackground(Palette.terminalBackground)
         .confirmSheet($confirm)
         .alert("Custom Command", isPresented: $showCustomShell) {
-            TextField("/bin/zsh -l", text: $customShell).textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("/bin/zsh -l", text: $customShell).whNoAutocapitalization().autocorrectionDisabled()
             Button("Run") { let c = customShell.trimmingCharacters(in: .whitespaces); if !c.isEmpty { model?.setShell(.custom(c)) } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Runs instead of the shell. Arguments are split on spaces; use quotes for spaces inside one argument.") }
@@ -220,13 +219,13 @@ struct ExecTerminalView: View {
 
     @ToolbarContentBuilder
     private func toolbar(_ model: ShellModel) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Button {
                 if model.surface.hasFocus { model.surface.blur() } else { model.surface.focus() }
             } label: { Image(systemName: "keyboard") }
             .accessibilityLabel("Toggle keyboard")
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Menu {
                 Section("Shell") {
                     ForEach(ShellChoice.standard) { choice in
@@ -242,7 +241,7 @@ struct ExecTerminalView: View {
                     }
                 }
                 Section {
-                    Button { UIPasteboard.general.string = model.surface.allText(); copied = true } label: { Label("Copy All Output", systemImage: "doc.on.doc") }
+                    Button { Pasteboard.copy(model.surface.allText()); copied = true } label: { Label("Copy All Output", systemImage: "doc.on.doc") }
                     Menu("Font Size", systemImage: "textformat.size") {
                         Button("Larger", systemImage: "plus") { model.surface.fontSize += 1 }
                         Button("Smaller", systemImage: "minus") { model.surface.fontSize -= 1 }

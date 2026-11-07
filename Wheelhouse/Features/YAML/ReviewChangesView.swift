@@ -143,6 +143,7 @@ struct ReviewChangesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.m) {
                     ContextLine(cluster: editor.cluster, namespace: ref.namespace, kind: ref.kind.kind)
+                    OwnershipBadgeSlot()   // empty until M9 injects a GitOps owner
                     if editor.cluster.isProduction {
                         Label("Production cluster. You’ll be asked to type “\(ref.name)” to apply.", systemImage: "shield.lefthalf.filled")
                             .font(.footnote).foregroundStyle(Palette.envProduction)
@@ -153,7 +154,7 @@ struct ReviewChangesView: View {
             }
             .background(Palette.groupedBackground)
             .navigationTitle("Review Changes")
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Back to Editor") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -341,7 +342,7 @@ struct DiffView: View {
         VStack(spacing: 0) {
             if split { splitBody } else { unifiedBody }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
+        .background(Color.whCardBackground, in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
     }
 

@@ -76,8 +76,8 @@ private struct ListScreen: View {
             else { list(store) }
         }
         .navigationTitle(kind.displayName)
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search name, label, image")
+        .whLargeNavigationTitle()
+        .whSearchable(text: $search, prompt: "Search name, label, image")
         .toolbar { toolbar }
         .refreshable { await store.refresh() }
         .task(id: storeKey) { await store.run() }
@@ -118,7 +118,7 @@ private struct ListScreen: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .whGroupedListStyle()
         .animation(reduceMotion ? nil : .default, value: rows.map(\.id))
         .overlay {
             if store.phase == .loaded, store.items.isEmpty { emptyState }
@@ -196,11 +196,11 @@ private struct ListScreen: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         if kind.namespaced {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .whTrailing) {
                 NamespaceMenu(session: session, namespace: $namespace)
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .whTrailing) {
             Menu {
                 Section("Sort by") {
                     Picker("Sort", selection: $sort) {
@@ -257,9 +257,9 @@ private struct ListScreen: View {
     @ViewBuilder private func menu(_ row: ListRowModel) -> some View {
         let t = target(row)
         let ref = ResourceRef(clusterID: session.id, kind: kind, namespace: row.object.metadata.namespace, name: row.object.metadata.name)
-        Button { UIPasteboard.general.string = row.object.metadata.name } label: { Label("Copy Name", systemImage: "doc.on.doc") }
+        Button { Pasteboard.copy(row.object.metadata.name) } label: { Label("Copy Name", systemImage: "doc.on.doc") }
         if kind != .secret {
-            Button { UIPasteboard.general.string = ResourceExport.yaml(row.object.raw) } label: { Label("Copy YAML", systemImage: "doc.on.clipboard") }
+            Button { Pasteboard.copy(ResourceExport.yaml(row.object.raw)) } label: { Label("Copy YAML", systemImage: "doc.on.clipboard") }
         }
         Button { router.push(.yaml(ref), from: column) } label: { Label("View YAML", systemImage: "curlybraces") }
         if kind == .pod {

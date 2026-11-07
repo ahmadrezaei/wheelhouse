@@ -1,0 +1,16 @@
+{
+  "name": "busy-10",
+  "description": "10 clusters, 3 windows, 6 tabs (2 per window): Pods, Deployments and ConfigMaps tables (2,000 rows), two cluster overviews with charts, one quiet log follow, one Deck Terminal at 120x40 with a full 5,000-line scrollback, Compass index for 10 clusters, 3 clusters expanded per sidebar, Crow's Nest on. Applied from M4a.",
+  "clusters": 10,
+  "windows": 3,
+  "tabs": 2,
+  "panes": [
+    "pods",
+    "deployments",
+    "configmaps-2000",
+    "overview",
+    "overview",
+    "logs:pause",
+    "deck-terminal:120x40"
+  ]
+}

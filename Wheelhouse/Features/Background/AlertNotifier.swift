@@ -11,6 +11,15 @@ struct AlertNotifier {
     static let categoryIdentifier = "app.wheelhouse.alert"
     static let openActionIdentifier = "app.wheelhouse.alert.open"
 
+    /// True when notifications can be delivered. `.ephemeral` (App Clips) exists on iOS only.
+    nonisolated static func isAuthorized(_ status: UNAuthorizationStatus) -> Bool {
+        #if os(iOS)
+        status == .authorized || status == .provisional || status == .ephemeral
+        #else
+        status == .authorized || status == .provisional
+        #endif
+    }
+
     /// Registers the notification category. Called by `NotificationCoordinator.install`.
     static func registerCategories() {
         let open = UNNotificationAction(identifier: openActionIdentifier, title: "Open", options: [.foreground])
@@ -23,7 +32,7 @@ struct AlertNotifier {
     static func requestAuthorizationIfNeeded() async -> Bool {
         let center = UNUserNotificationCenter.current()
         switch await center.notificationSettings().authorizationStatus {
-        case .authorized, .provisional, .ephemeral: return true
+        case let s where Self.isAuthorized(s): return true
         case .denied: return false
         default: return (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         }
@@ -53,7 +62,7 @@ struct AlertNotifier {
         }
         if !plan.toPost.isEmpty {
             let authorised = await authorizationStatus()
-            if authorised == .authorized || authorised == .provisional || authorised == .ephemeral {
+            if Self.isAuthorized(authorised) {
                 for c in plan.toPost { await post(c) }
             } else {
                 // Can't deliver: don't mark as notified so they fire once permission is granted.

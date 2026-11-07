@@ -42,7 +42,7 @@ struct KubeconfigImportView: View {
             }
         }
         .navigationTitle("Import")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if router.sheet != nil { router.dismissSheet() } else { dismiss() } } }
             ToolbarItem(placement: .confirmationAction) {
@@ -171,8 +171,8 @@ struct KubeconfigImportView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Label(e.summary, systemImage: "xmark.octagon.fill").foregroundStyle(Palette.criticalText)
                         Button {
-                            UIPasteboard.general.string = ConnectionTestCard.diagnosticsReport(
-                                for: e, target: .init(host: ctx.server?.host() ?? "unknown", port: ctx.server?.port, authKind: authKind(ctx.auth)), trace: res.trace)
+                            Pasteboard.copy(ConnectionTestCard.diagnosticsReport(
+                                for: e, target: .init(host: ctx.server?.host() ?? "unknown", port: ctx.server?.port, authKind: authKind(ctx.auth)), trace: res.trace))
                             copiedDiagnosticsID = ctx.id
                         } label: {
                             Label(copiedDiagnosticsID == ctx.id ? "Copied" : "Copy diagnostics", systemImage: copiedDiagnosticsID == ctx.id ? "checkmark" : "doc.on.doc")
@@ -196,7 +196,7 @@ struct KubeconfigImportView: View {
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: Radius.code))
                 HStack {
-                    Button { UIPasteboard.general.string = KubeconfigParser.serviceAccountTokenCommands(); copied = true } label: {
+                    Button { Pasteboard.copy(KubeconfigParser.serviceAccountTokenCommands()); copied = true } label: {
                         Label(copied ? "Copied" : "Copy commands", systemImage: copied ? "checkmark" : "doc.on.doc")
                     }
                     .buttonStyle(.bordered)

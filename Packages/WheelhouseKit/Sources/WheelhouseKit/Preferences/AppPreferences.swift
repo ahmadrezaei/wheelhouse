@@ -2,7 +2,20 @@ import Foundation
 import Observation
 
 public enum AppGroup {
-    public static let identifier = "group.com.ahmadrezaei.wheelhouse"
+    /// The iOS app group. Used whenever Info.plist has no `WHAppGroup` (every iOS target).
+    public static let defaultIdentifier = "group.com.ahmadrezaei.wheelhouse"
+
+    /// `WHAppGroup` from the bundle's Info.plist when present and non-empty (Mac: a team-prefixed group), else ``defaultIdentifier``.
+    public static func identifier(in bundle: Bundle) -> String {
+        guard let custom = bundle.object(forInfoDictionaryKey: "WHAppGroup") as? String else { return defaultIdentifier }
+        let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultIdentifier : trimmed
+    }
+
+    private static let mainIdentifier: String = identifier(in: .main)
+
+    /// The app group of this process: the installed development-isolation override if any (Mac, gate on), else `WHAppGroup`.
+    public static var identifier: String { IsolationOverride.current?.appGroup ?? mainIdentifier }
     /// Shared container, falling back to Application Support when the entitlement is unavailable (previews, tests, unsigned simulator builds).
     public static var containerURL: URL {
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) { return url }

@@ -200,7 +200,7 @@ private struct CreateContent: View {
         .padding(.bottom, Spacing.s)
         .background(Palette.groupedBackground)
         .navigationTitle("Create from YAML")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button(model.anyDone ? "Done" : "Cancel") { dismiss() } }
             if !cluster.readOnly {

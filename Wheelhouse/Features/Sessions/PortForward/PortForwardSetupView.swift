@@ -49,7 +49,7 @@ struct PortForwardSetupView: View {
             if let session { content(session) } else { EmptyState(.empty(title: "Cluster Not Found", systemImage: "server.rack", hint: "This cluster was removed.")) }
         }
         .navigationTitle("Port Forward")
-        .navigationBarTitleDisplayMode(.inline)
+        .whInlineNavigationTitle()
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { finish() } } }
         .confirmSheet($confirm)
         .sheet(item: $browserFor) { PortForwardBrowserView(forward: $0) }
@@ -116,7 +116,7 @@ struct PortForwardSetupView: View {
                     }
                     Toggle("Other port", isOn: $useCustomRemote.animation())
                     if useCustomRemote {
-                        TextField("Port number", text: $customRemote).keyboardType(.numberPad).font(.body.monospaced())
+                        TextField("Port number", text: $customRemote).whKeyboard(.number).font(.body.monospaced())
                     }
                 } header: { Text(isService ? "Service port" : "Container port") } footer: {
                     if let note = backingNote {
@@ -128,7 +128,7 @@ struct PortForwardSetupView: View {
                 Section {
                     Toggle("Choose local port", isOn: $manualLocal.animation())
                     if manualLocal {
-                        TextField("1024–65535", text: $localText).keyboardType(.numberPad).font(.body.monospaced())
+                        TextField("1024–65535", text: $localText).whKeyboard(.number).font(.body.monospaced())
                         if let problem = localPortProblem { Label(problem, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Palette.criticalText) }
                     } else {
                         LabeledContent("Local port") { Text(verbatim: "\(suggestedLocal) (auto)").font(.body.monospaced()) }
@@ -173,7 +173,7 @@ struct PortForwardSetupView: View {
         Section {
             Button { browserFor = info } label: { Label("Open in Browser", systemImage: "globe") }
             Button {
-                UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: info.url?.absoluteString ?? "http://\(info.localAddress)"]], options: [.localOnly: true])
+                Pasteboard.copy(info.url?.absoluteString ?? "http://\(info.localAddress)", localOnly: true)
                 copied = true
             } label: { Label(copied ? "Copied" : String("Copy http://127.0.0.1:\(info.localPort)"), systemImage: copied ? "checkmark" : "doc.on.doc") }
             Button(role: .destructive) { hub.stopForward(info.id); startedID = nil } label: { Label("Stop Forwarding", systemImage: "stop.circle") }
