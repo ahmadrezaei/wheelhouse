@@ -37,6 +37,7 @@
 		1D325CEEF7BE1EF56F4E029E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E049D4508D051D4AE57ED1C0 /* SettingsView.swift */; };
 		1E7AB3F2B0745F4C49EE7F9D /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
 		1EF1622B72042881B4E7C4AE /* AlertsInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E75C16150CB0AB7FF57D50 /* AlertsInboxView.swift */; };
+		1FC49CA566DE305854950704 /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656D7C0D5DDD8642AE142F4B /* MacUpdater.swift */; };
 		1FCAC21B7201297D8127B3AD /* ChartRoomServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1397FA22FE4D5C935325C52B /* ChartRoomServices.swift */; };
 		20569BF44550B9B7A9CDB28D /* ChartRoomMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB64CAF809897C486C3B9B9 /* ChartRoomMemory.swift */; };
 		2069C9F94BBAFFF02F92F96E /* Route.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05850A5A2F03124AD8641A6D /* Route.swift */; };
@@ -395,6 +396,7 @@
 		60B2D3A3F138EC3D2CA018FA /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		61BFDD26E1A7212B653A9485 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		62D69759772CB358A9BC5703 /* ActionSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionSheets.swift; sourceTree = "<group>"; };
+		656D7C0D5DDD8642AE142F4B /* MacUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdater.swift; sourceTree = "<group>"; };
 		6588A384B938BCFED31E6199 /* LogsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsModel.swift; sourceTree = "<group>"; };
 		6671AC37FD8CBFA1EE079AE2 /* CrowsNestPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowsNestPanel.swift; sourceTree = "<group>"; };
 		6BFFCE399F053CC16E701256 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -751,6 +753,7 @@
 				4C22FC5DB3F4AB28627C9D19 /* Sidebar */,
 				2ECC5BBAEAA0CE8844BD0784 /* Survey */,
 				1662473CB0BD5D096570518E /* Tides */,
+				F96C7F9AD81C97E32601F6AC /* Updates */,
 				CB27206B545FDE4107C981FB /* Workspace */,
 			);
 			path = WheelhouseMac;
@@ -1110,6 +1113,14 @@
 				F9C0D0CD073F249334F08983 /* YAML */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		F96C7F9AD81C97E32601F6AC /* Updates */ = {
+			isa = PBXGroup;
+			children = (
+				656D7C0D5DDD8642AE142F4B /* MacUpdater.swift */,
+			);
+			path = Updates;
 			sourceTree = "<group>";
 		};
 		F9C0D0CD073F249334F08983 /* YAML */ = {
@@ -1595,6 +1606,7 @@
 				A0AC8600177AB365A7A78377 /* MacLockCoordinator.swift in Sources */,
 				F9601CA5253CC65B09CF48CE /* MacSceneRoot.swift in Sources */,
 				9737905FE277852DD18FEB8C /* MacSettingsView.swift in Sources */,
+				1FC49CA566DE305854950704 /* MacUpdater.swift in Sources */,
 				E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */,
 				12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */,
 				20D58BCF8DADAFBC8F9748D9 /* NetworkMonitor.swift in Sources */,
