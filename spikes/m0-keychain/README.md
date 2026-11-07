@@ -77,3 +77,10 @@ Deleting a synchronizable item propagates to the other device; `read` on either 
 - The hook is DEBUG only. To check a Release build: `nm` or `strings` on the Release binary must show neither
   `WHKeychainProbe` nor `m0-probe`.
 - Reporting back: tell the engineer which direction passed and the exact error status if one failed.
+
+## Result (2026-11-07): PASS in both directions
+
+- Direction A: the iPhone (Debug build, Apple Development) wrote token `E092C3FF…` at 10:40:30Z; the Mac probe
+  (Apple Development, Mac development profile) read the same token, `writer=ios`, within about 2 minutes.
+- Direction B: the Mac wrote token `253BD71B…` at 10:42:36Z; the iPhone read the same token, `writer=mac`.
+- The probe item was then deleted. Risk R1 is cleared for Apple Development signing; Developer ID is re-checked in M2.
