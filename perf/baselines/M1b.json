@@ -1,0 +1,19 @@
+{
+  "milestone": "M1b",
+  "idle-1": {
+    "samples": 30,
+    "intervalSec": 10.0,
+    "cpuAvgPct": 0.147,
+    "cpuMaxSamplePct": 1.4,
+    "idleWakeupsPerSec": 0.048,
+    "energyImpact": 0.147,
+    "threads": 5,
+    "footprintGrowthMB": 0.0,
+    "threadsOverBaseline": 1,
+    "fdsOverBaseline": 3,
+    "footprintMB": 92.0,
+    "footprintFirstMB": 74.0,
+    "footprintLastMB": 92.0,
+    "fds": 69
+  }
+}

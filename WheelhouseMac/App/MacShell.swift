@@ -71,6 +71,12 @@ struct MacShell: View {
             for route in env.launchRoutes { router.push(route, from: .content) }
             env.launchRoutes = []
         }
+        // Routes queued after the window appeared (performance scenarios apply their layout from the app delegate).
+        .onChange(of: env.launchRoutes.count) { _, count in
+            guard count > 0 else { return }
+            for route in env.launchRoutes { router.push(route, from: .content) }
+            env.launchRoutes = []
+        }
         .onChange(of: env.lock.isLocked) { _, locked in
             if locked {
                 router.sheet = nil

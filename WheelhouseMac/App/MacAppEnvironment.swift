@@ -24,6 +24,7 @@ final class MacAppEnvironment {
     /// A short description of the safety state (shown in the status line of development builds).
     let safetySummary: String
     let gateActive: Bool
+    private var badgeTask: PeriodicTask?
     /// Routes to open once the window exists (performance scenarios, launch hooks).
     var launchRoutes: [Route] = []
 
@@ -120,5 +121,12 @@ final class MacAppEnvironment {
         lock.start(preferences: preferences, macPreferences: macPreferences)
         energy.start()
         alerts.start()
+        // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
+        if badgeTask == nil {
+            let sidebar = sidebar
+            let t = PeriodicTask(name: "sidebar.badges", interval: 5, hiddenInterval: nil) { await MainActor.run { sidebar.refreshBadges() } }
+            badgeTask = t
+            t.start()
+        }
     }
 }

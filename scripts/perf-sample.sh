@@ -123,7 +123,7 @@ for line in open(topout, errors='replace'):
     p = line.split()
     if len(p) >= 5 and p[0] == pid:
         num = lambda s: float(re.sub(r'[+\-]$', '', s))
-        rows.append((num(p[1]), num(p[2]), num(p[3]), int(num(p[4]))))
+        rows.append((num(p[1]), num(p[2]), num(p[3]), int(num(re.sub(r'/.*$', '', p[4])))))   # top prints threads as "12/1" while some run
 rows = rows[1:]                                    # discard the since-launch sample
 cpu = [r[0] for r in rows]; idlew = [r[1] for r in rows]; power = [r[2] for r in rows]
 foot = []; fds = []; thr = []

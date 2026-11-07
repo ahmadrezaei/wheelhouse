@@ -62,7 +62,6 @@ struct ClustersPane: View {
             .environment(registry).environment(preferences).environment(router).environment(network)
             .environment(\.kubeconfigImportPolicy, env.importer.policy)
             .frame(minWidth: 520, minHeight: 480)
-            .onChange(of: router.sheet) { _, _ in }
     }
 }
 
