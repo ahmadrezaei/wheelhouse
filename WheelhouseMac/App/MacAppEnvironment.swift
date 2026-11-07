@@ -101,6 +101,10 @@ final class MacAppEnvironment {
         let metadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: !gateActive)
         let registry = ClusterRegistry(credentials: KeychainCredentialStore(), metadata: metadata, defaults: defaults,
                                        clientFactory: guardedClientFactory(gate: gate))
+        // `-WHResetState` (development builds only): start from an empty cluster list, as UI tests need.
+        if gateActive, ProcessInfo.processInfo.arguments.contains("-WHResetState") {
+            for c in registry.clusters where !c.isDemo { try? registry.remove(id: c.id) }
+        }
         // `-WHDemoMode` (UI tests, screenshots) forces Demo without remembering it; otherwise the saved preference decides.
         let forcedDemo = ProcessInfo.processInfo.arguments.contains("-WHDemoMode")
         if preferences.demoMode || forcedDemo { registry.enterDemoMode(persist: !forcedDemo) }

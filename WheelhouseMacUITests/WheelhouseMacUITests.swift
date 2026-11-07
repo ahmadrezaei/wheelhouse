@@ -97,4 +97,29 @@ final class WheelhouseMacUITests: XCTestCase {
         XCTAssertTrue(app.windows.matching(NSPredicate(format: "title CONTAINS 'General' OR title CONTAINS 'Settings'")).firstMatch.waitForExistence(timeout: 10))
         attach(app, "settings")
     }
+
+    /// Imports `.testcluster/kubeconfig` through the real import sheet: read-only by default, the environment must be chosen.
+    func testImportTestClusterThroughTheSheet() throws {
+        let app = try launch(["-WHImportFile", repoRoot.appending(path: ".testcluster/kubeconfig").path, "-WHResetState"])
+        sleep(6)
+        attach(app, "import-sheet")
+        dump(app, "import-sheet-tree")
+        XCTAssertTrue(app.buttons["Add Cluster"].waitForExistence(timeout: 5), "the import sheet did not open")
+        app.sheets.firstMatch.buttons["Add Cluster"].click()
+        let row = cell(app, "wheelhouse-test")
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the imported cluster is missing from the sidebar")
+        attach(app, "after-import")
+        sleep(15)
+        attach(app, "after-import-15s")
+        expand(app, "Workloads")
+        cell(app, "Namespaces").click()
+        let table = app.tables["Resources"]
+        XCTAssertTrue(table.waitForExistence(timeout: 20))
+        XCTAssertTrue(table.tableRows.firstMatch.waitForExistence(timeout: 30), "namespaces did not load from the test cluster")
+        XCTAssertGreaterThanOrEqual(table.tableRows.count, 6)
+        attach(app, "test-cluster-namespaces")
+        cell(app, "Pods").click()
+        sleep(3)
+        attach(app, "test-cluster-pods")
+    }
 }
