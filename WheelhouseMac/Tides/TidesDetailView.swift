@@ -64,7 +64,7 @@ struct TidesDetailView: View {
                 switch tab(for: app) {
                 case .resources: ArgoResourcesTab(app: app)
                 case .diff: app.tool == .argoCD ? AnyView(ArgoDiffTab(app: app, session: model.session, connection: connection, generation: tokenGeneration, connect: { connectSheet = true })) : AnyView(FluxDiffTab())
-                case .history: app.tool == .argoCD ? AnyView(ArgoHistoryTab(app: app) { id in present(.argoRollback, historyID: id) }) : AnyView(FluxHistoryTab(app: app))
+                case .history: app.tool == .argoCD ? AnyView(ArgoHistoryTab(app: app, readOnly: model.config.readOnly) { id in present(.argoRollback, historyID: id) }) : AnyView(FluxHistoryTab(app: app))
                 case .conditions: ConditionsTab(app: app, model: model)
                 case .manifest: ManifestTab(app: app)
                 case .status: FluxStatusTab(app: app, model: model)
@@ -285,8 +285,13 @@ private struct ArgoDiffTab: View {
             }
             .padding(Spacing.m)
         }
-        .task(id: generation) { api = connection.api(for: session); resolved = true }
-        .task(id: app.id + "\(app.raw.value(at: "status.sync.revision")?.stringValue ?? "")\(generation)\(resolved)") { await load(api) }
+        .task(id: app.id + "\(app.raw.value(at: "status.sync.revision")?.stringValue ?? "")\(generation)") {
+            // One task: resolve the token, then load with it (no race between the two).
+            let resolvedAPI = connection.api(for: session)
+            api = resolvedAPI
+            resolved = true
+            await load(resolvedAPI)
+        }
     }
 
     private func load(_ api: ArgoAPI?) async {
@@ -314,18 +319,28 @@ private struct DiffText: View {
 
 private struct ArgoHistoryTab: View {
     let app: GitOpsApp
+    let readOnly: Bool
     let rollback: (Int) -> Void
     var body: some View {
         let entries = ArgoView(raw: app.raw).history.sorted { $0.id > $1.id }
         if entries.isEmpty {
             ContentUnavailableView("No history", systemImage: "clock")
         } else {
-            Table(entries) {
-                TableColumn("#") { e in Text("\(e.id)").monospacedDigit() }.width(40)
-                TableColumn("Revision") { e in Text(GitOpsRevision.short(e.revision ?? e.revisions.first) ?? "-").font(.whCode) }.width(min: 90, ideal: 120)
-                TableColumn("Deployed") { e in if let d = e.deployedAt { Text(d, style: .date) + Text(" ") + Text(d, style: .time) } else { Text("-") } }
-                TableColumn("By") { e in Text(e.initiatedBy ?? "-") }
-                TableColumn("") { e in Button("Roll Back…") { rollback(e.id) } }.width(100)
+            if readOnly {
+                Table(entries) {
+                    TableColumn("#") { e in Text("\(e.id)").monospacedDigit() }.width(40)
+                    TableColumn("Revision") { e in Text(GitOpsRevision.short(e.revision ?? e.revisions.first) ?? "-").font(.whCode) }.width(min: 90, ideal: 120)
+                    TableColumn("Deployed") { e in if let d = e.deployedAt { Text(d, style: .date) + Text(" ") + Text(d, style: .time) } else { Text("-") } }
+                    TableColumn("By") { e in Text(e.initiatedBy ?? "-") }
+                }
+            } else {
+                Table(entries) {
+                    TableColumn("#") { e in Text("\(e.id)").monospacedDigit() }.width(40)
+                    TableColumn("Revision") { e in Text(GitOpsRevision.short(e.revision ?? e.revisions.first) ?? "-").font(.whCode) }.width(min: 90, ideal: 120)
+                    TableColumn("Deployed") { e in if let d = e.deployedAt { Text(d, style: .date) + Text(" ") + Text(d, style: .time) } else { Text("-") } }
+                    TableColumn("By") { e in Text(e.initiatedBy ?? "-") }
+                    TableColumn("") { e in Button("Roll Back…") { rollback(e.id) } }.width(100)
+                }
             }
         }
     }

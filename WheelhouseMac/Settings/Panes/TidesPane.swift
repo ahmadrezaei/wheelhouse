@@ -1,5 +1,6 @@
 import SwiftUI
 import WheelhouseKit
+import WheelhouseUI
 
 /// Settings → Tides: where Argo CD's API server is reached from the Kubernetes service proxy, and the Argo CD tokens this Mac holds.
 /// Tokens are in the Mac-private keychain group, this device only, never synchronised (decision 17).
@@ -20,7 +21,7 @@ struct TidesPane: View {
                     Text("https").tag("https")
                     Text("http").tag("http")
                 }
-                if let problem { Text(problem).foregroundStyle(.red) }
+                if let problem { Text(problem).foregroundStyle(Palette.criticalText) }
                 Button("Save Default Location") {
                     problem = location.problem
                     if problem == nil { connection.setDefaultLocation(location) }
