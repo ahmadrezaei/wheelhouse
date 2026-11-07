@@ -144,7 +144,7 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         syncing = true
         defer { syncing = false }
         outline.beginUpdates()
-        reconcile(parent: nil, oldChildren: &roots, newRows: rows)
+        reconcile(parent: nil, newRows: rows)
         outline.endUpdates()
         // Drop ids that no longer exist.
         var live = Set<String>()
@@ -154,7 +154,16 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         for (id, _) in lastDecor where !live.contains(id) { lastDecor[id] = nil }
     }
 
-    private func reconcile(parent: SidebarOutlineItem?, oldChildren: inout [SidebarOutlineItem], newRows: [SidebarRow]) {
+    private func children(of parent: SidebarOutlineItem?) -> [SidebarOutlineItem] { parent?.children ?? roots }
+
+    private func setChildren(_ items: [SidebarOutlineItem], of parent: SidebarOutlineItem?) {
+        if let parent { parent.children = items } else { roots = items }
+    }
+
+    /// No `inout` here on purpose: the outline view calls back into the data source while it applies an insertion, and an
+    /// overlapping access to the same array would be an exclusivity violation.
+    private func reconcile(parent: SidebarOutlineItem?, newRows: [SidebarRow]) {
+        let oldChildren = children(of: parent)
         let oldIDs = oldChildren.map(\.id)
         let newIDs = newRows.map(\.id)
         let oldSet = Set(oldIDs), newSet = Set(newIDs)
@@ -182,7 +191,7 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
             if !oldSet.contains(row.id) { item.row = row; continue }
             if !item.row.sameAppearance(as: row) { item.row = row; reloads.append(item) } else { item.row = row }
         }
-        oldChildren = next
+        setChildren(next, of: parent)
 
         if parentExpanded {
             if orderStable {
@@ -199,7 +208,7 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         // Recurse into survivors.
         for (i, row) in newRows.enumerated() {
             let item = next[i]
-            reconcile(parent: item, oldChildren: &item.children, newRows: row.children)
+            reconcile(parent: item, newRows: row.children)
         }
     }
 
@@ -310,7 +319,7 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         model.setExpanded(true, rowID: item.id)
         if let fresh = model.find(item.id) {
             syncing = true
-            reconcile(parent: item, oldChildren: &item.children, newRows: fresh.children)
+            reconcile(parent: item, newRows: fresh.children)
             syncing = false
         }
     }

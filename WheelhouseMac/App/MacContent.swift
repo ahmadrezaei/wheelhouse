@@ -2,35 +2,16 @@ import SwiftUI
 import WheelhouseKit
 import WheelhouseUI
 
-/// The middle (and, when something is open, right) part of the window. Resource lists get a detail column next to them;
-/// dashboards use the full width until something is opened from them.
-struct MacContent: View {
+/// The middle column (the selected screen) and the right column (what was opened from it), as on the iPad: three real split-view
+/// columns, each with its own navigation stack.
+struct MacContentColumn: View {
     @Environment(MacAppEnvironment.self) private var env
     @Environment(AppRouter.self) private var router
     @Environment(ClusterRegistry.self) private var registry
 
     private var selection: SidebarDestination { env.navigation.selection }
 
-    private var showsSplit: Bool {
-        if case .kind = selection { return true }
-        return !router.detailPath.isEmpty
-    }
-
     var body: some View {
-        Group {
-            if showsSplit {
-                HSplitView {
-                    contentStack.frame(minWidth: 380, idealWidth: 560)
-                    detailStack.frame(minWidth: 360, idealWidth: 480)
-                }
-            } else {
-                contentStack
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private var contentStack: some View {
         @Bindable var router = router
         return NavigationStack(path: $router.contentPath) {
             root(selection)
@@ -38,15 +19,6 @@ struct MacContent: View {
                 .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
         }
         .environment(\.routeColumn, .content)
-    }
-
-    private var detailStack: some View {
-        @Bindable var router = router
-        return NavigationStack(path: $router.detailPath) {
-            detailPlaceholder
-                .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
-        }
-        .environment(\.routeColumn, .detail)
     }
 
     @ViewBuilder private func root(_ selection: SidebarDestination) -> some View {
@@ -61,6 +33,20 @@ struct MacContent: View {
         case .feature(let destination):
             if let view = FeatureRegistry.view(for: destination) { view } else { EmptyState(.empty(title: "Not available", systemImage: "hammer", hint: "This view is not part of this build.")) }
         }
+    }
+}
+
+/// The right column: whatever was opened from the middle one.
+struct MacDetailColumn: View {
+    @Environment(AppRouter.self) private var router
+
+    var body: some View {
+        @Bindable var router = router
+        return NavigationStack(path: $router.detailPath) {
+            detailPlaceholder
+                .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
+        }
+        .environment(\.routeColumn, .detail)
     }
 
     @ViewBuilder private var detailPlaceholder: some View {

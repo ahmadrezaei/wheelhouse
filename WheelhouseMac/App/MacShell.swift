@@ -97,8 +97,11 @@ struct MacShell: View {
         NavigationSplitView {
             SidebarPane()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+        } content: {
+            MacContentColumn()
+                .navigationSplitViewColumnWidth(min: 420, ideal: 600)
         } detail: {
-            MacContent()
+            MacDetailColumn()
         }
         .navigationSplitViewStyle(.balanced)
     }

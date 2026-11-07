@@ -16,6 +16,7 @@ extension ListScreen {
         let keys = rows.map { KubeRowKey(id: $0.id, version: Self.version(of: $0, usage: usage, kind: kind)) }
         VStack(spacing: 0) {
             macHeader(store)
+            Divider()
             KubeTable(
                 kindID: kind.id, keys: keys, columns: layout, sort: sort, reversed: sortReversed,
                 rowAt: { i in Self.tableRow(rows[i], kind: kind, usage: usage, columns: columns, showNamespace: showNamespace) },
@@ -23,11 +24,13 @@ extension ListScreen {
                 onOpen: { id in if let r = rows.first(where: { $0.id == id }) { open(r) } },
                 actions: { id in rows.first { $0.id == id }.map(macActions) ?? [] }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay {
                 if store.phase == .loaded, store.items.isEmpty { emptyState }
                 else if !store.items.isEmpty, rows.isEmpty, hasFilters { filteredEmpty }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: Header
