@@ -7,7 +7,8 @@ struct TidesPane: View {
     @Environment(MacAppEnvironment.self) private var env
     @State private var connection = ArgoConnection.live
     @State private var location = ArgoServiceLocation()
-    @State private var refresh = 0
+    @State private var withToken: Set<ClusterID> = []
+    @State private var problem: String?
 
     var body: some View {
         Form {
@@ -19,7 +20,11 @@ struct TidesPane: View {
                     Text("https").tag("https")
                     Text("http").tag("http")
                 }
-                Button("Save Default Location") { connection.setDefaultLocation(location) }
+                if let problem { Text(problem).foregroundStyle(.red) }
+                Button("Save Default Location") {
+                    problem = location.problem
+                    if problem == nil { connection.setDefaultLocation(location) }
+                }
             } header: {
                 Text("Argo CD server (default)")
             } footer: {
@@ -31,9 +36,9 @@ struct TidesPane: View {
                     HStack {
                         Text(cluster.name)
                         Spacer()
-                        if connection.hasToken(cluster.id) {
+                        if withToken.contains(cluster.id) {
                             Label("Token stored", systemImage: "key.fill").foregroundStyle(.secondary)
-                            Button("Remove", role: .destructive) { _ = connection.writeToken(nil, cluster.id); refresh += 1 }
+                            Button("Remove", role: .destructive) { _ = connection.writeToken(nil, cluster.id); withToken.remove(cluster.id) }
                         } else {
                             Text("No token").foregroundStyle(.secondary)
                         }
@@ -53,7 +58,10 @@ struct TidesPane: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Tides")
-        .id(refresh)
-        .onAppear { location = connection.defaultLocation() }
+        .onAppear {
+            location = connection.defaultLocation()
+            // One keychain read per cluster when the pane opens, not on every render.
+            withToken = Set(env.registry.clusters.filter { !$0.isDemo && connection.hasToken($0.id) }.map(\.id))
+        }
     }
 }

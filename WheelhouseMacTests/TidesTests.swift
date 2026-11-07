@@ -264,6 +264,18 @@ struct TidesMiscTests {
         #expect(!TidesFeature.handles(.moorings))
     }
 
+    @Test func occlusionGraceIs30SecondsAndZeroWhenHot() {
+        #expect(VisibilityGrace.duration(thermal: .nominal) == .seconds(30))
+        #expect(VisibilityGrace.duration(thermal: .fair) == .seconds(30))
+        #expect(VisibilityGrace.duration(thermal: .serious) == .zero)
+        #expect(VisibilityGrace.duration(thermal: .critical) == .zero)
+    }
+
+    @Test func sidebarNodesAreNotDeadLinks() {
+        let titles = TidesFeature.sidebarNodes.flatMap { [$0.title] + $0.children.map(\.title) }
+        #expect(titles == ["Argo CD", "Applications", "Flux", "Kustomizations & HelmReleases"])
+    }
+
     @Test func argoLocationDefaultsAndPerClusterOverrides() {
         let suite = UserDefaults(suiteName: "tides.test.\(UUID().uuidString)")!
         let store = Mutex<[String: String]>([:])

@@ -15,6 +15,8 @@ public struct ArgoServiceLocation: Hashable, Codable, Sendable {
         self.scheme = scheme
     }
 
+    public var problem: String? { ProxyTarget.problem(namespace: namespace, service: service, port: port, scheme: scheme) }
+
     /// The `service` path segment of the proxy URL (`https:argocd-server`).
     public var proxyService: String { scheme.isEmpty ? service : "\(scheme):\(service)" }
 }
@@ -45,12 +47,14 @@ public struct ArgoManagedResource: Hashable, Sendable, Identifiable {
 public enum ArgoAPIError: Error, LocalizedError, Equatable {
     case unauthorized
     case notFound
+    case clusterForbidsProxy
     case http(Int, String)
     case badResponse
 
     public var errorDescription: String? {
         switch self {
         case .unauthorized: "Argo CD did not accept the token."
+        case .clusterForbidsProxy: "The cluster forbids services/proxy for your user, so Wheelhouse cannot reach Argo CD through the API server."
         case .notFound: "Argo CD answered 404. Check the service location in Tides settings."
         case .http(let code, let m): "Argo CD answered \(code)\(m.isEmpty ? "" : ": \(m)")."
         case .badResponse: "Argo CD sent a response Wheelhouse could not read."
@@ -59,8 +63,8 @@ public enum ArgoAPIError: Error, LocalizedError, Equatable {
 }
 
 /// Read-only use of the Argo CD API through the Kubernetes service proxy. The user's token is sent as
-/// `Cookie: argocd.token=<token>` because the API server's proxy strips `Authorization`; a second attempt with
-/// `Authorization: Bearer` is made only after a 401, for proxies that do forward it.
+/// `Cookie: argocd.token=<token>` because the API server's proxy strips `Authorization`. The token is never sent as a
+/// bearer credential: to the API server it would be a (wrong) cluster credential.
 public struct ArgoAPI: Sendable {
     public var client: any KubeClientProtocol
     public var location: ArgoServiceLocation
@@ -78,16 +82,21 @@ public struct ArgoAPI: Sendable {
             try await client.proxyRequest(method: "GET", namespace: location.namespace, service: location.proxyService, port: location.port,
                                           path: path, query: query, headers: headers.merging(["Accept": "application/json"]) { $1 }, body: nil)
         }
-        var response = try await send(["Cookie": "argocd.token=\(token)"])
-        if response.statusCode == 401 || response.statusCode == 403 {
-            response = try await send(["Authorization": "Bearer \(token)"])
-        }
+        let response = try await send(["Cookie": "argocd.token=\(token)"])
         switch response.statusCode {
         case 200..<300: return response.body
+        case 403 where Self.isClusterForbidden(response.body): throw ArgoAPIError.clusterForbidsProxy
         case 401, 403: throw ArgoAPIError.unauthorized
         case 404: throw ArgoAPIError.notFound
         default: throw ArgoAPIError.http(response.statusCode, String(data: response.body.prefix(200), encoding: .utf8) ?? "")
         }
+    }
+
+    /// A 403 written by the Kubernetes API server (a Status object about `services/proxy`), as opposed to one from Argo CD.
+    static func isClusterForbidden(_ body: Data) -> Bool {
+        guard let json = try? JSONValue.parse(body), json["kind"]?.stringValue == "Status" else { return false }
+        let text = (json["message"]?.stringValue ?? "") + (json.value(at: "details.kind")?.stringValue ?? "")
+        return text.contains("services/proxy") || text.contains("proxy")
     }
 
     /// `GET /api/v1/applications/<name>/managed-resources`

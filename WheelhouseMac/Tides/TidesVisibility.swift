@@ -49,18 +49,35 @@ extension View {
     }
 }
 
+/// The ARCHITECTURE-MAC section 12.3.3 grace: watches survive 30 s of occlusion (a quick window switch costs nothing), and stop at
+/// once when the machine is hot.
+enum VisibilityGrace {
+    static let occlusion: Duration = .seconds(30)
+    static func duration(thermal: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState) -> Duration {
+        thermal == .serious || thermal == .critical ? .zero : occlusion
+    }
+}
+
 private struct WhileVisible<ID: Equatable & Sendable>: ViewModifier {
     let id: ID
     let work: @MainActor @Sendable () async -> Void
     @State private var windowVisible = true
+    /// Follows `windowVisible`, but turns false only after the grace period.
+    @State private var active = true
 
-    private struct Key: Equatable { var id: ID; var visible: Bool }
+    private struct Key: Equatable { var id: ID; var active: Bool }
 
     func body(content: Content) -> some View {
         content
             .background(WindowVisibilityReader(isVisible: $windowVisible).frame(width: 0, height: 0))
-            .task(id: Key(id: id, visible: windowVisible)) {
-                guard windowVisible else { return }
+            .task(id: windowVisible) {
+                if windowVisible { active = true; return }
+                let grace = VisibilityGrace.duration()
+                if grace > .zero { try? await Task.sleep(for: grace) }
+                if !Task.isCancelled { active = false }
+            }
+            .task(id: Key(id: id, active: active)) {
+                guard active else { return }
                 await work()
             }
     }

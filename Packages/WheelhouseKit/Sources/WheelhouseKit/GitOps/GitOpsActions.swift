@@ -67,6 +67,13 @@ public struct ArgoSyncRequest: Hashable, Sendable {
     }
 }
 
+/// The `spec.syncPolicy.automated` flags, kept so that Undo of Disable Auto-Sync restores what was there.
+public struct GitOpsAutoSyncPolicy: Hashable, Sendable {
+    public var prune: Bool
+    public var selfHeal: Bool
+    public init(prune: Bool, selfHeal: Bool) { self.prune = prune; self.selfHeal = selfHeal }
+}
+
 public enum GitOpsActions {
     public static let requestedAtKey = "reconcile.fluxcd.io/requestedAt"
     public static let forceAtKey = "reconcile.fluxcd.io/forceAt"
@@ -180,6 +187,8 @@ public struct GitOpsActionPlan: Sendable {
     public var pruneList: [ArgoResourceStatus]
     /// The inverse action, offered by the Undo toast (suspend <-> resume, enable <-> disable auto-sync).
     public var inverse: Kind?
+    /// For Disable Auto-Sync: the flags to restore when the inverse (Enable) runs.
+    public var inverseAutoSync: GitOpsAutoSyncPolicy?
     /// The `requestedAt` token (Flux), used to detect that the controller handled the request.
     public var token: String?
 
@@ -188,9 +197,12 @@ public struct GitOpsActionPlan: Sendable {
 }
 
 public enum GitOpsPlanner {
+    static let pruneRevisionMessage = "Prune can only be listed for the target revision. Clear the revision or turn Prune off."
+
     /// Builds the plan for `kind` against `app`. Throws a ``GitOpsActionError`` when the precondition fails.
     public static func plan(_ kind: GitOpsActionPlan.Kind, app: GitOpsApp, detection: GitOpsDetection = GitOpsDetection(),
-                            sync: ArgoSyncRequest = ArgoSyncRequest(), historyID: Int? = nil, now: Date = Date()) throws -> GitOpsActionPlan {
+                            sync: ArgoSyncRequest = ArgoSyncRequest(), historyID: Int? = nil, autoSync: GitOpsAutoSyncPolicy? = nil,
+                            now: Date = Date()) throws -> GitOpsActionPlan {
         let at = GitOpsActions.timestamp(now)
         let flux = FluxView(raw: app.raw, flavor: app.flavor)
         let argo = ArgoView(raw: app.raw)
@@ -200,7 +212,7 @@ public enum GitOpsPlanner {
 
         var plan = GitOpsActionPlan(kind: kind, app: app, title: "", message: "", verb: "", isDestructive: false,
                                     facts: [("Application", app.name)], patch: GitOpsActions.fluxReconcile(at: at), source: nil,
-                                    pruneList: [], inverse: nil, token: nil)
+                                    pruneList: [], inverse: nil, inverseAutoSync: nil, token: nil)
         func fact(_ label: String, _ value: String?) { if let value, !value.isEmpty { plan.facts.append((label, value)) } }
         let target = app.name
         switch kind {
@@ -256,6 +268,8 @@ public enum GitOpsPlanner {
             plan.patch = GitOpsActions.argoRefresh(hard: hard)
         case .argoSync:
             try GitOpsActions.checkSyncAllowed(argo)
+            // The prune list is computed from the target revision's comparison, so it is only true for that revision.
+            if sync.prune, let r = sync.revision, r != argo.targetRevision { throw GitOpsActionError.unsupported(pruneRevisionMessage) }
             plan.title = "Sync \(target)"
             plan.verb = sync.dryRun ? "Dry-Run Sync" : (sync.prune ? "Sync and Prune" : "Sync")
             plan.isDestructive = sync.prune && !sync.dryRun
@@ -286,17 +300,22 @@ public enum GitOpsPlanner {
             plan.title = "Enable Auto-Sync for \(target)"
             plan.message = "Argo CD will sync \(target) automatically whenever Git changes."
             plan.verb = "Enable Auto-Sync"
-            plan.patch = GitOpsActions.argoAutoSync(enabled: true, prune: sync.prune, selfHeal: false)
+            let policy = autoSync ?? GitOpsAutoSyncPolicy(prune: sync.prune, selfHeal: false)
+            plan.patch = GitOpsActions.argoAutoSync(enabled: true, prune: policy.prune, selfHeal: policy.selfHeal)
+            fact("Self-heal", policy.selfHeal ? "on" : "off")
             plan.inverse = .argoDisableAutoSync
-            fact("Prune", sync.prune ? "on" : "off")
+            fact("Prune", policy.prune ? "on" : "off")
         case .argoDisableAutoSync:
             plan.title = "Disable Auto-Sync for \(target)"
             plan.message = "Argo CD will stop syncing \(target) by itself. Changes in Git then wait for a manual Sync."
             plan.verb = "Disable Auto-Sync"
             plan.patch = GitOpsActions.argoAutoSync(enabled: false)
             plan.inverse = .argoEnableAutoSync
+            plan.inverseAutoSync = GitOpsAutoSyncPolicy(prune: argo.autoPrune, selfHeal: argo.selfHeal)
         case .argoRollback:
             guard let id = historyID else { throw GitOpsActionError.noSuchHistoryEntry(-1) }
+            // A rollback syncs a history revision, not the target revision the prune list was computed for.
+            if sync.prune { throw GitOpsActionError.unsupported(pruneRevisionMessage) }
             plan.patch = try GitOpsActions.argoRollback(app: argo, historyID: id, prune: sync.prune)
             let entry = argo.history.first { $0.id == id }
             plan.title = "Roll Back \(target)"
@@ -306,10 +325,6 @@ public enum GitOpsPlanner {
             fact("Target revision", GitOpsRevision.short(entry?.revision ?? entry?.revisions.first))
             fact("Destination namespace", argo.destinationNamespace)
             fact("Prune", sync.prune ? "on" : "off")
-            if sync.prune {
-                plan.pruneList = argo.pruneCandidates
-                fact("Will be deleted", "\(plan.pruneList.count)")
-            }
         }
         return plan
     }

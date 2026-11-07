@@ -25,7 +25,9 @@ struct TidesDetailView: View {
     @State private var undo: UndoOffer?
     @State private var connection = ArgoConnection.live
 
-    struct UndoOffer: Equatable { var message: String; var inverse: GitOpsActionPlan.Kind }
+    struct UndoOffer: Equatable { var message: String; var inverse: GitOpsActionPlan.Kind; var autoSync: GitOpsAutoSyncPolicy? }
+    /// Bumped when the Connect sheet closes, so the Diff tab re-reads the token once.
+    @State private var tokenGeneration = 0
 
     private var app: GitOpsApp? { model.app(id: appID) }
 
@@ -44,7 +46,7 @@ struct TidesDetailView: View {
         .sheet(isPresented: $syncSheet) {
             if let app { ArgoSyncOptionsSheet(app: app) { options in syncSheet = false; present(.argoSync, sync: options) } }
         }
-        .sheet(isPresented: $connectSheet) { ArgoConnectSheet(session: model.session, connection: connection) { connectSheet = false } }
+        .sheet(isPresented: $connectSheet) { ArgoConnectSheet(session: model.session, connection: connection) { connectSheet = false; tokenGeneration += 1 } }
         .whileVisible(id: appID) { await model.run(includeSources: true) }
     }
 
@@ -61,7 +63,7 @@ struct TidesDetailView: View {
             Group {
                 switch tab(for: app) {
                 case .resources: ArgoResourcesTab(app: app)
-                case .diff: app.tool == .argoCD ? AnyView(ArgoDiffTab(app: app, session: model.session, connection: connection, connect: { connectSheet = true })) : AnyView(FluxDiffTab())
+                case .diff: app.tool == .argoCD ? AnyView(ArgoDiffTab(app: app, session: model.session, connection: connection, generation: tokenGeneration, connect: { connectSheet = true })) : AnyView(FluxDiffTab())
                 case .history: app.tool == .argoCD ? AnyView(ArgoHistoryTab(app: app) { id in present(.argoRollback, historyID: id) }) : AnyView(FluxHistoryTab(app: app))
                 case .conditions: ConditionsTab(app: app, model: model)
                 case .manifest: ManifestTab(app: app)
@@ -121,12 +123,16 @@ struct TidesDetailView: View {
     // MARK: Actions
 
     @ViewBuilder private func actions(_ app: GitOpsApp) -> some View {
-        if app.tool == .flux {
-            Button { present(optionKey ? .fluxReconcileWithSource : .fluxReconcile) } label: { Label("Reconcile", systemImage: "arrow.clockwise") }
+        if model.config.readOnly {
+            Label("Read-only cluster", systemImage: "lock.fill").foregroundStyle(.secondary)
+                .help("This cluster is read-only, so Tides actions are hidden.")
+            if app.tool == .argoCD { Button("Connect to Argo CD…") { connectSheet = true } }
+        } else if app.tool == .flux {
+            Button { present(optionKey && canReconcileWithSource(app) ? .fluxReconcileWithSource : .fluxReconcile) } label: { Label("Reconcile", systemImage: "arrow.clockwise") }
                 .help("Reconcile now. Hold Option to fetch the source first.")
             Menu {
                 Button("Reconcile") { present(.fluxReconcile) }
-                if !app.flavor.isSource, app.flavor == .fluxKustomization || app.flavor == .fluxHelmRelease {
+                if canReconcileWithSource(app) {
                     Button("Reconcile with Source") { present(.fluxReconcileWithSource) }
                 }
                 if app.flavor == .fluxHelmRelease {
@@ -159,14 +165,16 @@ struct TidesDetailView: View {
         }
     }
 
+    private func canReconcileWithSource(_ app: GitOpsApp) -> Bool { app.flavor == .fluxKustomization || app.flavor == .fluxHelmRelease }
+
     private var optionKey: Bool { NSEvent.modifierFlags.contains(.option) }
 
-    private func present(_ kind: GitOpsActionPlan.Kind, sync: ArgoSyncRequest = ArgoSyncRequest(), historyID: Int? = nil) {
+    private func present(_ kind: GitOpsActionPlan.Kind, sync: ArgoSyncRequest = ArgoSyncRequest(), historyID: Int? = nil, autoSync: GitOpsAutoSyncPolicy? = nil) {
         guard let app else { return }
         do {
-            let plan = try GitOpsPlanner.plan(kind, app: app, detection: model.detection, sync: sync, historyID: historyID)
+            let plan = try GitOpsPlanner.plan(kind, app: app, detection: model.detection, sync: sync, historyID: historyID, autoSync: autoSync)
             request = TidesConfirmations.request(plan: plan, cluster: model.config, client: model.session.client, detection: model.detection) { applied in
-                if let inverse = applied.inverse { undo = UndoOffer(message: "\(applied.title): done", inverse: inverse) }
+                if let inverse = applied.inverse { undo = UndoOffer(message: "\(applied.title): done", inverse: inverse, autoSync: applied.inverseAutoSync) }
             }
         } catch {
             failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -178,7 +186,7 @@ struct TidesDetailView: View {
         if let undo {
             HStack {
                 Text(undo.message)
-                Button("Undo…") { let inverse = undo.inverse; self.undo = nil; present(inverse) }
+                Button("Undo…") { let offer = undo; self.undo = nil; present(offer.inverse, autoSync: offer.autoSync) }
                 Button("Dismiss") { self.undo = nil }
             }
             .padding(Spacing.m)
@@ -237,16 +245,21 @@ private struct ArgoDiffTab: View {
     let app: GitOpsApp
     let session: ClusterSession
     let connection: ArgoConnection
+    let generation: Int
     let connect: () -> Void
     @State private var phase: Phase = .idle
+    /// Resolved once per appearance (and after the Connect sheet closes), never per render: it reads the keychain.
+    @State private var api: ArgoAPI?
+    @State private var resolved = false
     enum Phase { case idle, loading, loaded([ArgoManagedResource]), failed(String) }
 
     var body: some View {
-        let api = connection.api(for: session)
         let outOfSync = ArgoView(raw: app.raw).outOfSyncResources
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.m) {
-                if api == nil {
+                if !resolved {
+                    ProgressView()
+                } else if api == nil {
                     VStack(alignment: .leading, spacing: Spacing.s) {
                         Text("Out-of-sync resources").font(.headline)
                         Text("Full desired-versus-live diffs come from the Argo CD API. Connect once per cluster with an Argo CD token (kept on this Mac only, never synced) to see them here.")
@@ -272,7 +285,8 @@ private struct ArgoDiffTab: View {
             }
             .padding(Spacing.m)
         }
-        .task(id: app.id + "\(app.raw.value(at: "status.sync.revision")?.stringValue ?? "")") { await load(api) }
+        .task(id: generation) { api = connection.api(for: session); resolved = true }
+        .task(id: app.id + "\(app.raw.value(at: "status.sync.revision")?.stringValue ?? "")\(generation)\(resolved)") { await load(api) }
     }
 
     private func load(_ api: ArgoAPI?) async {

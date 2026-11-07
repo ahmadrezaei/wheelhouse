@@ -299,6 +299,28 @@ struct GitOpsPlanTests {
         #expect(!noPrune.isDestructive && noPrune.pruneList.isEmpty)
     }
 
+    @Test func pruneIsRefusedForARevisionOtherThanTheTarget() throws {
+        let message = "Prune can only be listed for the target revision. Clear the revision or turn Prune off."
+        #expect(throws: GitOpsActionError.unsupported(message)) {
+            try GitOpsPlanner.plan(.argoSync, app: argoApp(), sync: ArgoSyncRequest(revision: "v2", prune: true))
+        }
+        // The target revision itself, or no revision, is fine; so is another revision without prune.
+        #expect(try GitOpsPlanner.plan(.argoSync, app: argoApp(), sync: ArgoSyncRequest(revision: "main", prune: true)).pruneList.count == 1)
+        #expect(try GitOpsPlanner.plan(.argoSync, app: argoApp(), sync: ArgoSyncRequest(prune: true)).pruneList.count == 1)
+        #expect(try GitOpsPlanner.plan(.argoSync, app: argoApp(), sync: ArgoSyncRequest(revision: "v2", prune: false)).pruneList.isEmpty)
+        #expect(throws: GitOpsActionError.unsupported(message)) {
+            try GitOpsPlanner.plan(.argoRollback, app: argoApp(), sync: ArgoSyncRequest(prune: true), historyID: 3)
+        }
+    }
+
+    @Test func disableAutoSyncRemembersTheFlagsAndUndoRestoresThem() throws {
+        let on = GitOpsApp(raw: argoJSON(auto: true), kind: argoAppKind)!   // prune: true, selfHeal: true
+        let disable = try GitOpsPlanner.plan(.argoDisableAutoSync, app: on)
+        #expect(disable.inverseAutoSync == GitOpsAutoSyncPolicy(prune: true, selfHeal: true))
+        let undo = try GitOpsPlanner.plan(.argoEnableAutoSync, app: argoApp(), autoSync: disable.inverseAutoSync)
+        #expect(canonical(undo.patch.body) == #"{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}"#)
+    }
+
     @Test func pruneListIsLimitedToSelectedResources() throws {
         let only = ArgoSyncResource(group: "apps", kind: "Deployment", name: "web", namespace: "checkout")
         let plan = try GitOpsPlanner.plan(.argoSync, app: argoApp(), sync: ArgoSyncRequest(prune: true, resources: [only]))
@@ -435,6 +457,32 @@ struct ProxyTests {
         #expect(req.headers["Authorization"] == "Bearer kube-token")
     }
 
+    @Test func credentialHeadersAreAlwaysDropped() async throws {
+        let (client, host) = make()
+        _ = try await client.proxyRequest(method: "GET", namespace: "n", service: "s", port: "80", path: "x", query: [:],
+                                          headers: ["authorization": "Bearer evil", "Proxy-Authorization": "Basic x", "Impersonate-User": "admin",
+                                                    "impersonate-group": "system:masters", "Keep-Alive": "1", "Proxy-Connection": "keep-alive"], body: nil)
+        let req = try #require(ProxyCapturingProtocol.requests(host: host).first)
+        #expect(req.headers["Authorization"] == "Bearer kube-token")
+        let names = Set(req.headers.keys.map { $0.lowercased() })
+        #expect(names.isDisjoint(with: ["proxy-authorization", "impersonate-user", "impersonate-group", "keep-alive", "proxy-connection"]))
+    }
+
+    @Test func proxyTargetsAndPathsAreValidated() async throws {
+        let (client, host) = make()
+        for path in ["../x", "a/../b", "a/./b", "%2e%2e/x", "a/%2E%2E/b", "%252e%252e/x", "a%2Fb"] {
+            await #expect(throws: KubeError.self, "\(path)") { _ = try await client.proxyRequest(method: "GET", namespace: "n", service: "s", port: "80", path: path, query: [:], headers: [:], body: nil) }
+        }
+        for (ns, svc, port) in [("N", "s", "80"), ("n/x", "s", "80"), ("n", "s:x", "80"), ("n", "ftp:s", "80"), ("n", "s", "0"), ("n", "s", "70000"), ("n", "s", "80/x"), ("n", "-s", "80"), ("..", "s", "80")] {
+            await #expect(throws: KubeError.self, "\(ns) \(svc) \(port)") { _ = try await client.proxyRequest(method: "GET", namespace: ns, service: svc, port: port, path: "x", query: [:], headers: [:], body: nil) }
+        }
+        #expect(ProxyCapturingProtocol.requests(host: host).isEmpty)
+        #expect(ProxyTarget.isPort("443") && ProxyTarget.isPort("https") && ProxyTarget.isPort("http-alt") && !ProxyTarget.isPort("1234567890123456"))
+        _ = try await client.proxyRequest(method: "GET", namespace: "argocd", service: "https:argocd-server", port: "443", path: "api/v1/a%20b", query: [:], headers: [:], body: nil)
+        #expect(ProxyCapturingProtocol.requests(host: host).count == 1)
+        #expect(ArgoServiceLocation().problem == nil && ArgoServiceLocation(namespace: "A b").problem != nil && ArgoServiceLocation(port: "x/y").problem != nil)
+    }
+
     @Test func callerHeadersAreForwardedButNeverReplaceTheClusterCredential() async throws {
         let (client, host) = make()
         _ = try await client.proxyRequest(method: "GET", namespace: "n", service: "s", port: "80", path: "x", query: [:],
@@ -481,12 +529,24 @@ struct ProxyTests {
         #expect(reqs[0].url.path.hasSuffix("/services/https:argocd-server:443/proxy/api/v1/applications/checkout/managed-resources"))
     }
 
-    @Test func argoUnauthorizedTriesTheHeaderOnceThenFails() async throws {
+    @Test func argoUnauthorizedFailsAtOnceAndNeverSendsTheTokenAsBearer() async throws {
         let (client, host) = make()
-        ProxyCapturingProtocol.script(host: host, [(401, "{}"), (401, "{}")])
+        ProxyCapturingProtocol.script(host: host, [(401, "{}")])
         let api = ArgoAPI(client: client, location: ArgoServiceLocation(), token: "tok")
         await #expect(throws: ArgoAPIError.unauthorized) { _ = try await api.managedResources(application: "x") }
-        #expect(ProxyCapturingProtocol.requests(host: host).count == 2)
+        let reqs = ProxyCapturingProtocol.requests(host: host)
+        #expect(reqs.count == 1)
+        #expect(reqs.allSatisfy { $0.headers["Authorization"] == "Bearer kube-token" && !($0.headers["Authorization"] ?? "").contains("tok\"") })
+    }
+
+    @Test func aClusterForbiddenProxyIsNotReportedAsABadToken() async throws {
+        let (client, host) = make()
+        let status = #"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"services \"argocd-server\" is forbidden: User \"u\" cannot get resource \"services/proxy\" in API group \"\"","reason":"Forbidden","code":403}"#
+        ProxyCapturingProtocol.script(host: host, [(403, status)])
+        let api = ArgoAPI(client: client, location: ArgoServiceLocation(), token: "tok")
+        await #expect(throws: ArgoAPIError.clusterForbidsProxy) { _ = try await api.managedResources(application: "x") }
+        ProxyCapturingProtocol.script(host: host, [(403, #"{"error":"permission denied"}"#)])
+        await #expect(throws: ArgoAPIError.unauthorized) { _ = try await api.managedResources(application: "x") }
     }
 
     @Test func demoClientProxiesGetOnly() async {

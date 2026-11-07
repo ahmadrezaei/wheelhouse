@@ -143,7 +143,7 @@ struct ReviewChangesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.m) {
                     ContextLine(cluster: editor.cluster, namespace: ref.namespace, kind: ref.kind.kind)
-                    OwnershipBadgeSlot()   // empty until M9 injects a GitOps owner
+                    OwnershipBadgeSlot()   // filled by `.resolvingGitOpsOwner` below when the host injects a detector (Mac)
                     if editor.cluster.isProduction {
                         Label("Production cluster. You’ll be asked to type “\(ref.name)” to apply.", systemImage: "shield.lefthalf.filled")
                             .font(.footnote).foregroundStyle(Palette.envProduction)
@@ -168,6 +168,8 @@ struct ReviewChangesView: View {
             .confirmSheet($confirm)
         }
         .task { await model.start() }
+        // Fills the ownership badge from the injected detector (NoOwnership on iOS, so nothing shows there).
+        .resolvingGitOpsOwner(of: model.latest.isNull ? nil : model.latest, cluster: editor.cluster.id)
     }
 
     // MARK: Content

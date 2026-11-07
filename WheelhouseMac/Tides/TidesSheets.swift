@@ -26,6 +26,8 @@ struct ArgoSyncOptionsSheet: View {
                 }
                 Section("Options") {
                     Toggle("Prune resources Git no longer has", isOn: $prune)
+                        .disabled(!revision.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Prune is listed for the target revision only. Clear the revision to use it.")
                     if prune {
                         let n = argo.pruneCandidates.count
                         Label(n == 0 ? "Nothing is waiting to be pruned." : "\(n) resource\(n == 1 ? "" : "s") would be deleted. You will see the list before confirming.",
@@ -53,7 +55,7 @@ struct ArgoSyncOptionsSheet: View {
                     Button("Continue…") {
                         let selected = restrict ? resources.filter { chosen.contains($0.id) }.map(ArgoSyncResource.init) : []
                         let trimmed = revision.trimmingCharacters(in: .whitespaces)
-                        onContinue(ArgoSyncRequest(revision: trimmed.isEmpty ? nil : trimmed, prune: prune, dryRun: dryRun,
+                        onContinue(ArgoSyncRequest(revision: trimmed.isEmpty ? nil : trimmed, prune: prune && trimmed.isEmpty, dryRun: dryRun,
                                                    applyOutOfSyncOnly: outOfSyncOnly, resources: selected))
                     }
                     .disabled(restrict && chosen.isEmpty)
@@ -101,7 +103,7 @@ struct ArgoConnectSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Close", action: done) }
                 ToolbarItem { Button("Test") { Task { await test() } }.disabled(testing || (token.isEmpty && !hasToken)) }
                 ToolbarItem { Button("Remove Token", role: .destructive) { remove() }.disabled(!hasToken) }
-                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(token.isEmpty) }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(token.isEmpty || location.problem != nil) }
             }
         }
         .frame(minWidth: 480, minHeight: 420)
@@ -112,6 +114,7 @@ struct ArgoConnectSheet: View {
     }
 
     private func save() {
+        if let problem = location.problem { status = problem; return }
         connection.setLocation(location, for: session.id)
         if connection.writeToken(token, session.id) {
             token = ""
@@ -133,6 +136,7 @@ struct ArgoConnectSheet: View {
         defer { testing = false }
         let candidate = token.isEmpty ? connection.readToken(session.id) : token
         guard let candidate else { return }
+        if let problem = location.problem { status = problem; return }
         status = "Asking Argo CD…"
         do {
             let user = try await ArgoAPI(client: session.client, location: location, token: candidate).checkToken()
