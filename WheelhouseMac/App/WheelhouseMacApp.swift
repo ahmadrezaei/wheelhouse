@@ -42,7 +42,11 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
         // Performance scenarios (`-WHPerfScenario <name>`) are honoured only while the safety gate is active.
-        if let scenario = PerfScenario.requested() { PerfScenarioRunner.start(scenario, environment: Self.environment) }
+        let env = Self.environment
+        env?.start()
+        if let scenario = PerfScenario.requested() {
+            if let env { env.whenReady { PerfScenarioRunner.start(scenario, environment: env) } } else { PerfScenarioRunner.start(scenario, environment: nil) }
+        }
     }
 
     /// Finder "Open With" and double-click on a kubeconfig, and `wheelhouse://` links.

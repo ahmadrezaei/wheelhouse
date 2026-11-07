@@ -42,6 +42,7 @@ struct MacImportPolicy: KubeconfigImportPolicy {
 
     func blockedReason(for context: KubeconfigContext) -> String? {
         guard gate.isActive, !gate.isAllowed(server: context.server) else { return nil }
+        if let error = DevSafety.hostConfigurationError { return "Blocked in development builds: \(error)" }
         return "Blocked in development builds: \(context.server?.host() ?? "this server") is not a test cluster."
     }
 

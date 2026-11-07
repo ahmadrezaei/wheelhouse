@@ -25,7 +25,9 @@ struct MacShell: View {
         @Bindable var router = router
         @Bindable var importer = env.importer
         ZStack {
-            if showsWelcome { WelcomeView().environment(router) } else { workspace }
+            if !env.isReady {
+                ProgressView().controlSize(.small).accessibilityLabel("Starting").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if showsWelcome { WelcomeView().environment(router) } else { workspace }
             if env.lock.isLocked {
                 LockScreenView().environment(env.lock.controller).transition(.identity)
             }
@@ -66,8 +68,10 @@ struct MacShell: View {
             router.isCompact = false
             env.startServices()
             NotificationCoordinator.shared.install { handle($0) }
-            if let id = registry.currentCluster?.id { env.sidebar.focus(cluster: id) }
-            openLaunchRequests()
+            env.whenReady {
+                if let id = registry.currentCluster?.id { env.sidebar.focus(cluster: id) }
+                openLaunchRequests()
+            }
             for route in env.launchRoutes { router.push(route, from: .content) }
             env.launchRoutes = []
         }

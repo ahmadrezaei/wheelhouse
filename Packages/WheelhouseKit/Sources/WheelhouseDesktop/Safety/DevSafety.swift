@@ -32,11 +32,56 @@ public enum DevSafety {
     public static let teamID = "JCZY58QP3L"
     public static let distributionBundleID = "com.ahmadrezaei.wheelhouse.mac"
 
-    /// true = development safety ON (the default for every build except Distribution). Evaluated once, at first use, which
-    /// the app triggers before any store, client, file watcher or subprocess exists.
-    public static let isActive: Bool = evaluate(info: Bundle.main.infoDictionary ?? [:],
-                                                bundleID: Bundle.main.bundleIdentifier,
-                                                signature: CodeSignature.ofRunningApp())
+    private static let gateState = Mutex<Bool?>(nil)       // nil = not decided yet
+
+    /// A build can turn the gate off only when Info.plist says `NO` AND the bundle ID is the shipped one. Every other build
+    /// (Debug, Profile, local Release) is decided right here without touching Security.
+    static func isDistributionCandidate(info: [String: Any], bundleID: String?) -> Bool {
+        (info["WHDevSafety"] as? String) == "NO" && bundleID == distributionBundleID
+    }
+
+    /// true = development safety ON (the default for every build except Distribution).
+    ///
+    /// Reading this never does file I/O and never calls Security, so it is safe in `App.init` on the main thread. A Distribution
+    /// candidate reads as ON (fail closed) until ``resolveSignatureInBackground(completion:)`` has checked the code signature
+    /// off the main thread; every other build is decided immediately and permanently.
+    public static var isActive: Bool {
+        gateState.withLock { state in
+            if let state { return state }
+            if !isDistributionCandidate(info: Bundle.main.infoDictionary ?? [:], bundleID: Bundle.main.bundleIdentifier) { state = true; return true }
+            return true
+        }
+    }
+
+    /// False while a Distribution candidate's signature check is still pending (the gate then reads as ON).
+    public static var isResolved: Bool {
+        gateState.withLock { state in
+            if state != nil { return true }
+            return !isDistributionCandidate(info: Bundle.main.infoDictionary ?? [:], bundleID: Bundle.main.bundleIdentifier)
+        }
+    }
+
+    /// Checks the running app's code signature on a utility queue, once, and caches the answer. Does nothing for builds that are
+    /// not Distribution candidates (they never need Security). `completion` runs on that queue.
+    public static func resolveSignatureInBackground(completion: (@Sendable (Bool) -> Void)? = nil) {
+        let info = Bundle.main.infoDictionary ?? [:], bundleID = Bundle.main.bundleIdentifier
+        guard isDistributionCandidate(info: info, bundleID: bundleID), !isResolved else { completion?(isActive); return }
+        DispatchQueue.global(qos: .utility).async {
+            let active = evaluate(info: info, bundleID: bundleID, signature: CodeSignature.ofRunningApp())
+            let final = gateState.withLock { state -> Bool in
+                if let state { return state }
+                state = active
+                return active
+            }
+            completion?(final)
+        }
+    }
+
+    private static let hostsError = Mutex<String?>(nil)
+
+    /// Why the test kubeconfig could not be read (a denied Documents prompt, a missing file), shown inline in the import UI.
+    public static var hostConfigurationError: String? { hostsError.withLock { $0 } }
+    public static func setHostConfigurationError(_ message: String?) { hostsError.withLock { $0 = message } }
 
     /// The pure decision (the truth table of `DevSafetyTests`).
     public static func evaluate(info: [String: Any], bundleID: String?, signature: CodeSignature) -> Bool {

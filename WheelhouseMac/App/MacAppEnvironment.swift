@@ -22,8 +22,16 @@ final class MacAppEnvironment {
     let navigation = MacNavigation()
     let paths: AppPaths
     /// A short description of the safety state (shown in the status line of development builds).
-    let safetySummary: String
+    private(set) var safetySummary: String
     let gateActive: Bool
+    /// Where the explicit test kubeconfig stands. Until it is `ready` no client is created (the shell shows a progress view), so
+    /// the gate stays fail-closed: the allowed hosts are empty and every host but the reserved fixture names is refused.
+    enum HostsState: Equatable { case pending, ready(hosts: Int), failed(String), notConfigured }
+    private(set) var hostsState: HostsState = .notConfigured
+    var isReady: Bool { hostsState != .pending }
+    @ObservationIgnored private var readyBlocks: [@MainActor () -> Void] = []
+    @ObservationIgnored private var testKubeconfig: URL?
+    @ObservationIgnored private var reader: @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }
     private var badgeTask: PeriodicTask?
     /// Routes to open once the window exists (performance scenarios, launch hooks).
     var launchRoutes: [Route] = []
@@ -59,7 +67,10 @@ final class MacAppEnvironment {
         return blocked
     }
 
-    static func live() -> MacAppEnvironment {
+    /// Builds the environment. This runs in `App.init` on the main thread: it does NO file read of the test kubeconfig and NO Security
+    /// call (the code-signature check and the kubeconfig read happen in `start(reader:)` on a utility queue after launch).
+    /// `reader` is a test seam that records where the read happens.
+    static func live(reader: @escaping @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }) -> MacAppEnvironment {
         let gateActive = DevSafety.isActive
         // While the gate is on (Debug, Profile, local Release) the app group and both keychain groups are forced to the Debug
         // ones, whatever Info.plist says: a local Release build then cannot open the production group container or name the shared
@@ -68,24 +79,10 @@ final class MacAppEnvironment {
         let paths = AppPaths.current
         var notes = [gateActive ? "Development safety ON" : "Development safety off"]
 
-        // The explicit test kubeconfig (never ~/.kube) defines the only allowed hosts while the gate is active.
-        if gateActive {
-            if let file = KubeconfigDiscoveryPolicy.explicitTestKubeconfig() {
-                if FileManager.default.fileExists(atPath: file.path) {
-                    do {
-                        let hosts = try KubeconfigDiscoveryPolicy.configureAllowedHosts(testKubeconfig: file)
-                        DevSafety.configureAllowedHosts(hosts)
-                        notes.append("\(hosts.count) allowed host\(hosts.count == 1 ? "" : "s")")
-                    } catch {
-                        notes.append("test kubeconfig refused: \(error.localizedDescription)")
-                    }
-                } else {
-                    notes.append("test kubeconfig not found")
-                }
-            } else {
-                notes.append("no test kubeconfig")
-            }
-        }
+        // The explicit test kubeconfig (never ~/.kube) defines the only allowed hosts while the gate is active. It is READ later, off the
+        // main thread (`start(reader:)`): it may live in a folder that macOS protects with a prompt, which must never block launch.
+        let testFile = gateActive ? KubeconfigDiscoveryPolicy.explicitTestKubeconfig() : nil
+        if gateActive, testFile == nil { notes.append("no test kubeconfig") }
         try? paths.prepare()
 
         // Preferences use the app's own (bundle-ID) defaults domain. The Mac keeps 20,000 log lines by default (iOS 50,000).
@@ -113,7 +110,57 @@ final class MacAppEnvironment {
         let lock = MacLockCoordinator(locked: preferences.appLockEnabled)
         let env = MacAppEnvironment(registry: registry, preferences: preferences, macPreferences: macPreferences, lock: lock,
                                     importer: MacImportCoordinator(), paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive)
+        env.testKubeconfig = testFile
+        env.reader = reader
+        env.hostsState = testFile == nil ? .notConfigured : .pending
+        env.notes = notes
         return env
+    }
+
+    @ObservationIgnored private var notes: [String] = []
+
+    /// After launch: resolves the code-signature gate and reads the test kubeconfig, both on a utility queue, exactly once (a denial or a
+    /// failure is reported and never retried). Fail-closed throughout: until it finishes the gate is ON and no host is allowed.
+    func start() {
+        DevSafety.resolveSignatureInBackground()
+        guard let file = testKubeconfig, hostsState == .pending else { finishHosts(.notConfigured); return }
+        let reader = self.reader
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result: HostsState
+            if !FileManager.default.fileExists(atPath: file.path) {
+                result = .failed("The test kubeconfig \(file.lastPathComponent) was not found.")
+            } else {
+                do {
+                    let hosts = try KubeconfigDiscoveryPolicy.configureAllowedHosts(testKubeconfig: file, read: reader)
+                    DevSafety.configureAllowedHosts(hosts)
+                    result = .ready(hosts: hosts.count)
+                } catch {
+                    result = .failed("The test kubeconfig couldn't be read: \(error.localizedDescription) If macOS asked for access to a folder, allow it and relaunch.")
+                }
+            }
+            if case .failed(let message) = result {
+                DevSafety.setHostConfigurationError(message)
+                DevSafety.configureAllowedHosts([])            // fail closed: nothing but the reserved fixture names
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.finishHosts(result) } }
+        }
+    }
+
+    private func finishHosts(_ state: HostsState) {
+        hostsState = state
+        switch state {
+        case .ready(let n): safetySummary = (notes + ["\(n) allowed host\(n == 1 ? "" : "s")"]).joined(separator: " · ")
+        case .failed(let message): safetySummary = (notes + [message]).joined(separator: " · ")
+        default: safetySummary = notes.joined(separator: " · ")
+        }
+        let blocks = readyBlocks
+        readyBlocks = []
+        blocks.forEach { $0() }
+    }
+
+    /// Runs `block` once the allowed hosts are known (immediately when they already are).
+    func whenReady(_ block: @escaping @MainActor () -> Void) {
+        if isReady { block() } else { readyBlocks.append(block) }
     }
 
     /// Starts the services that need a running app (observers, monitors). Called once after the first frame.

@@ -76,12 +76,19 @@ enum PerfScenarioRunner {
 
     /// Imports `scenario.clusters` contexts named `wh-perf-NN` from the explicit kubeconfig and shows the scenario's screen.
     static func applyLayout(_ scenario: PerfScenario, env: MacAppEnvironment) {
-        guard let file = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(), FileManager.default.fileExists(atPath: file.path) else { return }
+        guard let file = KubeconfigDiscoveryPolicy.explicitTestKubeconfig() else { return }
+        // The file may sit in a folder macOS protects with a prompt: read and parse it off the main thread, then apply.
+        let policy = env.importer.policy
+        DispatchQueue.global(qos: .utility).async {
+            guard FileManager.default.fileExists(atPath: file.path), let loaded = try? policy.loadFile(file), let kc = try? policy.parse(loaded.text) else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { applyLayout(scenario, env: env, kubeconfig: kc, policy: policy) } }
+        }
+    }
+
+    private static func applyLayout(_ scenario: PerfScenario, env: MacAppEnvironment, kubeconfig kc: Kubeconfig, policy: MacImportPolicy) {
         let registry = env.registry
         // A real (non-Demo) fleet: the scenario measures real sessions, stores and watches.
         if registry.isDemoMode { registry.exitDemoMode() }
-        let policy = env.importer.policy
-        guard let loaded = try? policy.loadFile(file), let kc = try? policy.parse(loaded.text) else { return }
         let wanted = kc.contexts.filter { $0.name.hasPrefix("wh-perf-") }.sorted { $0.name < $1.name }.prefix(scenario.clusters)
         var ids: [String: ClusterID] = [:]
         for ctx in wanted where policy.blockedReason(for: ctx) == nil {
