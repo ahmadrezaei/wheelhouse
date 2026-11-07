@@ -5,20 +5,27 @@ import WheelhouseUI
 
 /// Per-context choices made on the import screen.
 struct ImportOptions: Equatable {
-    var environment: ClusterEnvironment
+    /// nil until the user chooses (the Mac never pre-fills an environment it cannot suggest).
+    var environment: ClusterEnvironment?
     var readOnly = false
     var iCloud = false
 }
 
 /// S3 / F2 — import contexts from a kubeconfig (Files, paste, or Open-in).
 struct KubeconfigImportView: View {
+    /// The Mac opens a chosen file, a dropped file or a Finder "Open With" file straight into this screen.
+    var initialFile: URL?
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
+    @Environment(\.kubeconfigImportPolicy) private var policy
     @Environment(\.dismiss) private var dismiss
 
     @State private var config: Kubeconfig?
     @State private var sourceName: String?
+    @State private var sourceURL: URL?
+    @State private var mooringsError: String?
+    @State private var ownerAuthFailed = false
     @State private var parseError: String?
     @State private var selection: Set<String> = []
     @State private var options: [String: ImportOptions] = [:]
@@ -47,14 +54,17 @@ struct KubeconfigImportView: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if router.sheet != nil { router.dismissSheet() } else { dismiss() } } }
             ToolbarItem(placement: .confirmationAction) {
                 Button(selection.count > 1 ? "Add \(selection.count) Clusters" : "Add Cluster") { Task { await importSelected() } }
-                    .disabled(selection.isEmpty || importing)
+                    .disabled(selection.isEmpty || importing || selection.contains { options[$0]?.environment == nil })
             }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.yaml, .plainText, .data, .item], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first { load(url: url) }
             else if case .failure(let e) = result { parseError = e.localizedDescription }
         }
-        .onAppear { consumeInbox() }
+        .onAppear {
+            consumeInbox()
+            if let initialFile, config == nil, parseError == nil { load(url: initialFile) }
+        }
         .onChange(of: KubeconfigInbox.shared.revision) { consumeInbox() }
         .onDisappear { removeUnimportedIdentities() }
         .task(id: config != nil) {
@@ -66,6 +76,9 @@ struct KubeconfigImportView: View {
             for (k, v) in results { if case .done(let r) = v { NSLog("WHAUTOTEST %@ version=%@ error=%@ latency=%@ caps=%@", k, r.version ?? "nil", String(describing: r.error), String(describing: r.latencyMilliseconds), String(describing: r.capabilities.map { "\($0.title)=\(String(describing: $0.allowed))" })) } }
             }
         }
+        .alert("Changes stay off", isPresented: $ownerAuthFailed) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("This cluster is, or looks like, Production. Allowing changes needs Touch ID or your password.") }
         .alert("Couldn’t import", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(saveError ?? "") }
@@ -116,7 +129,8 @@ struct KubeconfigImportView: View {
     }
 
     private func row(_ ctx: KubeconfigContext, isCurrent: Bool) -> some View {
-        let supported = ctx.isImportable || ctx.status == .local
+        let blocked = policy.blockedReason(for: ctx)
+        let supported = (ctx.isImportable || ctx.status == .local) && blocked == nil
         let selected = selection.contains(ctx.id)
         return VStack(alignment: .leading, spacing: Spacing.s) {
             Button {
@@ -133,7 +147,9 @@ struct KubeconfigImportView: View {
                         }
                         Text("\(ctx.clusterName) · \(authLabel(ctx.auth))").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                         if let host = ctx.server?.host() { Text(host).font(.caption).foregroundStyle(.tertiary) }
-                        if let reason = ctx.unsupportedReason {
+                        if let blocked {
+                            Text(blocked).font(.footnote).foregroundStyle(Palette.criticalText).fixedSize(horizontal: false, vertical: true)
+                        } else if let reason = ctx.unsupportedReason {
                             Text(reason).font(.footnote).foregroundStyle(ctx.status == .local ? Palette.warningText : Palette.unknownText).fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -148,17 +164,48 @@ struct KubeconfigImportView: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityHint(supported ? "Double tap to \(selected ? "deselect" : "select")" : "Not supported on iOS")
 
+            if ctx.status == .exec, let adder = policy.mooringsSource { mooringsRow(adder) }
             if let r = results[ctx.id] { resultLine(r, ctx: ctx) }
             if selected, let binding = Binding($options[ctx.id]) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Picker("Environment", selection: binding.environment) { ForEach(ClusterEnvironment.allCases) { Text($0.title).tag($0) } }
-                    Toggle("Read-only", isOn: binding.readOnly).frame(minHeight: Spacing.minHit)
+                    Picker("Environment", selection: binding.environment) {
+                        if binding.wrappedValue.environment == nil { Text("Choose…").tag(ClusterEnvironment?.none) }
+                        ForEach(ClusterEnvironment.allCases) { Text($0.title).tag(ClusterEnvironment?.some($0)) }
+                    }
+                    Toggle("Read-only", isOn: Binding(
+                        get: { binding.wrappedValue.readOnly },
+                        set: { readOnly in
+                            if !readOnly, policy.requiresOwnerAuth(toAllowChangesOn: ctx, environment: binding.wrappedValue.environment) {
+                                Task {
+                                    if await AppLockController.authenticate(reason: "Allow changes on \(ctx.name)") { options[ctx.id]?.readOnly = false }
+                                    else { ownerAuthFailed = true }
+                                }
+                            } else {
+                                options[ctx.id]?.readOnly = readOnly
+                            }
+                        }
+                    )).frame(minHeight: Spacing.minHit)
                     Toggle("Sync with iCloud Keychain", isOn: binding.iCloud).frame(minHeight: Spacing.minHit)
                 }
                 .padding(.leading, 40).font(.subheadline)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Exec-plugin contexts are referenced in place from their file through Moorings, never imported with `authKind .none`.
+    private func mooringsRow(_ adder: any MooringsSourceAdding) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Add File as Moorings Source") {
+                guard let url = sourceURL else { return }
+                Task { do { try await adder.addFileSource(url) } catch { mooringsError = error.localizedDescription } }
+            }
+            .disabled(!adder.isAvailable || sourceURL == nil)
+            .buttonStyle(.bordered).controlSize(.small)
+            if !adder.isAvailable { Text("Available in a later update. The credential plugin of this context is never copied into the Keychain.").font(.caption).foregroundStyle(.secondary) }
+            if let mooringsError { Text(mooringsError).font(.caption).foregroundStyle(Palette.criticalText) }
+        }
+        .padding(.leading, 40)
     }
 
     @ViewBuilder private func resultLine(_ r: ConnectionTestState, ctx: KubeconfigContext) -> some View {
@@ -261,19 +308,23 @@ struct KubeconfigImportView: View {
     }
 
     private func load(url: URL) {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { parseError = "That file isn’t readable text."; return }
-        parse(text, name: url.lastPathComponent)
+        do {
+            let loaded = try policy.loadFile(url)
+            sourceURL = url
+            parse(loaded.text, name: loaded.name)
+        } catch {
+            config = nil
+            parseError = error.localizedDescription
+        }
     }
 
     private func parse(_ text: String, name: String?) {
         parseError = nil; results = [:]
         do {
-            let kc = try KubeconfigParser.parse(text)
+            let kc = try policy.parse(text)
             config = kc; sourceName = name
-            selection = Set(kc.contexts.filter { $0.status == .ready }.map(\.id))
-            options = Dictionary(uniqueKeysWithValues: kc.contexts.map { ($0.id, ImportOptions(environment: $0.suggestedEnvironment)) })
+            selection = Set(kc.contexts.filter { $0.status == .ready && policy.blockedReason(for: $0) == nil }.map(\.id))
+            options = Dictionary(uniqueKeysWithValues: kc.contexts.map { ($0.id, ImportOptions(environment: policy.suggestedEnvironment(for: $0), readOnly: policy.defaultReadOnly, iCloud: policy.defaultICloud)) })
         } catch let e as KubeconfigError {
             config = nil
             parseError = switch e {
@@ -284,17 +335,19 @@ struct KubeconfigImportView: View {
         } catch { config = nil; parseError = error.localizedDescription }
     }
 
-    private func build(_ ctx: KubeconfigContext) -> (ClusterConfig, ClusterSecrets)? {
+    /// `forTest` builds a throw-away config for Test Connection: an unchosen environment counts as Production (the most restrictive).
+    private func build(_ ctx: KubeconfigContext, forTest: Bool = false) -> (ClusterConfig, ClusterSecrets)? {
         guard let made = ctx.makeClusterConfig() else { return nil }
         var cfg = made.config
         let secrets = made.secrets
         if let id = ids[ctx.id] { cfg.id = id } else { ids[ctx.id] = cfg.id }
-        let o = options[ctx.id] ?? ImportOptions(environment: ctx.suggestedEnvironment)
-        cfg.environment = o.environment
+        let o = options[ctx.id] ?? ImportOptions(environment: policy.suggestedEnvironment(for: ctx), readOnly: policy.defaultReadOnly, iCloud: policy.defaultICloud)
+        guard let environment = o.environment ?? (forTest ? .production : nil) else { return nil }
+        cfg.environment = environment
         cfg.readOnly = o.readOnly
         cfg.iCloudSync = o.iCloud
-        cfg.skipTLSVerify = cfg.skipTLSVerify && o.environment != .production
-        cfg.color = o.environment == .production ? .pink : o.environment == .staging ? .indigo : cfg.color
+        cfg.skipTLSVerify = cfg.skipTLSVerify && environment != .production
+        cfg.color = environment == .production ? .pink : environment == .staging ? .indigo : cfg.color
         return (cfg, secrets)
     }
 
@@ -303,7 +356,7 @@ struct KubeconfigImportView: View {
         for c in targets { results[c.id] = .running }
         await withTaskGroup(of: (String, ConnectionTestResult).self) { group in
             for c in targets {
-                guard let (cfg, secrets) = build(c) else { continue }
+                guard let (cfg, secrets) = build(c, forTest: true) else { continue }
                 group.addTask {
                     let client = LiveKubeClient(config: cfg, secrets: secrets, tlsServerName: c.tlsServerName)
                     return (c.id, await ConnectionTester.run(client: client, namespace: cfg.defaultNamespace))

@@ -116,7 +116,7 @@ final class CodeEditorScrollView: NSScrollView {
     private let gutter = GutterRulerView()
     private var diagnostics: [YAMLDiagnostic] = []
     private var wraps = true
-    fileprivate var lineStarts: [Int] = [0]
+    private(set) var lineStarts: [Int] = [0]
     private var highlightTask: Task<Void, Never>?
     private var lastEditOffset = 0
     private static let fullHighlightLimit = 150_000     // UTF-16 units; beyond it only a window around the edit is tokenised

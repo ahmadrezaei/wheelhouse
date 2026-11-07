@@ -205,7 +205,14 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
 
     // MARK: Visibility
 
+    /// Tests drive the view without a window: when set, the view counts as visible.
+    var assumeVisible = false
+    private(set) var reloadCount = 0
+    private(set) var deltaCount = 0
+    var tableRowCount: Int { table.numberOfRows }
+
     private var isShown: Bool {
+        if assumeVisible { return true }
         guard let window, window.isVisible, !window.isMiniaturized else { return false }
         return window.occlusionState.contains(.visible)
     }
@@ -262,6 +269,7 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         keys = r.keys
         rowAt = r.rowAt
         let delta = KubeTableDiffer.diff(old: oldKeys, new: r.keys)
+        if delta.needsReload { reloadCount += 1 } else if !delta.isEmpty { deltaCount += 1 }
         if delta.needsReload {
             // First load, a re-sort or a filter change: reload, then restore the selection and the top row by id.
             let selected = Set(table.selectedRowIndexes.compactMap { oldKeys.indices.contains($0) ? oldKeys[$0].id : nil })

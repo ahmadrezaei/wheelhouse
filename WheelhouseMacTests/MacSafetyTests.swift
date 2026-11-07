@@ -41,10 +41,30 @@ struct MacAppSafetyTests {
         #expect(IsolationOverride.current == .debug)
     }
 
-    @MainActor @Test func theEnvironmentStartsInDemoWithoutKeychainOrHomeAccess() {
+    @MainActor @Test func theEnvironmentIsIsolatedAndKeepsOnlyAllowedClusters() {
         let env = MacAppEnvironment.live()
+        #expect(env.gateActive)
+        #expect(env.paths.isolated)
+        #expect(env.safetySummary.hasPrefix("Development safety ON"))
+    }
+
+    @MainActor @Test func demoModeShowsOnlySampleClusters() {
+        let env = MacAppEnvironment.live()
+        env.registry.enterDemoMode(persist: false)
         #expect(env.registry.isDemoMode)
         #expect(env.registry.clusters.allSatisfy { $0.isDemo })
-        #expect(env.paths.isolated)
+        env.registry.exitDemoMode()
+    }
+
+    @Test func aClientForAHostThatIsNotAllowedIsPointedAtAnUnresolvableName() {
+        let gate = DevSafetyPolicy(isActive: true, allowedHosts: ["127.0.0.1"])
+        let real = ClusterConfig(name: "prod", server: URL(string: "https://api.prod.corp.example.com")!, environment: .production)
+        #expect(MacAppEnvironment.gatedConfig(real, gate: gate).server.host() == "blocked-in-development.invalid")
+        let allowed = ClusterConfig(name: "test", server: URL(string: "https://127.0.0.1:6443")!, environment: .development)
+        #expect(MacAppEnvironment.gatedConfig(allowed, gate: gate) == allowed)
+        let demo = ClusterConfig(name: "demo", server: URL(string: "https://demo.example.com")!, isDemo: true)
+        #expect(MacAppEnvironment.gatedConfig(demo, gate: gate) == demo)
+        // An inactive gate (Distribution) leaves everything alone.
+        #expect(MacAppEnvironment.gatedConfig(real, gate: DevSafetyPolicy(isActive: false)) == real)
     }
 }

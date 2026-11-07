@@ -62,8 +62,8 @@ struct SidebarCatalogTests {
         #expect(ids.count == Set(ids).count)
     }
 
-    @Test func filterMatchesShortNamesAndSingularForms() {
-        let model = SidebarModel()
+    @MainActor @Test func filterMatchesShortNamesAndSingularForms() {
+        let model = SidebarModel(provider: FakeSidebarProvider(clusters: []), features: { [] })
         let workloads = SidebarCatalog.group(.workloads)
         model.filter = "deploy"
         #expect(model.matchingKinds(in: workloads).map(\.title) == ["Deployments"])

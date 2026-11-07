@@ -148,7 +148,16 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
     // MARK: Visibility
 
+    /// Tests drive the view without a window: when set, the view counts as visible.
+    var assumeVisible = false
+    /// How updates reached the table, for tests (`append`, `frontDrop`, `reload`).
+    private(set) var applyCounts = (append: 0, frontDrop: 0, reload: 0)
+    var displayedLineCount: Int { lines.count }
+    var tableRowCount: Int { table.numberOfRows }
+    var isAtBottom: Bool { distanceFromBottom <= 24 }
+
     private var isShown: Bool {
+        if assumeVisible { return true }
         guard let window, window.isVisible, !window.isMiniaturized else { return false }
         return window.occlusionState.contains(.visible)
     }
@@ -240,15 +249,18 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         updateColumnWidth()
 
         if appendOnly {
+            applyCounts.append += 1
             if new.count > oldCount { table.insertRows(at: IndexSet(oldCount..<new.count), withAnimation: []) }
             else if new.count == oldCount, settings.query != "" || matcher != nil { reloadVisible() }
         } else if let k = frontDrop {
+            applyCounts.frontDrop += 1
             table.beginUpdates()
             table.removeRows(at: IndexSet(0..<k), withAnimation: [])
             table.insertRows(at: IndexSet(oldCount - k..<new.count), withAnimation: [])
             table.endUpdates()
             pruneRowCounts()
         } else {
+            applyCounts.reload += 1
             reloadAll()
             if !r.follow, !wasFollowing, let anchor { restore(anchor) }
         }
