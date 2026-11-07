@@ -26,6 +26,10 @@
 #                       uses automatic signing with -allowProvisioningUpdates (Xcode's managed Developer ID profile)
 #   WH_BUILD_DIR        build output directory (default: <repo>/.build/mac, which is git-ignored)
 #
+# Recovery: if `gh release create` fails after the step-10 push, main already carries the release commit. Fix the cause and
+# re-run with a HIGHER build number (the build number must exceed the one now in project.yml); the version may stay the same
+# only if no mac-v<version> tag exists yet. The release commit is not rewritten.
+#
 # Deltas: generate_appcast builds .delta files only from DMGs it can see, so keep the previous releases' DMGs in
 # <build dir>/releases (default .build/mac/releases). The last 3 versions stay in the feed. A fresh checkout has none, which
 # means a full download only; copy the older DMGs back from their GitHub releases first if deltas are wanted.
@@ -124,10 +128,12 @@ scripts/fetch-helm.sh --verify-only
 
 # ---------------------------------------------------------------------------------------------------------------------------- 2
 step "2  version $VERSION (build $BUILDNUM)"
-if [ "$LOCAL" = 0 ]; then
+# project.yml is edited (and the project regenerated) only when publishing; the version always reaches xcodebuild through VERS,
+# so a non-publishing build leaves the working tree clean.
+if [ "$LOCAL" = 0 ] && [ "$PUBLISH" = 1 ]; then
   sed -i '' -E "s/(MAC_MARKETING_VERSION: )\"[^\"]*\"/\1\"$VERSION\"/; s/(MAC_BUILD_NUMBER: )\"[^\"]*\"/\1\"$BUILDNUM\"/" project.yml
+  xcodegen generate >/dev/null
 fi
-xcodegen generate >/dev/null
 VERS=(MAC_MARKETING_VERSION="$VERSION" MAC_BUILD_NUMBER="$BUILDNUM")
 
 # ---------------------------------------------------------------------------------------------------------------------------- 3
@@ -250,7 +256,7 @@ cp "$NOTES" "$RELEASES/Wheelhouse-$VERSION.html"
   --link "$PAGES_BASE/" --maximum-versions 3 ${CHANNEL:+--channel "$CHANNEL"}
 # The app requires a signed feed (SURequireSignedFeed): generate_appcast signs the appcast and the notes it links to.
 grep -q "sparkle-signatures" "$RELEASES/appcast.xml" || die "the generated appcast carries no EdDSA signature"
-grep -q "sparkle-sign-warning" "$RELEASES/Wheelhouse-$VERSION.html" && grep -q "releaseNotesLink sparkle:edSignature" "$RELEASES/appcast.xml" || die "the release notes were not signed"
+grep -q "sparkle-sign-warning" "$RELEASES/Wheelhouse-$VERSION.html" && grep -Eq '<sparkle:releaseNotesLink[^>]*sparkle:edSignature=' "$RELEASES/appcast.xml" || die "the release notes were not signed"
 cp "$RELEASES/Wheelhouse-$VERSION.html" "$NOTES"      # publish the signed notes
 
 # ---------------------------------------------------------------------------------------------------------------------------- 10
