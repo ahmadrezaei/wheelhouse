@@ -1,0 +1,34 @@
+{
+  "milestone": "M6a",
+  "date": "2026-11-07",
+  "note": "Chart Room read path. Chart Room is not reachable from the placeholder window yet (the workspace is M4a), so the app-level scenarios (idle-1, hidden, launch) are unchanged from M1a and were not re-sampled; the numbers below are the read-path measurements that exist now. Listing is metadata only (Accept: PartialObjectMetadataList); decoded releases live in a 32 MB NSCache.",
+  "environment": {
+    "machine": "MacBook Pro (Apple M4 Pro)",
+    "macOS": "27.0.1",
+    "xcode": "27.1",
+    "cluster": "test cluster (minikube), namespaces wh-m6a, wh-m6a-cm, wh-m6a-many via scripts/testcluster-fixtures.sh --section m6a-helm",
+    "command": "WH_LIVE_TESTS=1 WH_TEST_KUBECONFIG=<repo>/.testcluster/kubeconfig swift test --filter HelmLive"
+  },
+  "list200Releases": {
+    "budgetSec": 1.0,
+    "liveColdSec": 0.036,
+    "liveWarmSec": [0.062, 0.020],
+    "requests": 1,
+    "payloadsRead": 0
+  },
+  "decodeCache": {
+    "byteLimit": 33554432,
+    "costUnit": "decompressed release JSON bytes",
+    "trimmedOn": "DecodedReleaseCache.shared.removeAll() (memory-pressure warning, wired by M1b)"
+  },
+  "indexParse": {
+    "note": "Yams compose of a synthetic 19 MB repository index, debug build, once per file modification, off the main actor",
+    "bytes": 19104714,
+    "charts": 1500,
+    "debugBuildSec": 2.66
+  },
+  "kitSwiftTest": {
+    "tests": 498,
+    "suites": 85
+  }
+}

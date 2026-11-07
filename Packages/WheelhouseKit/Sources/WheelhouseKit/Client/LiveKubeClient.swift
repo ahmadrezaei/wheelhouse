@@ -173,7 +173,7 @@ public actor LiveKubeClient: KubeClientProtocol {
         }
     }
 
-    private nonisolated func perform(_ request: URLRequest) async throws -> Data {
+    nonisolated func perform(_ request: URLRequest) async throws -> Data {   // internal: LiveKubeClient+Metadata.swift (M6a) reuses it
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw KubeError.decoding("Not an HTTP response") }
