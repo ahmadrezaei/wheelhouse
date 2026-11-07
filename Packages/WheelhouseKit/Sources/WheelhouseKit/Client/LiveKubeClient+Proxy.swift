@@ -49,10 +49,17 @@ extension LiveKubeClient {
         }
         do {
             let first = try await withAuthorization(request) { try await proxySend($0) }
-            guard first.statusCode == 401, shouldRetryAfterUnauthorized() else { return first }
+            guard Self.isAPIServerUnauthorized(first), shouldRetryAfterUnauthorized() else { return first }
             await invalidateDynamicCredential()
             return try await withAuthorization(request) { try await proxySend($0) }
         } catch { throw mapTransportError(error) }
+    }
+
+    /// True only when the API server itself answered 401 (a kube `Status` object). A 401 written by the proxied service (an expired
+    /// Argo CD cookie, say) says nothing about the cluster credential and must not invalidate it.
+    static func isAPIServerUnauthorized(_ r: ProxyResponse) -> Bool {
+        guard r.statusCode == 401, let j = try? JSONValue.parse(r.body) else { return false }
+        return j["kind"]?.stringValue == "Status" && j["reason"]?.stringValue == "Unauthorized"
     }
 
     private nonisolated func proxySend(_ request: URLRequest) async throws -> ProxyResponse {

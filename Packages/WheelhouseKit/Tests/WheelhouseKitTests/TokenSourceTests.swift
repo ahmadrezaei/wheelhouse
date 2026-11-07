@@ -9,6 +9,8 @@ final class ScriptedAuthProtocol: URLProtocol, @unchecked Sendable {
     private static let store = Mutex<[String: Host]>([:])
 
     static func script(host: String, statuses: [Int]) { store.withLock { $0[host] = Host(statuses: statuses) } }
+    private static let rawBodies = Mutex<[String: String]>([:])
+    static func setBody(host: String, _ body: String) { rawBodies.withLock { $0[host] = body } }
     static func authorizations(host: String) -> [String?] { store.withLock { $0[host]?.seen ?? [] } }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -22,7 +24,8 @@ final class ScriptedAuthProtocol: URLProtocol, @unchecked Sendable {
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        let body = status == 200 ? #"{"major":"1","minor":"32","gitVersion":"v1.32.0"}"# : #"{"kind":"Status","status":"Failure","code":\#(status),"message":"denied"}"#
+        let override = Self.rawBodies.withLock { $0[host] }
+        let body = override ?? (status == 200 ? #"{"major":"1","minor":"32","gitVersion":"v1.32.0"}"# : #"{"kind":"Status","status":"Failure","code":\#(status),"message":"denied"\#(status == 401 ? #","reason":"Unauthorized""# : "")}"#)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
@@ -163,6 +166,16 @@ struct ProxyAuthorizationTests {
         let r = try await proxy(client)
         #expect(r.statusCode == 401)
         #expect(ScriptedAuthProtocol.authorizations(host: host).count == 2)
+    }
+
+    @Test func aTargetServices401IsReturnedWithoutInvalidating() async throws {
+        let provider = CountingProvider()
+        let (client, host) = makeClient(source: .dynamic(provider), statuses: [401])
+        ScriptedAuthProtocol.setBody(host: host, #"{"error":"token expired","code":16}"#)
+        let r = try await proxy(client)
+        #expect(r.statusCode == 401)
+        #expect(provider.invalidations == 0)
+        #expect(ScriptedAuthProtocol.authorizations(host: host) == ["Bearer t1"])
     }
 
     @Test func aStaticTokenClusterIsNotRetried() async throws {
