@@ -6,11 +6,14 @@
 #   <version>        marketing version, for example 1.0.0
 #   <build>          integer build number, higher than the last release
 #
-#   --no-publish     stop after the notarized, stapled DMG (steps 1 to 8); the DMG is left in <build dir>/releases. This is the
-#                    build used for the owner check on a separate macOS user (section 13.2).
-#   --no-notarize    stop after the signed DMG (no Apple credentials needed); implies --no-publish
-#   --local          developer dry run: skips the clean-tree, main-branch, version-increase and gh checks and does not edit
-#                    project.yml (the version and build number are passed to xcodebuild); implies --no-publish
+#   (default)        stop after the notarized, stapled DMG (steps 1 to 8); the DMG is left in <build dir>/releases. This is the
+#                    build used for the owner check on a separate macOS user (section 13.2). PUBLISHING IS OPT-IN.
+#   --publish        also run steps 9 to 11: appcast, GitHub release, commits and pushes. Asks you to type the version to confirm.
+#   --channel beta   publish to the beta Sparkle channel (the GitHub release is marked a pre-release)
+#   --no-publish     accepted for clarity; it is the default
+#   --no-notarize    stop after the signed DMG (no Apple credentials needed)
+#   --local          developer dry run: skips the clean-tree, main-branch, origin/main, version-increase and gh checks and does not
+#                    edit project.yml (the version and build number are passed to xcodebuild)
 #   --skip-tests     skip step 3 (run the suites yourself first)
 #   -h, --help       this text
 #
@@ -22,6 +25,10 @@
 #   WH_EXPORT_PROFILE   name of a manual Developer ID provisioning profile for com.ahmadrezaei.wheelhouse.mac. When unset the export
 #                       uses automatic signing with -allowProvisioningUpdates (Xcode's managed Developer ID profile)
 #   WH_BUILD_DIR        build output directory (default: <repo>/.build/mac, which is git-ignored)
+#
+# Deltas: generate_appcast builds .delta files only from DMGs it can see, so keep the previous releases' DMGs in
+# <build dir>/releases (default .build/mac/releases). The last 3 versions stay in the feed. A fresh checkout has none, which
+# means a full download only; copy the older DMGs back from their GitHub releases first if deltas are wanted.
 #
 # DISTRIBUTION BUILDS HAVE THE DEVELOPMENT SAFETY GATE OFF (WHDevSafety = NO). Never launch the app this script produces on a macOS
 # user that has a real ~/.kube or iCloud data; install it on the separate test user (section 13.2).
@@ -41,12 +48,14 @@ PAGES_BASE=https://ahmadrezaei.github.io/wheelhouse/mac
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
-VERSION=""; BUILDNUM=""; PUBLISH=1; NOTARIZE=1; LOCAL=0; TESTS=1
+VERSION=""; BUILDNUM=""; PUBLISH=0; NOTARIZE=1; LOCAL=0; TESTS=1; CHANNEL=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --publish) PUBLISH=1 ;;
     --no-publish) PUBLISH=0 ;;
-    --no-notarize) PUBLISH=0; NOTARIZE=0 ;;
-    --local) LOCAL=1; PUBLISH=0 ;;
+    --no-notarize) NOTARIZE=0 ;;
+    --local) LOCAL=1 ;;
+    --channel) shift; CHANNEL="${1:-}"; [ "$CHANNEL" = beta ] || { echo "error: --channel accepts only 'beta'" >&2; exit 2; } ;;
     --skip-tests) TESTS=0 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
@@ -67,6 +76,7 @@ EXPORT="$BUILD/export"
 RELEASES="$BUILD/releases"
 APP="$EXPORT/Wheelhouse.app"
 DMG="$RELEASES/Wheelhouse-$VERSION.dmg"
+if [ "$PUBLISH" = 1 ] && { [ "$LOCAL" = 1 ] || [ "$NOTARIZE" = 0 ]; }; then echo "error: --publish cannot be combined with --local or --no-notarize" >&2; exit 2; fi
 mkdir -p "$BUILD" "$RELEASES"
 
 # ---------------------------------------------------------------------------------------------------------------------------- 1
@@ -76,7 +86,12 @@ security find-identity -v -p codesigning | grep -qF "$IDENTITY" || die "signing 
 [ "$LOCAL" = 1 ] || {
   [ -z "$(git status --porcelain)" ] || die "the git tree is not clean"
   [ "$(git branch --show-current)" = main ] || die "releases are cut from main"
-  last_tag="$(git tag --list 'mac-v*' | sed 's/^mac-v//' | sort -V | tail -1)"
+  git fetch --quiet origin main --tags || die "fetching origin failed"
+  [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "HEAD is not origin/main (pull or push first)"
+  # Local tags (just refreshed from origin) plus the remote's own list, so a tag made elsewhere is never missed.
+  last_tag="$( { git tag --list 'mac-v*'; git ls-remote --tags origin 'mac-v*' | sed 's|.*refs/tags/||; s/\^{}$//'; } | sed 's/^mac-v//' | sort -V | tail -1)"
+  xcodegen generate >/dev/null
+  git diff --exit-code --quiet Wheelhouse.xcodeproj || die "Wheelhouse.xcodeproj is not what xcodegen generate produces; regenerate and commit it first"
   if [ -n "$last_tag" ]; then
     [ "$(printf '%s\n%s\n' "$last_tag" "$VERSION" | sort -V | tail -1)" = "$VERSION" ] && [ "$last_tag" != "$VERSION" ] \
       || die "version $VERSION is not greater than the last release $last_tag"
@@ -86,6 +101,13 @@ security find-identity -v -p codesigning | grep -qF "$IDENTITY" || die "signing 
   [ "$BUILDNUM" -gt "${last_build:-0}" ] || { [ -z "$last_tag" ] && [ "$BUILDNUM" -ge "${last_build:-0}" ]; } || die "build $BUILDNUM is not greater than the current build ${last_build:-0}"
   [ "$PUBLISH" = 0 ] || gh auth status >/dev/null 2>&1 || die "gh is not authenticated (gh auth login)"
 }
+NOTES="$REPO/docs/mac/notes/Wheelhouse-$VERSION.html"
+if [ "$PUBLISH" = 1 ]; then
+  [ -f "$NOTES" ] || die "release notes are missing: docs/mac/notes/Wheelhouse-$VERSION.html"
+  ! grep -qi placeholder "$NOTES" || die "docs/mac/notes/Wheelhouse-$VERSION.html still contains placeholder text"
+  read -r -p "Publish Wheelhouse for Mac $VERSION (build $BUILDNUM) to GitHub? Type the version to confirm: " typed < /dev/tty
+  [ "$typed" = "$VERSION" ] || die "confirmation did not match; nothing was published"
+fi
 if [ "$NOTARIZE" = 1 ]; then
   xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
     || die "notarytool keychain profile '$NOTARY_PROFILE' is missing or invalid (see the header of this script, or use --no-notarize)"
@@ -158,6 +180,11 @@ while IFS= read -r f; do
     codesign --force --options runtime --timestamp -s "$IDENTITY" "$f"; needs_fix=1 ;;
   esac
 done < <(macho_files)
+# wh-pty-exec must carry no entitlements: the export injects com.apple.application-identifier into it. Re-sign it without any
+# metadata from the existing signature (so nothing is preserved), keeping its identifier.
+PTY="$APP/Contents/Helpers/wh-pty-exec"
+pty_id="$(codesign -dvv "$PTY" 2>&1 | sed -n 's/^Identifier=//p')"
+codesign --force --options runtime --timestamp -i "${pty_id:-wh-pty-exec}" -s "$IDENTITY" "$PTY"; needs_fix=1
 if [ "$needs_fix" = 1 ]; then
   # Entitlements and the embedded provisioning profile are kept; only the seal over the changed helper is renewed.
   codesign --force --options runtime --timestamp --preserve-metadata=entitlements,identifier,flags -s "$IDENTITY" "$APP"
@@ -209,35 +236,39 @@ spctl -a -t open --context context:primary-signature -v "$DMG"
 spctl -a -t exec -vvv "$APP"
 echo "notarized and stapled: $DMG"
 if [ "$PUBLISH" = 0 ]; then
-  echo; echo "stopped before publishing (--no-publish). Install this DMG on the separate macOS user, never on the owner's own account."
+  echo; echo "not publishing (pass --publish to publish). Install this DMG on the separate macOS user, never on the owner's own account."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------------- 9
 step "9  appcast"
-NOTES="$REPO/docs/mac/notes/Wheelhouse-$VERSION.html"
-[ -f "$NOTES" ] || die "release notes are missing: docs/mac/notes/Wheelhouse-$VERSION.html"
 cp "$NOTES" "$RELEASES/Wheelhouse-$VERSION.html"
 [ ! -f "$REPO/docs/mac/appcast.xml" ] || cp "$REPO/docs/mac/appcast.xml" "$RELEASES/appcast.xml"
 "$SPARKLE_BIN/generate_appcast" "$RELEASES" \
   --download-url-prefix "https://github.com/$REPO_SLUG/releases/download/mac-v$VERSION/" \
   --release-notes-url-prefix "$PAGES_BASE/notes/" \
-  --link "$PAGES_BASE/" --maximum-versions 3
+  --link "$PAGES_BASE/" --maximum-versions 3 ${CHANNEL:+--channel "$CHANNEL"}
+# The app requires a signed feed (SURequireSignedFeed): generate_appcast signs the appcast and the notes it links to.
+grep -q "sparkle-signatures" "$RELEASES/appcast.xml" || die "the generated appcast carries no EdDSA signature"
+grep -q "sparkle-sign-warning" "$RELEASES/Wheelhouse-$VERSION.html" && grep -q "releaseNotesLink sparkle:edSignature" "$RELEASES/appcast.xml" || die "the release notes were not signed"
+cp "$RELEASES/Wheelhouse-$VERSION.html" "$NOTES"      # publish the signed notes
 
 # ---------------------------------------------------------------------------------------------------------------------------- 10
-step "10  GitHub release mac-v$VERSION"
+step "10  commit and push the release inputs, then the GitHub release"
+git add -A Wheelhouse.xcodeproj project.yml "docs/mac/notes/Wheelhouse-$VERSION.html"
+git commit -m "Prepare Wheelhouse for Mac $VERSION"
+git push origin main
 ASSETS=("$DMG")
 for d in "$RELEASES"/*.delta; do [ -e "$d" ] && ASSETS+=("$d"); done
 NOTES_MD="$BUILD/notes.md"
 printf 'Wheelhouse for Mac %s (build %s)\n\nRelease notes: %s/notes/Wheelhouse-%s.html\n' "$VERSION" "$BUILDNUM" "$PAGES_BASE" "$VERSION" > "$NOTES_MD"
-gh release create "mac-v$VERSION" "${ASSETS[@]}" --title "Wheelhouse for Mac $VERSION" --notes-file "$NOTES_MD"
+gh release create "mac-v$VERSION" "${ASSETS[@]}" --target "$(git rev-parse HEAD)" --title "Wheelhouse for Mac $VERSION" \
+  --notes-file "$NOTES_MD" ${CHANNEL:+--prerelease}
 
-# ---------------------------------------------------------------------------------------------------------------------------- 11
-step "11  commit the appcast and notes"
-mkdir -p docs/mac/notes
+step "11  publish the appcast (only after the release assets exist)"
 cp "$RELEASES/appcast.xml" docs/mac/appcast.xml
-git add docs/mac/appcast.xml "docs/mac/notes/Wheelhouse-$VERSION.html" project.yml
-git commit -m "Release Wheelhouse for Mac $VERSION"
+git add -A docs/mac/appcast.xml
+git commit -m "Publish the Wheelhouse for Mac $VERSION appcast"
 git push origin main
 
 # ---------------------------------------------------------------------------------------------------------------------------- 12

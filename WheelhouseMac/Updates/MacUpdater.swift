@@ -40,8 +40,7 @@ final class MacUpdater: ObservableObject {
     private var observation: AnyCancellable?
 
     static var configuredFeedIsSet: Bool {
-        let feed = (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "").trimmingCharacters(in: .whitespaces)
-        return !feed.isEmpty && !DevSafety.isActive
+        DevSafetyPolicy.current.shouldStartUpdater(feedURL: Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)
     }
 
     private init() {

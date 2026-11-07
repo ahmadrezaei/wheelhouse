@@ -425,19 +425,37 @@ struct PortForwardManagerLifecycleTests {
         let final = await m.info(id: a.id)
         #expect(final?.state == .stopped)
         // The local port must be free again: nothing keeps listening.
-        let probe = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(a.localPort))!, using: .tcp)
-        let refused = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            nonisolated(unsafe) var done = false
-            probe.stateUpdateHandler = { state in
-                switch state {
-                case .ready: if !done { done = true; cont.resume(returning: false) }
-                case .failed, .waiting: if !done { done = true; cont.resume(returning: true) }
-                default: break
+        // Cancelling a listener is asynchronous, so retry the probe until it is refused (up to 20 x 100 ms), each probe time-boxed.
+        let port = NWEndpoint.Port(rawValue: UInt16(a.localPort))!
+        func probeRefused() async -> Bool {
+            let probe = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+            let result = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                let lock = NSLock()
+                nonisolated(unsafe) var done = false
+                let finish: @Sendable (Bool) -> Void = { value in
+                    lock.lock(); defer { lock.unlock() }
+                    if !done { done = true; cont.resume(returning: value) }
                 }
+                probe.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready: finish(false)
+                    case .failed, .waiting: finish(true)
+                    default: break
+                    }
+                }
+                probe.start(queue: .global())
+                // Per-probe timeout: an unanswered probe counts as "not refused" so the loop tries again.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { finish(false) }
             }
-            probe.start(queue: .global())
+            probe.stateUpdateHandler = nil
+            probe.cancel()
+            return result
         }
-        probe.cancel()
+        var refused = false
+        for _ in 0..<20 {
+            if await probeRefused() { refused = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
         #expect(refused)
     }
 }

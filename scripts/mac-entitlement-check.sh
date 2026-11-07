@@ -49,7 +49,9 @@ if [ "$CONFIG" = Distribution ]; then
   [ "$GATE" = "NO" ] && ok "WHDevSafety = NO (Distribution)" || fail "Distribution must have WHDevSafety = NO (got '$GATE')"
   [ -z "$(pb WHDefaultTestKubeconfig)" ] && ok "no test kubeconfig key" || fail "Distribution Info.plist has WHDefaultTestKubeconfig"
   [ -z "$(pb WHPerfScenarioDirectory)" ] && ok "no perf scenario directory" || fail "Distribution Info.plist has WHPerfScenarioDirectory"
-  [ -n "$(pb SUFeedURL)" ] && ok "Sparkle feed set" || fail "Distribution must have SUFeedURL"
+  [ "$(pb SUFeedURL)" = "https://ahmadrezaei.github.io/wheelhouse/mac/appcast.xml" ] && ok "Sparkle feed URL" || fail "Distribution SUFeedURL must be https://ahmadrezaei.github.io/wheelhouse/mac/appcast.xml (got '$(pb SUFeedURL)')"
+  [ "$(pb SURequireSignedFeed)" = "true" ] && ok "SURequireSignedFeed" || fail "Distribution must set SURequireSignedFeed"
+  [ "$(pb SUVerifyUpdateBeforeExtraction)" = "true" ] && ok "SUVerifyUpdateBeforeExtraction" || fail "Distribution must set SUVerifyUpdateBeforeExtraction"
 else
   [ "$GATE" = "YES" ] && ok "WHDevSafety = YES ($CONFIG)" || fail "$CONFIG must have WHDevSafety = YES (got '$GATE')"
 fi
@@ -70,14 +72,15 @@ fi
 if [ ! -s "$ENT" ]; then
   fail "could not read the signed entitlements (is the app signed?)"
 else
-  python3 -I - "$ENT" "$CONFIG" "$TEAM" "$WANT_KEYCHAIN" "$WANT_GROUP" <<'PY' || FAIL=1
+  python3 -I - "$ENT" "$CONFIG" "$TEAM" "$WANT_KEYCHAIN" "$WANT_GROUP" "$WANT_BID" <<'PY' || FAIL=1
 import sys, plistlib
-path, config, team, want_keychain, want_group = sys.argv[1:6]
+path, config, team, want_keychain, want_group, want_bid = sys.argv[1:7]
 raw = open(path, 'rb').read()
 raw = raw[raw.find(b'<?xml'):] if b'<?xml' in raw else raw
 ent = plistlib.loads(raw)
 bad = []
 appid = "com.apple.application-identifier"
+if ent.get(appid) != team + "." + want_bid: bad.append("application-identifier is %s, want %s.%s" % (ent.get(appid), team, want_bid))
 allowed = {appid, "com.apple.developer.team-identifier", "keychain-access-groups", "com.apple.security.application-groups"}
 if config in ("Debug", "Profile"): allowed.add("com.apple.security.get-task-allow")
 # Xcode re-signs a Debug app that hosts tests and injects com.apple.security.temporary-exception.* entitlements (and drops the
@@ -127,6 +130,7 @@ raw = subprocess.run(["security", "cms", "-D", "-i", path], capture_output=True)
 p = plistlib.loads(raw)
 bad = []
 if "ProvisionedDevices" in p: bad.append("the profile is a development profile (it lists devices)")
+if p.get("ProvisionsAllDevices") is not True: bad.append("the profile does not have ProvisionsAllDevices = true (not a Developer ID profile)")
 if p.get("Entitlements", {}).get("com.apple.application-identifier") != appid: bad.append("profile application-identifier is %s" % p.get("Entitlements", {}).get("com.apple.application-identifier"))
 if p.get("Entitlements", {}).get("com.apple.security.get-task-allow"): bad.append("profile allows get-task-allow")
 if bad:
@@ -137,6 +141,19 @@ PY
   else
     fail "embedded.provisionprofile is missing (keychain-access-groups needs a profile)"
   fi
+  # Nested code carries exactly its own entitlements (no injected application-identifier, nothing extra).
+  nested_ents() { codesign -d --entitlements - --xml "$1" 2>/dev/null | python3 -I -c '
+import sys, plistlib, json
+d = sys.stdin.buffer.read()
+print(json.dumps(plistlib.loads(d[d.find(b"<?xml"):]) if b"<?xml" in d else {}, sort_keys=True))'; }
+  GRP="[\"$TEAM.com.ahmadrezaei.wheelhouse\"]"
+  check_nested() { # <relative path> <expected json>
+    got="$(nested_ents "$APP/$1")"
+    [ "$got" = "$2" ] && ok "entitlements of $1" || fail "$1 entitlements are $got, want $2"
+  }
+  check_nested Contents/Helpers/wh-pty-exec '{}'
+  check_nested Contents/Helpers/wheelhouse-mcp "{\"com.apple.security.application-groups\": $GRP}"
+  check_nested Contents/PlugIns/WheelhouseMacWidgets.appex "{\"com.apple.security.app-sandbox\": true, \"com.apple.security.application-groups\": $GRP}"
   while IFS= read -r f; do
     info="$(codesign -dvv "$f" 2>&1 || true)"
     case "$info" in *"flags="*"(runtime"*) ;; *) fail "no hardened runtime: ${f#$APP/}" ;; esac

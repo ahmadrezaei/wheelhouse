@@ -72,10 +72,14 @@
 	<string>$(WH_SU_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>$(WH_SU_PUBLIC_ED_KEY)</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 	<key>SUShowReleaseNotes</key>
 	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
