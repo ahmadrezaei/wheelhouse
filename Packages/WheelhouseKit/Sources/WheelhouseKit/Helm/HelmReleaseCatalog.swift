@@ -44,7 +44,8 @@ public struct HelmRevisionSummary: Sendable, Hashable, Identifiable {
         guard meta.labels["owner"] == "helm", let name = meta.labels["name"], let version = meta.labels["version"].flatMap(Int.init) else { return nil }
         self.init(name: name, namespace: meta.namespace ?? "", revision: version, status: HelmReleaseStatus(label: meta.labels["status"]),
                   modifiedAt: meta.labels["modifiedAt"].flatMap(TimeInterval.init).map(Date.init(timeIntervalSince1970:)) ?? meta.creationTimestamp,
-                  storage: storage, objectName: meta.name, resourceVersion: meta.resourceVersion, labels: meta.labels, annotations: meta.annotations)
+                  storage: storage, objectName: meta.name, resourceVersion: meta.resourceVersion, labels: meta.labels,
+                  annotations: meta.annotations.filter { $0.key != "kubectl.kubernetes.io/last-applied-configuration" })   // can embed the payload
     }
 }
 
@@ -153,6 +154,8 @@ public enum HelmReleaseCatalog {
 public final class DecodedReleaseCache: @unchecked Sendable {
     public static let defaultByteLimit = 32 * 1024 * 1024
     public static let shared = DecodedReleaseCache()
+    /// A decoded release (JSON tree, manifest string, hook copies) takes several times its JSON size in memory; the cost counts that.
+    public static let costMultiplier = 4
 
     private final class Box { let release: HelmRelease; init(_ r: HelmRelease) { release = r } }
     private let cache = NSCache<NSString, Box>()
@@ -172,7 +175,7 @@ public final class DecodedReleaseCache: @unchecked Sendable {
     public func release(forKey key: String) -> HelmRelease? { cache.object(forKey: key as NSString)?.release }
 
     public func insert(_ release: HelmRelease, forKey key: String) {
-        cache.setObject(Box(release), forKey: key as NSString, cost: max(release.payloadBytes, 1))
+        cache.setObject(Box(release), forKey: key as NSString, cost: max(release.payloadBytes, 1) * Self.costMultiplier)
     }
 
     /// Memory-pressure hook.

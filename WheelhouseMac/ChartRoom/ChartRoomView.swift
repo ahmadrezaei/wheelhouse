@@ -29,6 +29,7 @@ private struct ChartRoomContent: View {
     @Binding var section: ChartRoomSection
     @State private var releases: ReleasesModel
     @State private var repositories: RepositoriesModel
+    @Environment(AppLockController.self) private var lock: AppLockController?
 
     init(session: ClusterSession, services: ChartRoomServices, section: Binding<ChartRoomSection>) {
         self.session = session
@@ -58,5 +59,7 @@ private struct ChartRoomContent: View {
             case .repositories: RepositoriesView(model: repositories)
             }
         }
+        // Locking drops every decoded release and hides revealed values, whatever section is showing.
+        .onChange(of: lock?.isLocked ?? false) { _, locked in if locked { ChartRoomMemory.scrub() } }
     }
 }

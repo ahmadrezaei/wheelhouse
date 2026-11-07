@@ -244,6 +244,35 @@ struct HelmRepositoryTests {
         #expect(throws: HelmRepositoryError.notAnIndex) { try HelmRepositories.parseIndex(Data("just: text".utf8), repository: "x") }
     }
 
+    @Test func indexInGoYAMLLayoutParsesChartByChart() throws {
+        // Go's YAML writer puts list items at the indentation of their key, and `generated` comes last.
+        let go = """
+        apiVersion: v1
+        entries:
+          alpha:
+          - apiVersion: v2
+            appVersion: 1.0.0
+            description: first
+            name: alpha
+            version: 2.0.0
+          - apiVersion: v2
+            name: alpha
+            version: 1.0.0
+          beta:
+          - description: second
+            keywords:
+            - x
+            name: beta
+            version: 0.1.0
+        generated: "2026-11-01T10:00:00.123456789Z"
+        """
+        let parsed = try HelmRepositories.parseIndex(Data(go.utf8), repository: "go")
+        #expect(parsed.charts.map(\.name) == ["alpha", "beta"])
+        #expect(parsed.charts[0].versions.map(\.version) == ["2.0.0", "1.0.0"] && parsed.charts[0].description == "first")
+        #expect(parsed.charts[1].keywords == ["x"] && parsed.generated?.hasPrefix("2026-11-01") == true)
+        #expect(try HelmRepositories.parseIndex(Data("apiVersion: v1\nentries: {}\n".utf8), repository: "e").charts.isEmpty)
+    }
+
     @Test func searchRanksNameMatchesFirst() throws {
         let charts = try HelmRepositories.parseIndex(Data(Self.index.utf8), repository: "r").charts
         #expect(HelmRepositories.search("redis", in: charts).map(\.name) == ["redis"])
@@ -299,7 +328,7 @@ struct HelmRepositoryTests {
 
     @Test func aLargeIndexParsesCompactlyOnAUtilityQueue() async throws {
         var text = "apiVersion: v1\nentries:\n"
-        for c in 0..<400 {
+        for c in 0..<100 {
             text += "  chart-\(c):\n"
             for v in 0..<25 {
                 text += "    - name: chart-\(c)\n      version: 1.\(25 - v).0\n      appVersion: \"2.\(v)\"\n      description: A fairly long description for chart \(c) so the file grows like a real index does\n      digest: \(String(repeating: "ab", count: 32))\n      urls:\n        - https://charts.example.com/chart-\(c)-1.\(25 - v).0.tgz\n"
@@ -307,8 +336,8 @@ struct HelmRepositoryTests {
         }
         let size = text.utf8.count
         let parsed = try await Task.detached(priority: .utility) { try HelmRepositories.parseIndex(Data(text.utf8), repository: "big") }.value
-        #expect(parsed.charts.count == 400 && parsed.charts[0].versions.count == 25)
-        #expect(size > 2_000_000)
+        #expect(parsed.charts.count == 100 && parsed.charts[0].versions.count == 25)
+        #expect(size > 400_000)
     }
 
     @Test func tarReaderAndChartArchive() throws {

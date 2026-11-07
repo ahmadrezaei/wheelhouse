@@ -1,6 +1,23 @@
 import CryptoKit
 import Foundation
 
+public extension HelmRelease.Hook {
+    static let hiddenSecretNote = "# Secret manifest hidden. Reveal to show it.\n"
+
+    /// The hook manifest for display. A Secret hook is never shown raw before the user reveals it: its objects are shown masked, and
+    /// a manifest that does not parse is hidden whole.
+    func displayManifest(revealed: Bool) -> String {
+        if revealed { return manifest }
+        let objects = HelmManifest.objects(in: manifest)
+        if objects.contains(where: { $0.kind == "Secret" }) || kind == "Secret" {
+            if objects.isEmpty { return Self.hiddenSecretNote }
+            return objects.map { $0.displayYAML(revealed: false) }.joined(separator: "---\n")
+        }
+        if objects.isEmpty && manifest.contains("Secret") { return Self.hiddenSecretNote }
+        return manifest
+    }
+}
+
 public extension HelmManifestObject {
     /// YAML for display. A Secret's `data` and `stringData` values are hidden unless `revealed`, because a release manifest
     /// carries them in clear (or base64).
@@ -16,16 +33,21 @@ public extension HelmManifestObject {
 
 public extension HelmValuesMask {
     /// Like ``masked(_:)``, but a masked value carries a short fingerprint, so comparing two revisions still shows that a secret
-    /// changed without showing it. Four hex digits of a SHA-256 leak nothing usable.
+    /// changed without showing it. Four hex digits of a keyed HMAC leak nothing usable.
+    /// A fresh key per launch: a fingerprint cannot be checked against a dictionary of guesses, and means nothing outside this run.
+    private static let fingerprintKey = SymmetricKey(size: .bits256)
+
     static func maskedForComparison(_ value: JSONValue) -> JSONValue { fingerprinted(value, inherited: false) }
 
     private static func fingerprinted(_ value: JSONValue, inherited: Bool) -> JSONValue {
         func tag(_ text: String) -> JSONValue {
-            let digest = SHA256.hash(data: Data(text.utf8)).prefix(2).map { String(format: "%02x", $0) }.joined()
+            let digest = HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: fingerprintKey).prefix(2).map { String(format: "%02x", $0) }.joined()
             return .string("\(placeholder) #\(digest)")
         }
         switch value {
-        case .object(let o): return .object(o.reduce(into: [:]) { $0[$1.key] = fingerprinted($1.value, inherited: inherited || isSensitiveKey($1.key)) })
+        case .object(let o):
+            let sensitiveName = hasSensitiveName(o)
+            return .object(o.reduce(into: [:]) { $0[$1.key] = fingerprinted($1.value, inherited: inherited || isSensitiveKey($1.key) || (sensitiveName && $1.key == "value")) })
         case .array(let a): return .array(a.map { fingerprinted($0, inherited: inherited) })
         case .string(let s): return inherited && !s.isEmpty ? tag(s) : value
         case .int(let i): return inherited ? tag(String(i)) : value

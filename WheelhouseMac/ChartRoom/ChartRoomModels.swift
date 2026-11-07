@@ -26,6 +26,7 @@ struct ReleaseChartInfo: Hashable, Sendable {
     var chart: String
     var appVersion: String
     var updated: Date?
+    var description: String = ""
 }
 
 enum DriftState: Equatable, Sendable {
@@ -148,10 +149,15 @@ final class ReleaseDetailModel {
 
     private(set) var phase: Phase = .loading
     private(set) var summary: HelmReleaseSummary?
-    private(set) var release: HelmRelease?
+    /// The revision on screen. Held only while it is shown: dropped on lock and rebuilt on demand from the reader and its cache.
+    private(set) var release: HelmRelease? {
+        didSet { manifestObjects = HelmManifest.objects(in: release?.manifest ?? "") }
+    }
+    /// The manifest split once per decoded release, never in a view body.
+    private(set) var manifestObjects: [HelmManifestObject] = []
     private(set) var decodeError: String?
-    /// Decoded revisions of the history table, filled in as rows appear.
-    private(set) var revisions: [Int: HelmRelease] = [:]
+    /// What the history table shows per revision, filled in as rows appear. Facts only: the decoded releases stay in the 32 MB cache.
+    private(set) var revisions: [Int: ReleaseChartInfo] = [:]
     private(set) var driftReport: HelmDrift.Report?
     private(set) var driftState: DriftState?
     private(set) var comparison: HelmComparison?
@@ -209,6 +215,24 @@ final class ReleaseDetailModel {
         }
     }
 
+    /// App lock: nothing decoded stays in this model. The view reloads from the reader when the app unlocks.
+    func scrub() {
+        release = nil
+        comparison = nil
+        comparisonError = nil
+        driftReport = nil
+        driftState = nil
+        driftRevisionKey = nil
+    }
+
+    /// Memory pressure: drop what can be rebuilt (the drift report, a finished comparison); the revision on screen stays.
+    func trimTransient() {
+        comparison = nil
+        driftReport = nil
+        driftRevisionKey = nil
+        if driftState != .checking { driftState = nil }
+    }
+
     func show(revision: Int) async {
         selectedRevision = revision
         driftReport = nil
@@ -221,7 +245,11 @@ final class ReleaseDetailModel {
     func ensureRevision(_ revision: HelmRevisionSummary) async {
         guard revisions[revision.revision] == nil else { return }
         let reader = reader
-        if let decoded = try? await limiter.run({ try await reader.read(revision) }) { revisions[revision.revision] = decoded }
+        if let decoded = try? await limiter.run({ try await reader.read(revision) }) {
+            revisions[revision.revision] = ReleaseChartInfo(chart: "\(decoded.chart.metadata.name)-\(decoded.chart.metadata.version)",
+                                                            appVersion: decoded.chart.metadata.appVersion ?? "", updated: decoded.info.lastDeployed,
+                                                            description: decoded.info.description)
+        }
     }
 
     func compare(_ a: Int, _ b: Int) async {
@@ -251,7 +279,7 @@ final class ReleaseDetailModel {
         driftState = .checking
         let discovery = try? await session.client.discovery()
         let report = await HelmDrift.check(manifest: release.manifest, releaseNamespace: namespace, client: session.client, discovery: discovery)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { driftState = nil; return }
         driftReport = report
         driftRevisionKey = key
         let state: DriftState

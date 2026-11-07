@@ -165,7 +165,7 @@ struct ReleasesView: View {
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let r = model.listing?.releases.first(where: { $0.id == id }) { menu(for: r) }
         } primaryAction: { ids in
-            if let id = ids.first, let r = model.listing?.releases.first(where: { $0.id == id }) { openRelease(ref(r)) }
+            if let id = ids.first, let r = model.listing?.releases.first(where: { $0.id == id }) { model.selection = id; openRelease(ref(r)) }
         }
     }
 

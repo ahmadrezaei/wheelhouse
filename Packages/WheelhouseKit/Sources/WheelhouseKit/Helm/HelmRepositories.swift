@@ -1,6 +1,14 @@
 import Foundation
 import Yams
 
+/// Names from a config file or an index become file names. A component with a separator or a parent reference could point outside
+/// helm's cache directory, so it is refused.
+enum HelmPathSafety {
+    static func isSafeComponent(_ s: String) -> Bool {
+        !s.isEmpty && s != "." && !s.contains("/") && !s.contains(#"\"#) && !s.contains("..") && !s.unicodeScalars.contains { $0.value == 0 }
+    }
+}
+
 /// Where helm keeps its repository configuration and index caches.
 public struct HelmPaths: Sendable, Hashable {
     public var repositoryConfig: URL
@@ -90,7 +98,7 @@ public enum HelmRepositories {
     public static func parse(_ yaml: String) throws -> [HelmRepository] {
         guard let root = try? YAMLCodec.parse(yaml) else { throw HelmRepositoryError.unreadable("repositories.yaml") }
         return (root["repositories"]?.arrayValue ?? []).compactMap { r in
-            guard let name = r["name"]?.stringValue, let url = r["url"]?.stringValue else { return nil }
+            guard let name = r["name"]?.stringValue, let url = r["url"]?.stringValue, HelmPathSafety.isSafeComponent(name) else { return nil }
             let hasCredentials = !(r["username"]?.stringValue ?? "").isEmpty || !(r["password"]?.stringValue ?? "").isEmpty
             return HelmRepository(name: name, url: url, hasCredentials: hasCredentials)
         }
@@ -104,40 +112,88 @@ public enum HelmRepositories {
 
     /// Parses a cached `<repo>-index.yaml` into the compact form. Large indexes (tens of MB) should be parsed once per file
     /// modification on a utility queue: use ``HelmIndexStore``.
+    ///
+    /// The file is read line by line and handed to the YAML parser one chart at a time, so peak memory is the compact result plus
+    /// one chart's versions, not a node tree of the whole file (composing a 19 MB index whole cost over 130 MB).
     public static func parseIndex(_ data: Data, repository: String, sourceSize: Int = 0, sourceModified: TimeInterval = 0) throws -> HelmRepositoryIndex {
-        guard let text = String(data: data, encoding: .utf8), let root = try? Yams.compose(yaml: text), case .mapping(let top) = root else {
-            throw HelmRepositoryError.notAnIndex
-        }
-        func scalar(_ node: Yams.Node?) -> String? { node?.scalar?.string }
-        func string(_ mapping: Yams.Node.Mapping, _ key: String) -> String? {
-            let value = mapping[key]
-            return value?.scalar?.string
-        }
-        guard case .mapping(let entries)? = top["entries"] else {
-            if top["apiVersion"] == nil { throw HelmRepositoryError.notAnIndex }
-            return HelmRepositoryIndex(repository: repository, generated: scalar(top["generated"]), charts: [], sourceSize: sourceSize, sourceModified: sourceModified)
-        }
+        var generated: String?
+        var sawAPIVersion = false, sawEntries = false, inEntries = false
+        var entryIndent: Int?
+        var chunk = ""
         var charts: [HelmChartSummary] = []
-        for (nameNode, versionsNode) in entries {
-            guard let name = nameNode.scalar?.string, case .sequence(let sequence) = versionsNode else { continue }
-            var versions: [HelmChartVersion] = []
-            var newest: Yams.Node.Mapping?
-            for node in sequence {
-                guard case .mapping(let m) = node, let version = string(m, "version") else { continue }
-                versions.append(HelmChartVersion(version: version, appVersion: string(m, "appVersion"), created: string(m, "created"),
-                                                 deprecated: string(m, "deprecated") == "true"))
-                if newest == nil { newest = m }          // helm writes versions newest first
+
+        func flush() {
+            defer { chunk = "" }
+            guard !chunk.isEmpty, let node = try? Yams.compose(yaml: chunk), case .mapping(let one) = node else { return }
+            for (nameNode, versionsNode) in one {
+                if let chart = chartSummary(name: nameNode.scalar?.string, versions: versionsNode, repository: repository) { charts.append(chart) }
             }
-            guard let first = newest, let latest = versions.first else { continue }
-            charts.append(HelmChartSummary(
-                repository: repository, name: name, latest: latest, versions: versions,
-                description: string(first, "description"), icon: string(first, "icon"), home: string(first, "home"),
-                keywords: { if case .sequence(let s)? = first["keywords"] { return s.compactMap { $0.scalar?.string } } else { return [] } }(),
-                maintainers: { if case .sequence(let s)? = first["maintainers"] { return s.compactMap { n -> String? in
-                    if case .mapping(let m) = n { return string(m, "name") } else { return nil } } } else { return [] } }()))
         }
+        func unquote(_ s: Substring) -> String {
+            var t = s.trimmingCharacters(in: .whitespaces)
+            if t.count >= 2, let f = t.first, f == "\"" || f == "'", t.last == f { t = String(t.dropFirst().dropLast()) }
+            return t
+        }
+
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            var start = 0
+            let count = raw.count
+            while start < count {
+                var end = start
+                while end < count, raw[end] != 0x0A { end += 1 }
+                var lineEnd = end
+                if lineEnd > start, raw[lineEnd - 1] == 0x0D { lineEnd -= 1 }
+                let line = String(decoding: UnsafeRawBufferPointer(rebasing: raw[start..<lineEnd]), as: UTF8.self)
+                start = end + 1
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed.hasPrefix("#") { if inEntries, !chunk.isEmpty { chunk += line + "\n" }; continue }
+                let indent = line.prefix { $0 == " " }.count
+                if indent == 0 {
+                    if inEntries { flush(); inEntries = false }
+                    if trimmed.hasPrefix("entries:") {
+                        sawEntries = true
+                        inEntries = trimmed == "entries:"
+                        entryIndent = nil
+                    } else if trimmed.hasPrefix("apiVersion:") {
+                        sawAPIVersion = true
+                    } else if trimmed.hasPrefix("generated:") {
+                        generated = unquote(trimmed.dropFirst("generated:".count))
+                    }
+                    continue
+                }
+                guard inEntries else { continue }
+                if entryIndent == nil { entryIndent = indent }
+                // A chart starts at the entries' own indentation with a key; list items (`- `) at that indentation belong to the
+                // chart above (the layout Go's YAML writer produces).
+                if indent == entryIndent, !trimmed.hasPrefix("- ") { flush() }
+                chunk += line + "\n"
+            }
+        }
+        if inEntries { flush() }
+        guard sawAPIVersion || sawEntries else { throw HelmRepositoryError.notAnIndex }
         charts.sort { $0.name < $1.name }
-        return HelmRepositoryIndex(repository: repository, generated: scalar(top["generated"]), charts: charts, sourceSize: sourceSize, sourceModified: sourceModified)
+        return HelmRepositoryIndex(repository: repository, generated: generated, charts: charts, sourceSize: sourceSize, sourceModified: sourceModified)
+    }
+
+    private static func chartSummary(name: String?, versions versionsNode: Yams.Node, repository: String) -> HelmChartSummary? {
+        func string(_ mapping: Yams.Node.Mapping, _ key: String) -> String? { mapping[key]?.scalar?.string }
+        guard let name, case .sequence(let sequence) = versionsNode else { return nil }
+        var versions: [HelmChartVersion] = []
+        var newest: Yams.Node.Mapping?
+        for node in sequence {
+            guard case .mapping(let m) = node, let version = string(m, "version") else { continue }
+            versions.append(HelmChartVersion(version: version, appVersion: string(m, "appVersion"), created: string(m, "created"),
+                                             deprecated: string(m, "deprecated") == "true"))
+            if newest == nil { newest = m }          // helm writes versions newest first
+        }
+        guard let first = newest, let latest = versions.first else { return nil }
+        let keywords: [String] = { if case .sequence(let s)? = first["keywords"] { return s.compactMap { $0.scalar?.string } } else { return [] } }()
+        let maintainers: [String] = {
+            guard case .sequence(let s)? = first["maintainers"] else { return [] }
+            return s.compactMap { n in if case .mapping(let m) = n { return string(m, "name") } else { return nil } }
+        }()
+        return HelmChartSummary(repository: repository, name: name, latest: latest, versions: versions, description: string(first, "description"),
+                                icon: string(first, "icon"), home: string(first, "home"), keywords: keywords, maintainers: maintainers)
     }
 
     /// Case-insensitive search over name, description and keywords; name matches first.
@@ -239,7 +295,7 @@ public struct HelmChartArchive: Sendable, Hashable {
     /// `chartName` is the top-level directory inside the archive.
     public static func read(tgz: Data) throws -> HelmChartArchive {
         let wanted: Set<String> = ["chart.yaml", "values.yaml", "values.schema.json", "readme.md"]
-        let entries = try TarReader.entries(inGzip: tgz, limit: 128 * 1024 * 1024) { path in
+        let entries = try TarReader.entries(inGzip: tgz, limit: 32 * 1024 * 1024) { path in
             let parts = path.split(separator: "/")
             return parts.count == 2 && wanted.contains(parts[1].lowercased())     // only the chart's own top-level files
         }
@@ -251,6 +307,7 @@ public struct HelmChartArchive: Sendable, Hashable {
 
     /// `helm install` caches the archive it pulled in the repository cache as `<chart>-<version>.tgz`.
     public static func cachedArchive(chart: String, version: String, cache: URL) -> URL? {
+        guard HelmPathSafety.isSafeComponent(chart), HelmPathSafety.isSafeComponent(version) else { return nil }
         let url = cache.appending(path: "\(chart)-\(version).tgz")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }

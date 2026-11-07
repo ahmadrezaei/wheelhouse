@@ -95,6 +95,8 @@ struct HelmLiveTests {
         }
         print("HELM-LIVE 200 releases: cold \(times[0]), warm \(times[1...])")
         #expect(count == 200)
+        let raw = try await h.client.listMetadata(kind: .secret, namespace: "wh-m6a-many", labelSelector: "owner=helm", limit: 1)
+        #expect(raw.items.first?.annotations["kubectl.kubernetes.io/last-applied-configuration"] == nil, "records are created, not applied")
         #expect(times.allSatisfy { $0 < .seconds(1) })
     }
 

@@ -50,6 +50,7 @@ struct ReleaseDetailView: View {
     let owner: GitOpsOwner?
     @State private var tab: ReleaseTab = .resources
     @State private var reveal = RevealState()
+    @Environment(AppLockController.self) private var lock: AppLockController?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,6 +73,11 @@ struct ReleaseDetailView: View {
         .task(id: model.name + model.namespace) {
             if model.summary == nil { await model.load() } else { await model.decodeShown() }
         }
+        .onChange(of: lock?.isLocked ?? false) { _, locked in
+            if locked { reveal.revealed = false; model.scrub() } else { Task { await model.decodeShown() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ChartRoomMemory.didScrub)) { _ in reveal.revealed = false; model.scrub() }
+        .onReceive(NotificationCenter.default.publisher(for: ChartRoomMemory.didTrim)) { _ in model.trimTransient() }
         .accessibilityIdentifier("chartroom-release-detail")
     }
 
@@ -215,7 +221,7 @@ private struct ManifestTab: View {
     enum Source: String, CaseIterable, Identifiable { case release = "Release", diff = "Diff against live"; var id: String { rawValue } }
 
     var body: some View {
-        let objects = HelmManifest.objects(in: model.release?.manifest ?? "")
+        let objects = model.manifestObjects
         let current = objects.first { $0.id == selected } ?? objects.first
         HSplitView {
             List(objects, selection: $selected) { o in
@@ -271,7 +277,7 @@ private struct ResourcesTab: View {
     @Bindable var model: ReleaseDetailModel
 
     var body: some View {
-        let objects = HelmManifest.objects(in: model.release?.manifest ?? "")
+        let objects = model.manifestObjects
         VStack(spacing: 0) {
             HStack {
                 switch model.driftState {
@@ -367,7 +373,7 @@ private struct HooksTab: View {
                 .frame(minHeight: 120)
                 if let hook = hooks.first(where: { $0.id == selected }) {
                     VStack(alignment: .trailing, spacing: 0) {
-                        if hook.kind == "Secret" { RevealButton(reveal: $reveal).padding(.horizontal, Spacing.l).padding(.top, Spacing.s) }
+                        if hook.kind == "Secret" || hook.displayManifest(revealed: false) != hook.manifest { RevealButton(reveal: $reveal).padding(.horizontal, Spacing.l).padding(.top, Spacing.s) }
                         CodeView(hookYAML(hook), language: .yaml).padding(Spacing.l)
                     }
                 } else {
@@ -377,10 +383,8 @@ private struct HooksTab: View {
         }
     }
 
-    private func hookYAML(_ hook: HelmRelease.Hook) -> String {
-        guard let object = HelmManifest.objects(in: hook.manifest).first else { return hook.manifest }
-        return object.displayYAML(revealed: reveal.revealed)
-    }
+    /// Never the raw manifest of a Secret hook before the user reveals it.
+    private func hookYAML(_ hook: HelmRelease.Hook) -> String { hook.displayManifest(revealed: reveal.revealed) }
 }
 
 // MARK: - History and compare
@@ -411,14 +415,14 @@ private struct HistoryTab: View {
             Table(history, selection: $selection) {
                 TableColumn("Rev") { r in Text("\(r.revision)").monospacedDigit().task { await model.ensureRevision(r) } }.width(44)
                 TableColumn("Status") { r in HelmStatusPill(status: r.status) }.width(min: 110, ideal: 130)
-                TableColumn("Chart") { r in Text(model.revisions[r.revision].map { "\($0.chart.metadata.name)-\($0.chart.metadata.version)" } ?? "—").foregroundStyle(.secondary) }
+                TableColumn("Chart") { r in Text(model.revisions[r.revision]?.chart ?? "—").foregroundStyle(.secondary) }
                     .width(min: 120, ideal: 160)
-                TableColumn("App version") { r in Text(model.revisions[r.revision]?.chart.metadata.appVersion ?? "—").foregroundStyle(.secondary) }.width(min: 80, ideal: 100)
+                TableColumn("App version") { r in Text(model.revisions[r.revision].flatMap { $0.appVersion.isEmpty ? nil : $0.appVersion } ?? "—").foregroundStyle(.secondary) }.width(min: 80, ideal: 100)
                 TableColumn("Updated") { r in
-                    Text((model.revisions[r.revision]?.info.lastDeployed ?? r.modifiedAt).map { $0.formatted(.dateTime.month().day().hour().minute()) } ?? "—")
+                    Text((model.revisions[r.revision]?.updated ?? r.modifiedAt).map { $0.formatted(.dateTime.month().day().hour().minute()) } ?? "—")
                         .foregroundStyle(.secondary)
                 }.width(min: 100, ideal: 120)
-                TableColumn("Description") { r in Text(model.revisions[r.revision]?.info.description ?? "").foregroundStyle(.secondary) }.width(min: 120, ideal: 200)
+                TableColumn("Description") { r in Text(model.revisions[r.revision]?.description ?? "").foregroundStyle(.secondary) }.width(min: 120, ideal: 200)
             }
         }
         .sheet(isPresented: $showCompare) { ComparisonSheet(model: model) }

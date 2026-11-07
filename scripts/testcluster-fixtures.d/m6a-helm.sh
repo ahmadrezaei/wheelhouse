@@ -22,6 +22,10 @@ M6A_CM_NS=wh-m6a-cm
 M6A_MANY_NS=wh-m6a-many
 M6A_RBAC_NS=wh-m6a-rbac
 
+# helm must never touch the user's real configuration, cache or data: everything it writes goes under .testcluster/helm.
+export HELM_CONFIG_HOME="$REPO/.testcluster/helm/config" HELM_CACHE_HOME="$REPO/.testcluster/helm/cache" HELM_DATA_HOME="$REPO/.testcluster/helm/data"
+mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+
 m6a_kc() { kubectl --kubeconfig "$KC" --context "$CTX" "$@"; }
 m6a_helm() { helm --kubeconfig "$KC" --kube-context "$CTX" "$@"; }
 
@@ -31,6 +35,7 @@ m6a_clean() {
     m6a_kc delete namespace "$ns" --ignore-not-found --wait=true
   done
   rm -f "$REPO/.testcluster/m6a-nobody.token"
+  rm -r -f "$REPO/.testcluster/helm"
 }
 
 m6a_chart() {   # m6a_chart <dir> <version> <replicas> <breakService>
@@ -172,7 +177,9 @@ for i in range(1, 201):
     items.append(manifest(f"r{i:03d}", many, 1, "deployed", payload))
 json.dump({"apiVersion": "v1", "kind": "List", "items": items}, open(os.path.join(work, "list.json"), "w"))
 PY
-  m6a_kc apply -f "$work/list.json" >/dev/null
+  # `create`, not `apply`: client-side apply would copy the whole payload into a last-applied-configuration annotation.
+  m6a_kc delete -f "$work/list.json" --ignore-not-found >/dev/null
+  m6a_kc create -f "$work/list.json" >/dev/null
 
   echo "== wh-m6a-rbac: a subject that may not list anything"
   m6a_kc create serviceaccount wh-m6a-nobody -n "$M6A_RBAC_NS" --dry-run=client -o yaml | m6a_kc apply -f -

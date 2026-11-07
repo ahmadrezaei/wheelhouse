@@ -34,7 +34,7 @@ public enum HelmManifest {
 
     private static func object(_ value: JSONValue, yaml: String, source: String?) -> HelmManifestObject? {
         guard let kind = value["kind"]?.stringValue, let apiVersion = value["apiVersion"]?.stringValue,
-              let name = value.value(at: "metadata.name")?.stringValue else { return nil }
+              let name = value.value(at: "metadata.name")?.stringValue ?? value.value(at: "metadata.generateName")?.stringValue else { return nil }
         return HelmManifestObject(apiVersion: apiVersion, kind: kind, name: name, namespace: value.value(at: "metadata.namespace")?.stringValue,
                                   source: source, yaml: yaml, value: value)
     }

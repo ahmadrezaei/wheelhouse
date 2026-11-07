@@ -11,24 +11,29 @@
   },
   "list200Releases": {
     "budgetSec": 1.0,
-    "liveColdSec": 0.036,
-    "liveWarmSec": [0.062, 0.020],
+    "liveColdSec": 0.012,
+    "liveWarmSec": [
+      0.005,
+      0.006
+    ],
     "requests": 1,
     "payloadsRead": 0
   },
   "decodeCache": {
     "byteLimit": 33554432,
-    "costUnit": "decompressed release JSON bytes",
-    "trimmedOn": "DecodedReleaseCache.shared.removeAll() (memory-pressure warning, wired by M1b)"
+    "costUnit": "4 x decompressed release JSON bytes (a decoded tree takes several times the JSON size)",
+    "trimmedOn": "DecodedReleaseCache.shared.removeAll() (memory-pressure warning, wired by M1b)",
+    "costMultiplier": 4
   },
   "indexParse": {
-    "note": "Yams compose of a synthetic 19 MB repository index, debug build, once per file modification, off the main actor",
+    "note": "Synthetic 19 MB repository index, 1500 charts x 40 versions, debug build. Read line by line and parsed one chart at a time; composing the whole file peaked +131 MB.",
     "bytes": 19104714,
     "charts": 1500,
-    "debugBuildSec": 2.66
+    "peakRSSGrowthMB": 2.5,
+    "peakRSSGrowthWholeFileComposeMB": 131
   },
   "kitSwiftTest": {
-    "tests": 498,
+    "tests": 506,
     "suites": 85
   }
 }

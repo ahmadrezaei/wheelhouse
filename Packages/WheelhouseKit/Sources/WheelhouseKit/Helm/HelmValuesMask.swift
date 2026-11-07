@@ -18,7 +18,8 @@ public enum HelmValuesMask {
         switch value {
         case .object(let object):
             var out: [String: JSONValue] = [:]
-            for (key, child) in object { out[key] = mask(child, inherited: inherited || isSensitiveKey(key)) }
+            let sensitiveName = hasSensitiveName(object)
+            for (key, child) in object { out[key] = mask(child, inherited: inherited || isSensitiveKey(key) || (sensitiveName && key == "value")) }
             return .object(out)
         case .array(let items):
             return .array(items.map { mask($0, inherited: inherited) })
@@ -29,6 +30,12 @@ public enum HelmValuesMask {
         default:
             return value
         }
+    }
+
+    /// An env-style entry (`{name: DB_PASSWORD, value: …}`): the value is sensitive when its sibling name is.
+    static func hasSensitiveName(_ object: [String: JSONValue]) -> Bool {
+        guard let name = object["name"]?.stringValue else { return false }
+        return isSensitiveKey(name)
     }
 
     /// True when masking changes anything (decides whether the "Reveal" control is shown).
