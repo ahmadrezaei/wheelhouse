@@ -1,0 +1,9 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Wheelhouse for Mac</title>
+        <link>https://ahmadrezaei.github.io/wheelhouse/mac/</link>
+        <description>Updates for Wheelhouse for Mac. scripts/release-mac.sh regenerates this file with Sparkle's generate_appcast.</description>
+        <language>en</language>
+    </channel>
+</rss>

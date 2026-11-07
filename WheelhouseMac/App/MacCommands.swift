@@ -4,6 +4,6 @@ import SwiftUI
 /// ⌘0 Fleet, ⌘1–9 clusters, ⌘F, ⇧⌘N, ⌘N, and every feature's `commands`.
 struct MacCommands: Commands {
     var body: some Commands {
-        CommandGroup(after: .appInfo) {}
+        CommandGroup(after: .appInfo) { CheckForUpdatesCommand() }
     }
 }

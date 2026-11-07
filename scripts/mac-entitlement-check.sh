@@ -107,6 +107,45 @@ case "$SIGINFO" in
   *) if [ "$CONFIG" = Debug ] && grep -q 'temporary-exception' "$ENT" 2>/dev/null; then ok "hardened runtime absent: Xcode test-host signing (Debug only)"; else fail "hardened runtime flag missing"; fi ;;
 esac
 
+# ---- Distribution only (M2): Developer ID signature, profile, runtime on every Mach-O, no Sparkle XPC services, bundled helm
+if [ "$CONFIG" = Distribution ]; then
+  [ -n "$(pb SUPublicEDKey)" ] && ok "Sparkle public key set" || fail "Distribution must have SUPublicEDKey"
+  [ "$(pb SUShowReleaseNotes)" = "false" ] && ok "SUShowReleaseNotes is false" || fail "SUShowReleaseNotes must be false"
+  case "$(codesign -dvv "$APP" 2>&1 || true)" in
+    *"Authority=Developer ID Application"*"($TEAM)"*) ok "signed with Developer ID Application ($TEAM)" ;;
+    *) fail "the app is not signed with a Developer ID Application certificate of team $TEAM" ;;
+  esac
+  XPC="$(find "$APP" -name '*.xpc' 2>/dev/null || true)"
+  [ -z "$XPC" ] && ok "no XPC services embedded (Sparkle's are stripped)" || fail "embedded XPC services: $XPC"
+  [ -x "$APP/Contents/Helpers/helm" ] && ok "bundled helm present" || fail "Contents/Helpers/helm is missing"
+  PROFILE="$APP/Contents/embedded.provisionprofile"
+  if [ -f "$PROFILE" ]; then
+    python3 -I - "$PROFILE" "$TEAM.$WANT_BID" <<'PY' || FAIL=1
+import sys, subprocess, plistlib
+path, appid = sys.argv[1:3]
+raw = subprocess.run(["security", "cms", "-D", "-i", path], capture_output=True).stdout
+p = plistlib.loads(raw)
+bad = []
+if "ProvisionedDevices" in p: bad.append("the profile is a development profile (it lists devices)")
+if p.get("Entitlements", {}).get("com.apple.application-identifier") != appid: bad.append("profile application-identifier is %s" % p.get("Entitlements", {}).get("com.apple.application-identifier"))
+if p.get("Entitlements", {}).get("com.apple.security.get-task-allow"): bad.append("profile allows get-task-allow")
+if bad:
+    for b in bad: print("FAIL: " + b, file=sys.stderr)
+    sys.exit(1)
+print("ok:   embedded provisioning profile is a Developer ID profile for " + appid)
+PY
+  else
+    fail "embedded.provisionprofile is missing (keychain-access-groups needs a profile)"
+  fi
+  while IFS= read -r f; do
+    info="$(codesign -dvv "$f" 2>&1 || true)"
+    case "$info" in *"flags="*"(runtime"*) ;; *) fail "no hardened runtime: ${f#$APP/}" ;; esac
+    case "$info" in *"Timestamp="*) ;; *) fail "no secure timestamp: ${f#$APP/}" ;; esac
+    case "$info" in *"Authority=Developer ID Application"*"($TEAM)"*) ;; *) fail "not signed with Developer ID: ${f#$APP/}" ;; esac
+  done < <(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "^Mach-O" && printf "%s\n" "$1"' _ {} \;)
+  ok "every Mach-O was checked for runtime, timestamp and Developer ID signature"
+fi
+
 # ---- test-hook symbols (compiled only under WH_TEST_HOOKS, which only Debug sets)
 HOOKS=0
 while IFS= read -r f; do
