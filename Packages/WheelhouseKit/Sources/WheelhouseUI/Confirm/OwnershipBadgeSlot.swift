@@ -4,7 +4,7 @@ import WheelhouseKit
 private struct GitOpsOwnerKey: EnvironmentKey { static let defaultValue: GitOpsOwner? = nil }
 
 public extension EnvironmentValues {
-    /// The GitOps owner of the object a screen shows. nil until M9 injects the result of its detector (`GitOpsOwnership`).
+    /// The GitOps owner of the object a screen shows. nil unless a host injects a detector (`gitOpsOwnership`) and a screen applies `resolvingGitOpsOwner`.
     var gitOpsOwner: GitOpsOwner? {
         get { self[GitOpsOwnerKey.self] }
         set { self[GitOpsOwnerKey.self] = newValue }
@@ -12,7 +12,7 @@ public extension EnvironmentValues {
 }
 
 /// The ownership badge slot: the editor review sheet and the Chart Room release row place one. Empty (zero size) while no owner is
-/// known, which is always true until M9 provides the real detector.
+/// known (always on iOS, which keeps `NoOwnership`).
 public struct OwnershipBadgeSlot: View {
     @Environment(\.gitOpsOwner) private var owner
 

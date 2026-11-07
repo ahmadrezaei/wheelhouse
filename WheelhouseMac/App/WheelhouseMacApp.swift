@@ -22,6 +22,7 @@ struct WheelhouseMacApp: App {
         WindowGroup("Wheelhouse", id: "workspace") {
             MacSceneRoot()
                 .environment(env)
+                .environment(\.gitOpsOwnership, GitOpsOwnershipDetector())   // M9: fills the ownership badge slots
                 .task { _ = EnergyMonitor.shared }   // follow Low Power Mode and the thermal state
         }
         .commands { MacCommands() }
