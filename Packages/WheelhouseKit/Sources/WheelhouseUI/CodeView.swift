@@ -114,7 +114,7 @@ public struct CodeView: View {
             }
             .padding(12)
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
+        .background(Color.whCardBackground, in: RoundedRectangle(cornerRadius: Radius.code, style: .continuous))
         .scrollEdgeEffectStyle(.hard, for: .all)
     }
 }

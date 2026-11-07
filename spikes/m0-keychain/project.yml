@@ -1,0 +1,32 @@
+# Standalone spike. NOT part of the main project.yml. Generate with:  xcodegen generate --spec project.yml
+name: M0Probe
+options:
+  deploymentTarget:
+    macOS: "27.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: JCZY58QP3L
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  m0probe:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mac.m0probe
+        PRODUCT_NAME: m0probe
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: NO
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+    entitlements:
+      path: m0probe.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.ahmadrezaei.wheelhouse.shared

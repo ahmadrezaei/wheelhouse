@@ -1,0 +1,21 @@
+{
+  "milestone": "M0",
+  "date": "2026-11-06",
+  "note": "No app exists yet. The only metric is the WheelhouseKit swift test wall time on the macOS host (design/mac ARCHITECTURE-MAC.md 12.3.5 and 15.1 M0).",
+  "environment": {
+    "machine": "MacBook Pro (Apple M4 Pro)",
+    "macOS": "27.0.1",
+    "xcode": "27.1",
+    "swift": "6.4",
+    "command": "cd Packages/WheelhouseKit && swift test",
+    "state": "warm build, 3 consecutive runs"
+  },
+  "kitSwiftTest": {
+    "tests": 376,
+    "suites": 68,
+    "testRunSeconds": [12.860, 12.908, 12.750],
+    "testRunSecondsMedian": 12.860,
+    "wallSeconds": [14.04, 13.88, 13.74],
+    "wallSecondsMedian": 13.88
+  }
+}

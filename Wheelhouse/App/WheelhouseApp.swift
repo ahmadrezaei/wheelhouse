@@ -37,6 +37,8 @@ struct WheelhouseApp: App {
                 try? PendingKubeconfigStore().save(text: text, name: url.lastPathComponent)
             }
         }
+        // Mac keychain-sync spike: `-WHKeychainProbe write|read|delete` (one dedicated probe item; see spikes/m0-keychain).
+        DebugKeychainProbe.runIfRequested()
         #endif
     }
 

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import WheelhouseKit
 
 /// Design tokens from DESIGN.md §8.1–8.3. This file is the single source of truth for colours;
@@ -33,7 +32,7 @@ public enum Palette {
     public static let chartCPU = tint
     public static let chartMemory = Color(light: 0xAF52DE, dark: 0xBF5AF2)
     public static let chartRequests = Color(light: 0x5856D6, dark: 0x5E5CE6)
-    public static let chartCapacity = Color(uiColor: .separator)
+    public static let chartCapacity = Color.whSeparator
 
     // Diff / log / terminal
     public static let diffAdd = Color(light: 0x34C759, dark: 0x30D158)
@@ -45,9 +44,9 @@ public enum Palette {
     public static let terminalPrompt = Color(hex: 0x5EEAD4)
 
     // Surfaces (system semantic colours)
-    public static let groupedBackground = Color(uiColor: .systemGroupedBackground)
-    public static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
-    public static let fieldFill = Color(uiColor: .quaternarySystemFill)
+    public static let groupedBackground = Color.whGroupedBackground
+    public static let cardBackground = Color.whCardBackground
+    public static let fieldFill = Color.whQuaternaryFill
 }
 
 public enum Spacing {
@@ -81,13 +80,6 @@ public extension Font {
 extension Color {
     init(hex: UInt32) {
         self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255, opacity: 1)
-    }
-
-    init(light: UInt32, dark: UInt32) {
-        self.init(uiColor: UIColor { traits in
-            let hex = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        })
     }
 }
 

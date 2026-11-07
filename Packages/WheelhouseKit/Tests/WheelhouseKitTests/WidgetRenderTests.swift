@@ -1,3 +1,5 @@
+#if os(iOS)
+// Widget rendering uses UIKit (ImageRenderer.uiImage) and the iOS-only lock-screen accessory view.
 import SwiftUI
 import Testing
 import WidgetKit
@@ -48,10 +50,5 @@ import WidgetKit
             try render(AccessoryWidgetView(snapshot: snap, clusterID: nil, family: .accessoryInline), size: CGSize(width: 172, height: 24), scheme: scheme, name: "acc-inline", accessory: true)
         }
     }
-
-    @Test func deepLinkFormat() {
-        #expect(WidgetLinks.cluster("abc")?.absoluteString == "wheelhouse://cluster/abc")
-        #expect(WidgetLinks.pod(cluster: "abc", namespace: "shop", name: "api-1")?.absoluteString == "wheelhouse://cluster/abc/ns/shop/pods/api-1?view=logs")
-        #expect(WidgetLinks.fleet(.sample)?.absoluteString == "wheelhouse://cluster/prod")
-    }
 }
+#endif

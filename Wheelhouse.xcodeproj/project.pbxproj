@@ -15,6 +15,7 @@
 		0E8B44253A6E523A8791F5FB /* LogsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6588A384B938BCFED31E6199 /* LogsModel.swift */; };
 		0EA5FEF8EFCC5BD0F1D9573A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 938E86E9E6678A5A33F1ED62 /* Assets.xcassets */; };
 		0F948012B847D1953EE639DC /* ScreenKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEE6C98949A283A36151700 /* ScreenKey.swift */; };
+		15826E13273EE73D277F3B64 /* DebugKeychainProbe+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */; };
 		1B6CC29FBFE79FAB6D1CA590 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
 		1C401E5DF9EB73F1DDBAF6E9 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6B3291FEF6F8D11DF43494 /* SearchView.swift */; };
 		1E7AB3F2B0745F4C49EE7F9D /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
@@ -146,6 +147,7 @@
 		6588A384B938BCFED31E6199 /* LogsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsModel.swift; sourceTree = "<group>"; };
 		6BFFCE399F053CC16E701256 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6CA17FF380E877F13C356337 /* CodeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditor.swift; sourceTree = "<group>"; };
+		7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DebugKeychainProbe+iOS.swift"; sourceTree = "<group>"; };
 		80B5A977728C271B46021ACC /* DetailParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailParts.swift; sourceTree = "<group>"; };
 		81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateFromYAMLView.swift; sourceTree = "<group>"; };
 		83D1FE4CCBC939EE48C1B4A0 /* ReviewChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewChangesView.swift; sourceTree = "<group>"; };
@@ -315,6 +317,7 @@
 			children = (
 				25DBC4EC930E2924210B3E63 /* AppLockController.swift */,
 				18E629946671A1519BEFD10D /* AppRouter.swift */,
+				7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */,
 				F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */,
 				53995759C6782852A5AF1FCC /* LockScreenView.swift */,
 				9FA95DFC923E12C23D740A11 /* LockWindowManager.swift */,
@@ -636,6 +639,7 @@
 				D9E226ACD67DB36AB8481A31 /* ConnectionTestCard.swift in Sources */,
 				80A29524801EBB49F39A513D /* CreateFromYAMLView.swift in Sources */,
 				50C2FDBFC0B28E75CAB2F09A /* DashboardComponents.swift in Sources */,
+				15826E13273EE73D277F3B64 /* DebugKeychainProbe+iOS.swift in Sources */,
 				D095FD7AD0CEBB505C013033 /* DeepLink+Routes.swift in Sources */,
 				2B102DF78C542F8B89AC8F6F /* DetailKinds.swift in Sources */,
 				6FFDD489DCD28B14B0E855B3 /* DetailParts.swift in Sources */,

@@ -129,7 +129,7 @@ public struct ConfirmSheet: View {
                 if requiresTyping {
                     Section {
                         TextField("Type \(request.confirmationText)", text: $typed)
-                            .font(.whCode).textInputAutocapitalization(.never).autocorrectionDisabled().focused($fieldFocused)
+                            .font(.whCode).whNoAutocapitalization().autocorrectionDisabled().focused($fieldFocused)
                             .overlay(alignment: .trailing) {
                                 if typingOK { Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.healthy) }
                             }
@@ -145,7 +145,7 @@ public struct ConfirmSheet: View {
                 }
             }
             .navigationTitle(request.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isRunning) }
                 ToolbarItem(placement: .confirmationAction) {

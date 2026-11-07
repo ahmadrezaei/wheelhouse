@@ -414,8 +414,9 @@ public struct NodeStatusWidgetView: View {
     }
 }
 
-// MARK: - Lock Screen accessories
+// MARK: - Lock Screen accessories (iOS only)
 
+#if os(iOS)
 public struct AccessoryWidgetView: View {
     let snapshot: FleetSnapshot?
     let clusterID: ClusterID?
@@ -471,3 +472,4 @@ public struct AccessoryWidgetView: View {
         }
     }
 }
+#endif

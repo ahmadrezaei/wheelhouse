@@ -5,7 +5,7 @@ Design source of truth: `design/DESIGN.md` (§2 navigation, §5 states, §7 safe
 ## Layout
 ```
 project.yml                     XcodeGen spec → Wheelhouse.xcodeproj (run `xcodegen generate` after adding files/targets)
-Packages/WheelhouseKit/         local Swift package (iOS 27, Swift 6)
+Packages/WheelhouseKit/         local Swift package (iOS 27 and macOS 27, Swift 6)
   Sources/WheelhouseKit/        core, NO UI: Models Client Kubeconfig Credentials Store Health Metrics Demo WidgetData Preferences
   Sources/WheelhouseUI/         design system (SwiftUI + Charts), depends on WheelhouseKit
   Tests/WheelhouseKitTests/     Swift Testing unit tests
@@ -23,6 +23,15 @@ xcodegen generate
 xcodebuild -project Wheelhouse.xcodeproj -scheme Wheelhouse -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath .build/dd-main build   # also: 'iPad Pro 13-inch (M5)'
 xcodebuild -project Wheelhouse.xcodeproj -scheme Wheelhouse -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath .build/dd-main test
 ```
+### Building and testing on macOS
+`WheelhouseKit` and `WheelhouseUI` build for macOS 27 as well as iOS 27, so the Kit suite runs on the Mac host, with no simulator (and without its `~/Documents` hang):
+```
+cd Packages/WheelhouseKit
+swift build            # Kit and UI for the host Mac (arm64, macOS 27)
+swift test             # whole Kit suite; about 13 s of test time, plus the first build
+```
+`WidgetRenderTests` (UIKit `ImageRenderer.uiImage`, lock-screen accessory views) is compiled for iOS only, so it runs only in the simulator `xcodebuild test` above. AppKit/UIKit differences in WheelhouseUI go through `Sources/WheelhouseUI/Platform/` (modifiers such as `whInlineNavigationTitle()`, `Pasteboard`, `Haptics`, `Color.whCardBackground`); do not add `#if os(...)` at call sites. Vendored SwiftTerm (plugin-free) lives in `Packages/Vendor/SwiftTerm` (`swift build` / `swift test` there; refresh with `scripts/vendor-swiftterm.sh`, verify with `--check`). The macOS app itself arrives in milestone M1a; see `design/mac/ARCHITECTURE-MAC.md`. Perf baselines: `perf/baselines/<milestone>.json`.
+
 **Run `test` with a derived-data path outside `~/Documents`** (e.g. `-derivedDataPath /tmp/wh-dd-test`): the simulator test host hangs forever on `opendir` of bundles under `~/Documents` (macOS privacy prompt it cannot show); `build` is unaffected. Use your own `-derivedDataPath` (e.g. `.build/dd-<feature>`) when building in parallel. Never point tools at `~/.kube`; use Demo mode or the dedicated test cluster.
 
 ## Kit core APIs
