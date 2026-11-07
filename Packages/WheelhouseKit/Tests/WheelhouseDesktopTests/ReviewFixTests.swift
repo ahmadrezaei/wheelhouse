@@ -207,6 +207,25 @@ struct FirstAddSyncTests {
         #expect(rec.lastSync == false)
     }
 
+    @Test func aSecretPersistedSynchronizableBeforeTheFixIsDemotedOnTheNextSave() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let home = try s.home()
+        let rec = SecretsRecording()
+        try rec.save(ClusterSecrets(token: "t"), clusterID: "old-loop", synchronizable: true)
+        let mirror = InMemoryMetadataMirror()
+        let dir = try s.dir("m")
+        // A previous build persisted a loopback cluster with sync on.
+        try ClusterMetadataStore(directory: dir, mirror: mirror).save([ClusterConfig(id: "old-loop", name: "l", server: URL(string: "https://127.0.0.1:1")!, iCloudSync: true)])
+        let state = MooringsState(overrides: DiscoveredClusterStore(fileURL: s.root.appending(path: "o.json")),
+                                  preferences: MooringsPreferencesStore(fileURL: s.root.appending(path: "p.json")), gate: openGate(home: home))
+        let metadata = CompositeMetadataStore(keychain: ClusterMetadataStore(directory: dir, mirror: mirror), credentials: rec, state: state,
+                                              settings: MacClusterSettingsStore(fileURL: s.root.appending(path: "cs.json")), gate: openGate(home: home))
+        let loaded = metadata.load()
+        #expect(loaded.first?.iCloudSync == false)
+        try metadata.save(loaded)
+        #expect(rec.lastSync == false)
+    }
+
     @Test func turningSyncOffMovesTheSecretOffICloud() throws {
         let s = try Scratch(); defer { s.cleanup() }
         let home = try s.home()

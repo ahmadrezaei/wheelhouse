@@ -42,6 +42,8 @@ public final class CompositeMetadataStore: ClusterMetadataStoring {
         resolveDuplicates(against: keychainClusters)
         let discovered = state.listedConfigs()
         lastLoaded.withLock { $0 = Set(discovered.map(\.id)) }
+        // Remember what was PERSISTED before clearing the flag, so the next save demotes a secret that was stored synchronizable.
+        keychainClusters.forEach { _ = servers.recordSync($0.iCloudSync, for: $0.id) }
         let sanitized = keychainClusters.map(sanitizedForSync)
         sanitized.forEach { servers.set($0.server, for: $0.id) }
         return sanitized + discovered
