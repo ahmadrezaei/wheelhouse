@@ -46,16 +46,19 @@
 		27CC93247310EDAD59ADCE1C /* WheelhouseMacWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A9511A09D09C905B4F324992 /* WheelhouseMacWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		28D9C061E9D0C5868BE49330 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */; };
 		290C9E131B63ED487B8F0A96 /* WorkspaceCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */; };
+		2A30148AB82606A68013C59C /* TidesConfirmations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194E572C05497A3D3C488831 /* TidesConfirmations.swift */; };
 		2B102DF78C542F8B89AC8F6F /* DetailKinds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE171009E69D91B7CBAC3D /* DetailKinds.swift */; };
 		2B8D42B3DB0C6DBEC42AAC00 /* CrowsNestFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC32D39307D690CC2810013B /* CrowsNestFeature.swift */; };
 		2D43CB8B7329A9A41FE69233 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E049D4508D051D4AE57ED1C0 /* SettingsView.swift */; };
 		2F27E477BC1227EA720AA76D /* WheelhouseApp+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6C3F4910860773388AC1D0 /* WheelhouseApp+iOS.swift */; };
 		304429046214F8835CE2EAC1 /* WheelhouseWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9BF4AF72C85F0C2170B79B7D /* WheelhouseWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		31B747FDCD700E985490094C /* TidesRenderSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */; };
 		31EA0CE5A016D14F9AC48962 /* LockWindowManager+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 154E3E63CDDD3FE3693DD62C /* LockWindowManager+iOS.swift */; };
 		334A9F94697497E41BB8BB12 /* BeaconFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEF1BCBF8FB09388C107679 /* BeaconFeature.swift */; };
 		33BC49BD939F1E1D5AE77B09 /* AlertsInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E75C16150CB0AB7FF57D50 /* AlertsInboxView.swift */; };
 		359760C380DF57A340370A9B /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6B3291FEF6F8D11DF43494 /* SearchView.swift */; };
 		360ADE1BA8A4DBB767950EC1 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */; };
+		36714B263349F5C3A45B66C5 /* TidesOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92939BAB81753820027D51F /* TidesOverviewView.swift */; };
 		3A30743D1B8FB2AC3D4A7326 /* AboutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */; };
 		3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CDDBFC44EFBFF404C6330B /* FleetDashboardView.swift */; };
 		3CC774EDEF69536BDF54621B /* TidesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 922C20DFD7456D7C813FEC15 /* TidesFeature.swift */; };
@@ -118,6 +121,7 @@
 		81C9899DE6BF46A7B69F4789 /* FleetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E84D8194B6C8616AA8C1C161 /* FleetModel.swift */; };
 		843946699357D494F9F59BEE /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880B90623F4A1A1A37B3D59F /* SessionsView.swift */; };
 		852158A06D2CDAAB2C8FC351 /* ClustersPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2713DE052490928090B44C /* ClustersPane.swift */; };
+		85D6FB7ECC1E5A8DD98FFE18 /* TidesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97456D4FE7478655C3B21B3D /* TidesModel.swift */; };
 		873844BC564255BE7D82185A /* SurveyPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D9A6F860BFB18BDE3F3CCDB /* SurveyPane.swift */; };
 		876F43FAB6291060D2827625 /* RailFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA7288578A361AC0DBD52E6 /* RailFeature.swift */; };
 		88D9FCEB45A99988F4F9A37C /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = CF20029430BC08857F7AC4D9 /* WheelhouseUI */; };
@@ -190,6 +194,7 @@
 		D12770996EFD81CB8FD25700 /* YAMLEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */; };
 		D26B5EDEC0A30B265148E5FB /* ListSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB6DDDD598E77EF51206330 /* ListSupport.swift */; };
 		D488326ABD8D594B4125814B /* NotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1409C7CDCD5574F2BF1528 /* NotificationCoordinator.swift */; };
+		D6B9FB6B896CB15549ABC423 /* TidesSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */; };
 		D93BFC6950ACF2C590D4DA8C /* ClusterDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4271F087BBF30B039F71536D /* ClusterDashModel.swift */; };
 		D9E226ACD67DB36AB8481A31 /* ConnectionTestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */; };
 		DB4B9B5939F1F8087389A62F /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F908929F7BCCEE3FA17EF43C /* MacCommands.swift */; };
@@ -199,6 +204,7 @@
 		E01E0309129F97B081507F13 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
 		E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D69759772CB358A9BC5703 /* ActionSheets.swift */; };
 		E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
+		E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60529108D22876F77D9BC34D /* TidesTests.swift */; };
 		E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A46A647721E3C56CE978924 /* MooringsFeature.swift */; };
 		E60A0441AE08B68A5C6FB5ED /* UpdatesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC31A097551011978189FEA /* UpdatesPane.swift */; };
 		E76FADA898F4573A68220E9C /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2491B10D0A4DEEFA08E0CA5E /* WheelhouseKit */; };
@@ -208,8 +214,10 @@
 		EF8949D5AE9F071070FE7A0B /* WheelhouseWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = E807AD74708CC25D66B2E59A /* WheelhouseWidgets.swift */; };
 		F149D7E29ACD770A06B462D4 /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3C546C16695AD9E2351D6E /* Providers.swift */; };
 		F327DAF2B9231751C6E8F821 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
+		F32905F453B917170A2B69C8 /* TidesDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */; };
 		F32E6B11981AE4A63EA2A41C /* RouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */; };
 		F34B2E5215C3323CF049BEBB /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
+		F34F6FE5289CDB77BEE6D383 /* TidesVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2102449582D5D268C8A8D09 /* TidesVisibility.swift */; };
 		F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BD4897653F124947C8290 /* NotificationsPane.swift */; };
 		F59DE1671C8961150DB3ADF2 /* WheelhouseShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEE7C5F2FC25097D61E73CCB /* WheelhouseShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F9601CA5253CC65B09CF48CE /* MacSceneRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BD22253A08400AB21572FA /* MacSceneRoot.swift */; };
@@ -330,6 +338,7 @@
 		15B01F58EFE269038200722A /* MacImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportCoordinator.swift; sourceTree = "<group>"; };
 		15B66C59008AFD229769E23F /* DashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardComponents.swift; sourceTree = "<group>"; };
 		18E629946671A1519BEFD10D /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		194E572C05497A3D3C488831 /* TidesConfirmations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesConfirmations.swift; sourceTree = "<group>"; };
 		1D0DD6C5827213D05E2799CF /* SwiftTermSurface+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftTermSurface+macOS.swift"; sourceTree = "<group>"; };
 		1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallFeature.swift; sourceTree = "<group>"; };
 		1ED31BF9841DCBEB1A867B06 /* BasicTerminalSurface+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BasicTerminalSurface+iOS.swift"; sourceTree = "<group>"; };
@@ -350,6 +359,7 @@
 		3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		3AD102426EA9E7E598EAE10C /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
+		3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesDetailView.swift; sourceTree = "<group>"; };
 		4271F087BBF30B039F71536D /* ClusterDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashModel.swift; sourceTree = "<group>"; };
 		43BD22253A08400AB21572FA /* MacSceneRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSceneRoot.swift; sourceTree = "<group>"; };
 		46F48152520311B2144B42D8 /* MacAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppEnvironment.swift; sourceTree = "<group>"; };
@@ -362,6 +372,7 @@
 		555250EC97224ADB83551896 /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
 		5BC31A097551011978189FEA /* UpdatesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesPane.swift; sourceTree = "<group>"; };
 		5FCEDBB89271DC053053A7B7 /* DeckTerminalFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalFeature.swift; sourceTree = "<group>"; };
+		60529108D22876F77D9BC34D /* TidesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesTests.swift; sourceTree = "<group>"; };
 		60B2D3A3F138EC3D2CA018FA /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		61BFDD26E1A7212B653A9485 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		62D69759772CB358A9BC5703 /* ActionSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionSheets.swift; sourceTree = "<group>"; };
@@ -396,6 +407,7 @@
 		938E86E9E6678A5A33F1ED62 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		951A2B14985875AD7FB06D45 /* TerminalPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPane.swift; sourceTree = "<group>"; };
+		97456D4FE7478655C3B21B3D /* TidesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesModel.swift; sourceTree = "<group>"; };
 		97DE171009E69D91B7CBAC3D /* DetailKinds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailKinds.swift; sourceTree = "<group>"; };
 		984AE090449BC20EA211793D /* WorkspaceSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSamples.swift; sourceTree = "<group>"; };
 		9BF4AF72C85F0C2170B79B7D /* WheelhouseWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WheelhouseWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -421,15 +433,18 @@
 		B37F25F490316C4D766FC85D /* WheelhouseMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WheelhouseMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5305FABCD1583085D1278F4 /* RootView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+iOS.swift"; sourceTree = "<group>"; };
 		B5830746258110C64A63B1FE /* PerfScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfScenario.swift; sourceTree = "<group>"; };
+		B92939BAB81753820027D51F /* TidesOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesOverviewView.swift; sourceTree = "<group>"; };
 		BA37AF948581F58A22C8045D /* Distribution.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Distribution.xcconfig; sourceTree = "<group>"; };
 		BC05C15A1E8ED6D6E42BBBCB /* RiggingFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiggingFeature.swift; sourceTree = "<group>"; };
 		BD6EFD06CAE1A0E63B81DDAA /* PadShell+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PadShell+iOS.swift"; sourceTree = "<group>"; };
 		BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHost.swift; sourceTree = "<group>"; };
 		BE451CC1841E47909DC4768F /* GeneralPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralPane.swift; sourceTree = "<group>"; };
 		BE6B3291FEF6F8D11DF43494 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesRenderSmokeTests.swift; sourceTree = "<group>"; };
 		C14EF51971AAA1713E5FE851 /* SafetySecurityPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetySecurityPane.swift; sourceTree = "<group>"; };
 		C16CA4C663A22BF42C0BA099 /* wheelhouse-mcp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "wheelhouse-mcp.entitlements"; sourceTree = "<group>"; };
 		C1C1B102BAB0F219E8D1278A /* FirstMatePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMatePane.swift; sourceTree = "<group>"; };
+		C2102449582D5D268C8A8D09 /* TidesVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesVisibility.swift; sourceTree = "<group>"; };
 		C373B5CE26FC8F9E11A136EA /* WorkspaceCodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCodingTests.swift; sourceTree = "<group>"; };
 		C471D8B9EB6F75F07865BF90 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		C4D925B2E5A03C6F3CEEBC3C /* PhoneShell+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PhoneShell+iOS.swift"; sourceTree = "<group>"; };
@@ -470,6 +485,7 @@
 		F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardBrowserView+iOS.swift"; sourceTree = "<group>"; };
 		F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeepLink+Routes.swift"; sourceTree = "<group>"; };
 		F908929F7BCCEE3FA17EF43C /* MacCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommands.swift; sourceTree = "<group>"; };
+		FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesSheets.swift; sourceTree = "<group>"; };
 		FCEFC7FC29766A828319C122 /* SidebarCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCatalog.swift; sourceTree = "<group>"; };
 		FD627141B7850AAFB294AF7B /* Wheelhouse.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Wheelhouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEB2709D91DA81BAF1028927 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -550,6 +566,8 @@
 			children = (
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */,
+				C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */,
+				60529108D22876F77D9BC34D /* TidesTests.swift */,
 				C373B5CE26FC8F9E11A136EA /* WorkspaceCodingTests.swift */,
 				984AE090449BC20EA211793D /* WorkspaceSamples.swift */,
 			);
@@ -607,7 +625,13 @@
 		1662473CB0BD5D096570518E /* Tides */ = {
 			isa = PBXGroup;
 			children = (
+				194E572C05497A3D3C488831 /* TidesConfirmations.swift */,
+				3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */,
 				922C20DFD7456D7C813FEC15 /* TidesFeature.swift */,
+				97456D4FE7478655C3B21B3D /* TidesModel.swift */,
+				B92939BAB81753820027D51F /* TidesOverviewView.swift */,
+				FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */,
+				C2102449582D5D268C8A8D09 /* TidesVisibility.swift */,
 			);
 			path = Tides;
 			sourceTree = "<group>";
@@ -1562,8 +1586,14 @@
 				59BA81055871163FA9B75237 /* SwiftTermSurface+macOS.swift in Sources */,
 				C1DAF27FABC6CCE699096D94 /* TerminalPane.swift in Sources */,
 				8C28C0E61DF094C00538C11E /* TerminalSurface.swift in Sources */,
+				2A30148AB82606A68013C59C /* TidesConfirmations.swift in Sources */,
+				F32905F453B917170A2B69C8 /* TidesDetailView.swift in Sources */,
 				3CC774EDEF69536BDF54621B /* TidesFeature.swift in Sources */,
+				85D6FB7ECC1E5A8DD98FFE18 /* TidesModel.swift in Sources */,
+				36714B263349F5C3A45B66C5 /* TidesOverviewView.swift in Sources */,
 				7415F1063B205B17481AC5E9 /* TidesPane.swift in Sources */,
+				D6B9FB6B896CB15549ABC423 /* TidesSheets.swift in Sources */,
+				F34F6FE5289CDB77BEE6D383 /* TidesVisibility.swift in Sources */,
 				E60A0441AE08B68A5C6FB5ED /* UpdatesPane.swift in Sources */,
 				433F7BC8B17B45C66BACE42B /* WHTestHooks.swift in Sources */,
 				14A6FD08FFC4EEB32271D3FA /* WelcomeView.swift in Sources */,
@@ -1687,6 +1717,8 @@
 			files = (
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */,
+				31B747FDCD700E985490094C /* TidesRenderSmokeTests.swift in Sources */,
+				E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */,
 				5D259A4E0D40A6DDCE965476 /* WorkspaceCodingTests.swift in Sources */,
 				135EEA83467B2C888E623E1B /* WorkspaceSamples.swift in Sources */,
 			);
