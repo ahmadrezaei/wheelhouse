@@ -1,7 +1,8 @@
 import SwiftUI
 import WheelhouseKit
 
-/// Stub. M6a replaces the contents of this file (and only this folder).
+/// Chart Room, read path (M6a): Releases, Charts and Repositories from the cluster's Helm records and helm's own caches.
+/// Writes (install, upgrade, roll back, uninstall, repository changes) arrive in M6b.
 enum ChartRoomFeature: WheelhouseFeature {
     static var id: FeatureID { .chartRoom }
     static var title: String { "Chart Room" }
@@ -21,6 +22,15 @@ enum ChartRoomFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Chart Room", milestone: "M6a")
+        switch destination {
+        case .chartRoom(let cluster, let section):
+            ChartRoomView(clusterID: cluster, section: section).id("\(cluster)")
+        case .helmRelease(let ref):
+            ReleaseScreen(ref: ref)
+        case .helmInstall:
+            FeaturePlaceholderView(title: "Install a Chart", milestone: "M6b")
+        default:
+            EmptyView()
+        }
     }
 }
