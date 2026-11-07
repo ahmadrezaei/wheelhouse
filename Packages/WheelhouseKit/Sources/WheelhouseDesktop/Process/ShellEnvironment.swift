@@ -36,11 +36,16 @@ public actor ShellEnvironment {
     private let timeout: Duration
     private let shellOverride: String?
     private let etcShells: String
+    private let explicitTestKubeconfig: URL?
+    private let kubeCacheDir: URL
     public private(set) var snapshot: ShellSnapshot?
 
     /// `shell` is for tests (a fake shell script); nil resolves the user's shell.
-    public init(gate: DevSafetyPolicy = .current, home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
-                timeout: Duration = .seconds(5), shell: String? = nil, etcShells: String = "/etc/shells") {
+    public init(gate: DevSafetyPolicy = .current, home: URL = DevSafetyPolicy.accountHome,
+                timeout: Duration = .seconds(5), shell: String? = nil, etcShells: String = "/etc/shells",
+                explicitTestKubeconfig: URL? = nil, kubeCacheDir: URL? = nil) {
+        self.explicitTestKubeconfig = explicitTestKubeconfig
+        self.kubeCacheDir = kubeCacheDir ?? FileManager.default.temporaryDirectory.appending(path: "wheelhouse-debug/kubecache", directoryHint: .isDirectory)
         self.gate = gate
         self.home = home
         self.timeout = timeout
@@ -79,8 +84,15 @@ public actor ShellEnvironment {
         let shell = resolveShell()
         let script = "printf '\\0WH_ENV_BEGIN\\0'; /usr/bin/env -0; printf '\\0WH_ENV_END\\0'"
         // The probe's own environment is minimal: the shell rebuilds the rest from its startup files.
-        let env = ["HOME": home.path, "USER": NSUserName(), "LOGNAME": NSUserName(), "SHELL": shell, "TERM": "dumb",
+        var env = ["HOME": home.path, "USER": NSUserName(), "LOGNAME": NSUserName(), "SHELL": shell, "TERM": "dumb",
                    "WHEELHOUSE_ENV_PROBE": "1", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
+        // While the gate is active the rc files run with KUBECONFIG pointing at the test file (or nowhere) and a private kubectl cache,
+        // so a plain `kubectl` call in an rc file cannot reach ~/.kube. An rc file can still override these (it is the user's own
+        // shell startup), which is why the real defence is that no discovery or client ever uses what the shell reports.
+        if gate.isActive {
+            env["KUBECONFIG"] = explicitTestKubeconfig?.path ?? "/dev/null"
+            env["KUBECACHEDIR"] = kubeCacheDir.path
+        }
         let spec = ProcessSpec(executable: URL(fileURLWithPath: shell), arguments: ["-l", "-i", "-c", script], environment: env,
                                currentDirectory: home, timeout: timeout, stdoutLimit: 4 << 20, stderrLimit: 16 << 10, qos: .userInitiated)
         let result: ShellSnapshot

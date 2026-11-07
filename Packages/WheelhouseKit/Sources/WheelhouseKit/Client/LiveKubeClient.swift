@@ -9,6 +9,8 @@ public actor LiveKubeClient: KubeClientProtocol {
     nonisolated let delegate: ClusterSessionDelegate
     /// Where bearer tokens come from (`LiveKubeClient+TokenSource.swift`). iOS always uses `.static`.
     nonisolated let tokenSource: BearerTokenSource
+    /// Desktop gate, checked again for every request (connect time) and on redirects. nil on iOS.
+    nonisolated let hostAllowed: (@Sendable (URL) -> Bool)?
     /// The client-certificate identity. Fixed at init for stored credentials; replaced once per credential for a dynamic source.
     nonisolated let identityBox: IdentityHolder
     /// The token a dynamic source produced for the synchronous WebSocket builders (set by `prepareStreaming()`).
@@ -27,13 +29,16 @@ public actor LiveKubeClient: KubeClientProtocol {
     }
 
     /// Desktop: `tokenSource` is `.dynamic` for exec credential plugins. Nil keeps the stored token (`.static`).
-    public init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource?) {
-        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, tokenSource: tokenSource, protocolClasses: nil)
+    public init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource?,
+                hostAllowed: (@Sendable (URL) -> Bool)? = nil) {
+        self.init(config: config, secrets: secrets, tlsServerName: tlsServerName, tokenSource: tokenSource, hostAllowed: hostAllowed, protocolClasses: nil)
     }
 
     /// `protocolClasses` lets tests install a `URLProtocol` that captures outgoing requests.
-    init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource? = nil, protocolClasses: [AnyClass]?) {
+    init(config: ClusterConfig, secrets: ClusterSecrets, tlsServerName: String? = nil, tokenSource: BearerTokenSource? = nil,
+         hostAllowed: (@Sendable (URL) -> Bool)? = nil, protocolClasses: [AnyClass]?) {
         self.config = config
+        self.hostAllowed = hostAllowed
         self.tokenSource = tokenSource ?? .static(secrets.token?.trimmingCharacters(in: .whitespacesAndNewlines))
 
         let anchors = secrets.caPEM.map { PEM.decode($0).filter { $0.label == "CERTIFICATE" }.compactMap { SecCertificateCreateWithData(nil, $0.der as CFData) } } ?? []
@@ -58,6 +63,7 @@ public actor LiveKubeClient: KubeClientProtocol {
         } : nil
         let delegate = ClusterSessionDelegate(anchors: anchors, insecure: config.allowsInsecureTLS, serverName: tlsServerName,
                                               identityProvider: provider)
+        delegate.hostAllowed = hostAllowed
         self.delegate = delegate
         let sc = URLSessionConfiguration.ephemeral
         sc.timeoutIntervalForRequest = 30
@@ -105,6 +111,9 @@ public actor LiveKubeClient: KubeClientProtocol {
     /// Refuses cleartext HTTP for production clusters (the bearer token would travel unencrypted) and surfaces a client
     /// certificate that could not be loaded.
     private nonisolated func guardTransport() throws {
+        if let hostAllowed, !hostAllowed(config.server) {
+            throw KubeError.unreachable(cause: "Blocked in development builds: \(config.host) is not a test cluster.")
+        }
         if config.isProduction, config.server.scheme?.lowercased() == "http" {
             throw KubeError.unreachable(cause: "Plain HTTP is not allowed for production clusters. Use an https:// API server URL.")
         }

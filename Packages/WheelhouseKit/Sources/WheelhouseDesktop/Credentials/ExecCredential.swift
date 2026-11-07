@@ -153,10 +153,12 @@ public enum StderrRedactor {
         let raw: [(String, String)] = [
             (#"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"#, "[redacted]"),                 // JWTs
             (#"k8s-aws-v1\.[A-Za-z0-9_\-=]+"#, "[redacted]"),                                               // EKS tokens
-            (#"(?i)(bearer|authorization:?)\s+[A-Za-z0-9._~+/=\-]{8,}"#, "$1 [redacted]"),
-            (#"(?i)((?:access[_-]?token|id[_-]?token|refresh[_-]?token|token|secret|password|passwd|client[_-]?secret|api[_-]?key)["']?\s*[:=]\s*["']?)[^\s"',}]{4,}"#, "$1[redacted]"),
+            (#"(?i)(bearer|authorization:?)\s+[A-Za-z0-9._~+/=\-]+"#, "$1 [redacted]"),
+            (#"(?i)((?:access[_-]?token|id[_-]?token|refresh[_-]?token|token|secret|password|passwd|client[_-]?secret|api[_-]?key|key)["']?\s*[:=]\s*["']?)[^\s"',}]+"#, "$1[redacted]"),
+            (#"(?i)\b(token|key)\s+[A-Za-z0-9._~+/=\-]{4,}"#, "$1 [redacted]"),
+            (#"\b[A-Fa-f0-9]{20,}\b"#, "[redacted]"),                                                          // long hex runs
             (#"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)"#, "[redacted key]"),
-            (#"[A-Za-z0-9+/_\-]{48,}={0,2}"#, "[redacted]"),                                                 // long opaque strings
+            (#"(?=[A-Za-z0-9+/_\-]*\d)[A-Za-z0-9+/_\-]{20,}={0,2}"#, "[redacted]"),                              // long base64-like runs with a digit
         ]
         return raw.compactMap { p, t in (try? NSRegularExpression(pattern: p)).map { ($0, t) } }
     }()

@@ -141,6 +141,7 @@ private final class Collector: Sendable {
         switch event {
         case .stdout(let data):
             let overflow = state.withLock { s -> (SpawnedProcess?, Bool) in
+                if s.tooLarge { return (nil, false) }
                 s.stdout.append(data)
                 if s.stdout.count > spec.stdoutLimit, !s.tooLarge { s.tooLarge = true; return (s.process, true) }
                 return (nil, false)
@@ -272,11 +273,11 @@ final class SpawnedProcess: Sendable {
     /// SIGTERM to the process group, a 3 s grace period, then SIGKILL to the group.
     func terminate(grace: Duration = .seconds(3)) {
         let first = state.withLock { s -> Bool in
-            guard s.exited == nil, s.killTask == nil else { return false }
+            guard s.killTask == nil, !s.delivered else { return false }
             s.killTask = Task { [pid] in
                 try? await Task.sleep(for: grace, clock: .continuous)
                 guard !Task.isCancelled else { return }
-                kill(-pid, SIGKILL)
+                kill(-pid, SIGKILL)   // ESRCH when nobody is left in the group
             }
             return true
         }
@@ -297,7 +298,8 @@ final class SpawnedProcess: Sendable {
         let drain = state.withLock { s -> Bool in
             guard s.exited == nil else { return false }
             s.exited = (code, sig)
-            s.killTask?.cancel(); s.timeoutTask?.cancel()
+            // The kill task is NOT cancelled: after the grace period the whole group is killed even if the leader exited.
+            s.timeoutTask?.cancel()
             s.exitSource?.cancel(); s.exitSource = nil
             return s.openReaders > 0
         }

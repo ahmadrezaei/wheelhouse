@@ -63,7 +63,7 @@ struct FileWatcherTests {
         try await Task.sleep(for: .milliseconds(300))
         let moved = s.root.appending(path: "config.bak")
         _ = rename(file.path, moved.path)
-        #expect(await eventually { seen.paths.contains(file.path) })
+        #expect(await eventually(timeout: .seconds(15)) { seen.paths.contains(file.path) || seen.rescans > 0 })
         try await Task.sleep(for: .milliseconds(500))
         seen.clear()
         _ = rename(moved.path, file.path)

@@ -69,7 +69,8 @@ public final class DesktopClientFactory: Sendable {
         if state.isContactHeld(config.id) {
             return RefusedKubeClient(error: .unreachable(cause: "Not checked yet. Click Check to connect to this cluster."))
         }
-        return LiveKubeClient(config: config, secrets: secrets, tlsServerName: config.tlsServerName, tokenSource: resolveTokenSource(for: config, secrets: secrets))
+        return LiveKubeClient(config: config, secrets: secrets, tlsServerName: config.tlsServerName, tokenSource: resolveTokenSource(for: config, secrets: secrets),
+                              hostAllowed: { [gate] in gate.isAllowed(server: $0) })
     }
 
     /// nil keeps the stored token (`.static`).

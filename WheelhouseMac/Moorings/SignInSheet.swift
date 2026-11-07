@@ -25,13 +25,16 @@ final class SignInModel {
             let pty = try PTYProcess(spec: processSpec, size: (cols: 80, rows: 24), stdoutPipe: provider != nil)
             self.pty = pty
             Task { for await chunk in pty.output { append(chunk) } }
-            var credential = Data()
-            if provider != nil { Task { for await c in pty.stdout { credential.append(c) } } }
+            // stdout is collected by a task whose value is awaited: the stream ends when the pipe closes, so no bytes are missed.
+            let collector = Task<Data, Never> {
+                var data = Data()
+                for await c in pty.stdout { data.append(c) }
+                return data
+            }
             let exit = await pty.waitForExit()
             finished = true
             if exit.code == 0, let provider {
-                try await Task.sleep(for: .milliseconds(100))
-                try await provider.completeSignIn(stdout: credential)
+                try await provider.completeSignIn(stdout: await collector.value)
             } else if exit.code != 0 {
                 failure = "The program exited with \(exit.code.map(String.init) ?? "a signal")."
             }
@@ -78,5 +81,6 @@ struct SignInSheet: View {
         }
         .padding(20).frame(width: 560)
         .task { await model.start(); if model.finished, model.failure == nil { dismiss() } }
+        .onDisappear { model.cancel() }
     }
 }

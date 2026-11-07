@@ -40,6 +40,7 @@ public final class PTYProcess: Sendable {
         var masterSource: DispatchSourceRead?
         var stdoutSource: DispatchSourceRead?
         var exitSource: DispatchSourceProcess?
+        var timeoutTask: Task<Void, Never>?
     }
     private let state = Mutex(State())
     private let outputContinuation: AsyncStream<Data>.Continuation
@@ -135,6 +136,16 @@ public final class PTYProcess: Sendable {
         }
         masterSource.activate(); stdoutSource?.activate(); exitSource.activate()
         readQueue.async { [self] in reap() }
+        // The spec's timeout applies to a PTY run too (the Sign-in sheet uses 5 minutes).
+        if spec.timeout < .seconds(24 * 3600) {
+            let timeout = spec.timeout
+            let task = Task { [weak self] in
+                try? await Task.sleep(for: timeout, clock: .continuous)
+                guard !Task.isCancelled, let self, !self.hasExited else { return }
+                await self.terminate()
+            }
+            state.withLock { $0.timeoutTask = task }
+        }
     }
 
     // MARK: Output
@@ -191,8 +202,12 @@ public final class PTYProcess: Sendable {
     private func finishOutput() {
         flush()
         outputContinuation.finish()
-        close(master)
-        state.withLock { $0.closed = true }
+        // Close on the writer queue, after queued writes, so a write never races with a closed (or reused) descriptor.
+        let fd = master
+        writer.async { [self] in
+            state.withLock { $0.closed = true }
+            close(fd)
+        }
     }
 
     // MARK: Input, size, lifetime
@@ -230,12 +245,12 @@ public final class PTYProcess: Sendable {
         guard state.withLock({ $0.exited == nil }) else { return }
         kill(-pid, SIGHUP)
         let pid = pid
-        let killer = Task {
+        // After the grace period the whole group is killed, whether or not the leader has exited by then.
+        Task {
             try? await Task.sleep(for: gracePeriod, clock: .continuous)
-            if !Task.isCancelled { kill(-pid, SIGKILL) }
+            kill(-pid, SIGKILL)
         }
         _ = await waitForExit()
-        killer.cancel()
     }
 
     public func waitForExit() async -> ProcessExit {
@@ -261,6 +276,7 @@ public final class PTYProcess: Sendable {
             guard s.exited == nil else { return [] }
             s.exited = exit
             s.exitSource?.cancel(); s.exitSource = nil
+            s.timeoutTask?.cancel()
             defer { s.waiters = [] }
             return s.waiters
         }

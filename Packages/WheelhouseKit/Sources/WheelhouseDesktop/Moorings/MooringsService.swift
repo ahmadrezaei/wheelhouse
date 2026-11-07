@@ -69,7 +69,7 @@ public struct MooringsConfiguration: Sendable {
     /// Where the safety rescan registers (tests use their own).
     public var registry: PeriodicTaskRegistry
 
-    public init(gate: DevSafetyPolicy = .current, home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+    public init(gate: DevSafetyPolicy = .current, home: URL = DevSafetyPolicy.accountHome,
                 explicitTestKubeconfig: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
                 shellKubeconfig: @escaping @Sendable () async -> String? = { nil }, safetyRescanInterval: TimeInterval = 600,
                 registry: PeriodicTaskRegistry = .shared) {
@@ -169,6 +169,7 @@ public actor MooringsService: MooringsSourceAdding {
     public func stop() {
         watcher?.stop()
         watcher = nil
+        appliedWatch = nil
         safetyTask?.stop()
         safetyTask = nil
     }
@@ -292,10 +293,15 @@ public actor MooringsService: MooringsSourceAdding {
     }
 
     private var lastWatched: (files: Set<String>, folders: [String: Bool]) = ([], [:])
+    /// What the running stream was created with: it is recreated only when the watched set actually changes.
+    private var appliedWatch: (files: Set<String>, folders: [String: Bool])?
 
     private func updateWatcher(files: Set<String>? = nil, folders: [String: Bool]? = nil) {
         if let files, let folders { lastWatched = (files, folders) }
-        watcher?.update(files: lastWatched.files, folders: lastWatched.folders)
+        guard let watcher else { return }
+        if let applied = appliedWatch, applied.files == lastWatched.files, applied.folders == lastWatched.folders, watcher.isRunning { return }
+        watcher.update(files: lastWatched.files, folders: lastWatched.folders)
+        appliedWatch = lastWatched
     }
 
     private func apply(_ outcome: ScanOutcome) -> MooringsChange {
@@ -415,7 +421,7 @@ public actor MooringsService: MooringsSourceAdding {
     public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {
         guard var o = state.overrides.override(for: id), o.added else { return }
         let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o.lastKnown?.suggestedEnvironment == .production)
-        if environment == .production || suggestedProd {
+        if environment == .production || o.environment == .production || suggestedProd {
             guard await authorizer.authorize(reason: "Allow changes on \(o.name ?? o.lastKnown?.displayName ?? "this cluster")") else {
                 throw MooringsError.authorizationDenied
             }
@@ -452,10 +458,14 @@ public actor MooringsService: MooringsSourceAdding {
     /// The user clicked Check. The ONLY way a Production-suggested context is contacted before it is opened.
     @discardableResult
     public func check(_ id: ClusterID) async -> ClusterCheckResult {
+        let wasHeld = state.isContactHeld(id)
+        state.approveContact(id)
         if var o = state.overrides.override(for: id), !o.contactApproved {
             o.contactApproved = true
             try? state.overrides.apply([id: o])
         }
+        // The held client is replaced by a real one.
+        if wasHeld { onChange(MooringsChange(changed: [id])) }
         return await runCheck(id)
     }
 

@@ -82,6 +82,17 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
     /// The most recent rejection, cleared as soon as any later server trust evaluation succeeds.
     var lastFailure: TLSFailureInfo? { failures.withLock { $0.latest } }
 
+    /// Desktop gate: when set, a redirect is refused unless it stays on the original host AND the host is allowed. nil (iOS) keeps the
+    /// system behaviour of following redirects. Set once, before the session is used.
+    nonisolated(unsafe) var hostAllowed: (@Sendable (URL) -> Bool)?
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let hostAllowed else { return request }
+        guard let to = request.url, hostAllowed(to), to.host()?.lowercased() == task.originalRequest?.url?.host()?.lowercased() else { return nil }
+        return request
+    }
+
     init(anchors: [SecCertificate], insecure: Bool, serverName: String? = nil, systemTrustFirst: Bool = false, identityProvider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = nil) {
         self.anchors = anchors
         self.insecure = insecure

@@ -12,6 +12,8 @@ public final class MooringsState: Sendable {
         /// Discovered cluster -> the Keychain cluster it duplicates.
         var duplicates: [ClusterID: ClusterID] = [:]
         var checks: [ClusterID: ClusterCheckState] = [:]
+        /// Clusters whose contact the user approved by clicking Check (also for undecided rows that have no override yet).
+        var approved: Set<ClusterID> = []
     }
     private let state = Mutex(Snapshot())
     public let overrides: DiscoveredClusterStore
@@ -37,6 +39,7 @@ public final class MooringsState: Sendable {
             s.order = list.map(\.id)
         }
     }
+    func approveContact(_ id: ClusterID) { state.withLock { _ = $0.approved.insert(id) } }
     func setDuplicates(_ d: [ClusterID: ClusterID]) { state.withLock { $0.duplicates = d } }
     func setCheck(_ c: ClusterCheckState, for id: ClusterID) { state.withLock { $0.checks[id] = c } }
 
@@ -45,9 +48,13 @@ public final class MooringsState: Sendable {
     /// True for an added cluster whose environment is suggested as Production until the user clicked Check or opened it
     /// (owner decision 10). The client factory then refuses to connect.
     public func isContactHeld(_ id: ClusterID) -> Bool {
-        guard id.hasPrefix("kc-"), let o = overrides.override(for: id), !o.contactApproved else { return false }
-        if let ctx = context(for: id) { return ctx.isSuggestedProduction && o.environmentChosen == false }
-        return o.lastKnown?.suggestedEnvironment == .production && !o.environmentChosen
+        guard id.hasPrefix("kc-") else { return false }
+        let o = overrides.override(for: id)
+        // Only an explicit Check, Allow Changes or opening the cluster releases the hold. Choosing or changing the environment never does,
+        // and a cluster with no override yet is held too (fail closed).
+        if o?.contactApproved == true || state.withLock({ $0.approved.contains(id) }) { return false }
+        let suggestedProduction = context(for: id)?.isSuggestedProduction ?? (o?.lastKnown?.suggestedEnvironment == .production)
+        return suggestedProduction || o?.environment == .production
     }
 
     /// The Mac-only details of a cluster, or nil when it is not discovered.

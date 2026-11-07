@@ -159,7 +159,8 @@ public actor ExecSession {
         guard socket == nil else { return }
         // A dynamic credential (exec plugin) is resolved before the synchronous socket builder runs. No-op for stored tokens.
         try await client.prepareStreaming()
-        guard socket == nil else { return }
+        // The actor was released at the await: another start or a close may have run meanwhile.
+        guard socket == nil, !finished else { return }
         let ws = try client.execWebSocket(namespace: namespace, pod: pod, options: options)
         socket = ws
         ws.resume()

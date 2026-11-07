@@ -64,7 +64,9 @@ public actor ExecCredentialBroker {
     public var timeout: Duration
 
     private var cache: [String: Entry] = [:]
-    private var inflight: [String: Task<ExecCredential, Error>] = [:]
+    private var inflight: [String: (id: UUID, task: Task<ExecCredential, Error>)] = [:]
+    /// A failed run: not repeated within ``reRunInterval`` (a refresh that keeps failing must not spawn a plugin per request).
+    private var failures: [String: (at: Date, error: ExecCredentialError)] = [:]
     private var lastRun: [String: Date] = [:]
     private var consumers: [String: Int] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
@@ -96,16 +98,24 @@ public actor ExecCredentialBroker {
         let key = request.key
         requests[key] = request
         if let entry = cache[key], !needsRefresh(entry) { return entry.credential }
-        if let task = inflight[key] { return try await task.value }
+        if let flight = inflight[key] { return try await flight.task.value }
         if request.spec.interactiveMode == "Always" { throw ExecCredentialError.signInRequired(command: request.spec.command) }
+        // Back off after a failure: reuse a still-valid credential, or repeat the error, until the interval has passed.
+        if let failure = failures[key], now().timeIntervalSince(failure.at) < Self.reRunInterval {
+            if let entry = cache[key], let expiry = entry.credential.expirationTimestamp, now() < expiry { return entry.credential }
+            throw failure.error
+        }
+        let id = UUID()
         let task = Task { try await self.fetch(request, key: key) }
-        inflight[key] = task
+        inflight[key] = (id, task)
         do {
             let value = try await task.value
-            inflight[key] = nil
+            if inflight[key]?.id == id { inflight[key] = nil }
+            failures[key] = nil
             return value
         } catch {
-            inflight[key] = nil
+            if inflight[key]?.id == id { inflight[key] = nil }
+            if let e = error as? ExecCredentialError, e != .cancelled { failures[key] = (now(), e) }
             // A refresh that fails must not break requests while the previous credential has not expired yet.
             if let entry = cache[key], let expiry = entry.credential.expirationTimestamp, now() < expiry { return entry.credential }
             throw error
@@ -156,6 +166,7 @@ public actor ExecCredentialBroker {
     func accept(_ credential: ExecCredential, for request: ExecRequest) {
         requests[request.key] = request
         lastRun[request.key] = now()
+        failures[request.key] = nil
         store(credential, key: request.key)
     }
 
@@ -214,7 +225,8 @@ public actor ExecCredentialBroker {
     /// Forgets every credential of a key (cluster removed or its kubeconfig stanza changed).
     public func forget(key: String) {
         cache[key] = nil
-        inflight[key]?.cancel(); inflight[key] = nil
+        inflight[key]?.task.cancel(); inflight[key] = nil
+        failures[key] = nil
         refreshTasks[key]?.cancel(); refreshTasks[key] = nil
         lastRun[key] = nil
     }

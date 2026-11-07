@@ -40,21 +40,26 @@ final class MooringsController {
 
     init(paths: AppPaths, gate: DevSafetyPolicy, keychainMetadata: any ClusterMetadataStoring, keychainCredentials: any CredentialStoring,
          shell: ShellEnvironment, activity: any ActivityLogging = NoopActivityLog()) {
+        let snapshotBox = SnapshotBox()
+        self.snapshotBox = snapshotBox
         let overrides = DiscoveredClusterStore(fileURL: paths.discoveredClustersFile)
         let prefs = MooringsPreferencesStore(fileURL: paths.mooringsPreferencesFile)
         let state = MooringsState(overrides: overrides, preferences: prefs, gate: gate)
         let settings = MacClusterSettingsStore(fileURL: paths.clusterSettingsFile)
         let home = paths.home
+        let box = snapshotBox
         let broker = ExecCredentialBroker(
-            locator: { ExecutableLocator(snapshot: nil, home: home) },
-            environment: { EnvironmentBuilder(snapshot: nil, paths: paths, home: home) },
+            locator: { ExecutableLocator(snapshot: box.value, home: home) },
+            environment: { EnvironmentBuilder(snapshot: box.value, paths: paths, home: home) },
             activity: activity, gate: gate)
         self.state = state
         self.settings = settings
         self.broker = broker
         self.shellEnvironment = shell
-        self.metadata = CompositeMetadataStore(keychain: keychainMetadata, credentials: keychainCredentials, state: state, settings: settings)
-        self.credentials = CompositeCredentialStore(keychain: keychainCredentials, state: state, gate: gate)
+        self.metadata = CompositeMetadataStore(keychain: keychainMetadata, credentials: keychainCredentials, state: state, settings: settings, gate: gate)
+        let servers = metadata.servers
+        self.credentials = CompositeCredentialStore(keychain: keychainCredentials, state: state, gate: gate, settings: settings,
+                                                    serverLookup: { servers.server(for: $0) })
         self.factory = DesktopClientFactory(state: state, settings: settings, broker: broker, gate: gate) { id in
             Task { @MainActor in ClusterEvents.postInvalidated(id, removed: false) }
         }
@@ -67,11 +72,20 @@ final class MooringsController {
         weakBox.controller = self
     }
 
+    /// The latest shell snapshot, readable from the broker's synchronous closures.
+    private final class SnapshotBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshot: ShellSnapshot?
+        var value: ShellSnapshot? { get { lock.withLock { snapshot } } set { lock.withLock { snapshot = newValue } } }
+    }
+    private let snapshotBox: SnapshotBox
+
     private final class WeakBox: @unchecked Sendable { weak var controller: MooringsController? }
 
     func start() async {
         MooringsController.shared = self
         let snapshot = await shellEnvironment.current()
+        snapshotBox.value = snapshot
         shellBanner = snapshot.failure
         await service.start()
         await refresh()
@@ -85,7 +99,9 @@ final class MooringsController {
 
     /// Reload Shell Environment: probes the login shell again, then re-reads every source.
     func reloadShellEnvironment() async {
-        shellBanner = await shellEnvironment.reload().failure
+        let snapshot = await shellEnvironment.reload()
+        snapshotBox.value = snapshot
+        shellBanner = snapshot.failure
         await service.rescan()
         await refresh()
     }
