@@ -38,7 +38,7 @@ struct GateHardeningTests {
         let secret = try s.write("home/not-a-kubeconfig.txt", kubeconfigText())
         let alias = s.root.appending(path: "alias.yaml")
         #expect(link(secret.path, alias.path) == 0)
-        #expect(throws: DevSafetyError.self) { try activeGate(home: home).assertReadable(alias) }
+        #expect(throws: DevSafetyError.extraHardLinks(alias.path)) { try activeGate(home: home).assertReadable(alias) }
         #expect(throws: DevSafetyError.self) { try activeGate(home: home).assertReadable(secret) }
         #expect(throws: DevSafetyError.self) { _ = try DiscoveredSecrets.readFile(alias.path, gate: activeGate(home: home)) }
         #expect(throws: DevSafetyError.self) { _ = try KubeconfigLoader(gate: activeGate(home: home)).loadStandalone(alias) }

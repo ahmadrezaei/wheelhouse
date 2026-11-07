@@ -9,6 +9,13 @@ import Foundation
 public protocol ClusterMetadataStoring: Sendable {
     func load() -> [ClusterConfig]
     func save(_ clusters: [ClusterConfig]) throws
+    /// Whether this cluster's secrets may be stored as synchronizable Keychain items. The registry asks BEFORE it writes secrets (the
+    /// config is not persisted yet). Default: what the config says. The Mac store clears it for exec-adopted and loopback clusters.
+    func effectiveSync(for config: ClusterConfig) -> Bool
+}
+
+public extension ClusterMetadataStoring {
+    func effectiveSync(for config: ClusterConfig) -> Bool { config.iCloudSync }
 }
 
 /// Where the cross-device copy lives (iCloud Keychain in production, in memory in tests).

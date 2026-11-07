@@ -81,6 +81,18 @@ struct ProductionHoldTests {
         #expect(h.state.isContactHeld(ctx.id))
     }
 
+    @Test func adoptingAHeldClusterNeedsACheckFirst() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let plugin = try s.installPlugin()
+        let (h, _, _) = try rig(s, context: "prod-eu", counter: s.root.appending(path: "c"), plugin: plugin)
+        await h.service.rescan()
+        let ctx = try #require(h.state.contexts.first)
+        await #expect(throws: MooringsError.notChecked) { _ = try await h.service.prepareAdoption(id: ctx.id) }
+        _ = await h.service.check(ctx.id)
+        let adoption = try await h.service.prepareAdoption(id: ctx.id)
+        #expect(adoption.config.origin == nil)
+    }
+
     @Test func checkLiftsTheHoldAndAsksForTheClientToBeRebuilt() async throws {
         let s = try Scratch(); defer { s.cleanup() }
         let plugin = try s.installPlugin()
@@ -99,12 +111,12 @@ struct ProductionHoldTests {
 
 @Suite("Sync blocks for Keychain secrets (M1)")
 struct CredentialSyncBlockTests {
-    private func store(_ s: Scratch, servers: [ClusterID: URL], settings: MacClusterSettingsStore) throws -> (CompositeCredentialStore, RecordingCredentials) {
+    private func store(_ s: Scratch, index: ServerIndex, settings: MacClusterSettingsStore) throws -> (CompositeCredentialStore, RecordingCredentials) {
         let rec = RecordingCredentials()
         let home = try s.home()
         let state = MooringsState(overrides: DiscoveredClusterStore(fileURL: s.root.appending(path: "o.json")),
                                   preferences: MooringsPreferencesStore(fileURL: s.root.appending(path: "p.json")), gate: openGate(home: home))
-        return (CompositeCredentialStore(keychain: rec, state: state, gate: openGate(home: home), settings: settings, serverLookup: { servers[$0] }), rec)
+        return (CompositeCredentialStore(keychain: rec, state: state, gate: openGate(home: home), settings: settings, index: index), rec)
     }
 
     @Test func execAdoptedAndLoopbackSecretsNeverSync() throws {
@@ -113,13 +125,15 @@ struct CredentialSyncBlockTests {
         try settings.update("exec") { $0.execAdopted = ExecAdoption(spec: KubeconfigExecSpec(command: "aws"), specHash: "h", kubeconfigPath: "/kc") }
         let servers: [ClusterID: URL] = ["exec": URL(string: "https://eks.example.test")!, "loop": URL(string: "https://127.0.0.1:8443")!,
                                          "remote": URL(string: "https://remote.example.test")!]
-        let (store, rec) = try store(s, servers: servers, settings: settings)
+        let index = ServerIndex()
+        servers.forEach { index.set($0.value, for: $0.key) }
+        let (store, rec) = try store(s, index: index, settings: settings)
         for id in ["exec", "loop", "remote", "unknown"] { try store.save(ClusterSecrets(token: "t"), clusterID: id, synchronizable: true) }
         let byID = Dictionary(uniqueKeysWithValues: rec.saves.map { ($0.id, $0.sync) })
         #expect(byID["exec"] == false)
         #expect(byID["loop"] == false)
         #expect(byID["remote"] == true)
-        #expect(byID["unknown"] == true)
+        #expect(byID["unknown"] == false)      // server not known yet: fail closed
     }
 
     @Test func loadReturnsTheClearedFlagAndTheServerIndexIsFed() async throws {
@@ -144,6 +158,81 @@ private struct StackForReview {
     }
 }
 
+@Suite("First add cannot leak a loopback secret to iCloud")
+struct FirstAddSyncTests {
+    @MainActor @Test func aNewLoopbackClusterWithSyncOnEndsUpNonSynchronizable() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let home = try s.home()
+        let rec = RecordingCredentials()
+        let state = MooringsState(overrides: DiscoveredClusterStore(fileURL: s.root.appending(path: "o.json")),
+                                  preferences: MooringsPreferencesStore(fileURL: s.root.appending(path: "p.json")), gate: openGate(home: home))
+        let settings = MacClusterSettingsStore(fileURL: s.root.appending(path: "cs.json"))
+        let metadata = CompositeMetadataStore(keychain: ClusterMetadataStore(directory: try s.dir("m"), mirror: InMemoryMetadataMirror()),
+                                              credentials: rec, state: state, settings: settings, gate: openGate(home: home))
+        let credentials = CompositeCredentialStore(keychain: rec, state: state, gate: openGate(home: home), settings: settings, index: metadata.servers)
+        let registry = ClusterRegistry(credentials: credentials, metadata: metadata, defaults: UserDefaults(suiteName: "wh.m3.\(UUID().uuidString)")!)
+        let loop = ClusterConfig(id: "loop-1", name: "local", server: URL(string: "https://127.0.0.1:8443")!, iCloudSync: true)
+        let remote = ClusterConfig(id: "remote-1", name: "remote", server: URL(string: "https://remote.example.test")!, iCloudSync: true)
+        try registry.add(loop, secrets: ClusterSecrets(token: "t"))
+        try registry.add(remote, secrets: ClusterSecrets(token: "t"))
+        #expect(rec.saves.filter { $0.id == "loop-1" }.allSatisfy { $0.sync == false })
+        #expect(rec.saves.contains { $0.id == "remote-1" && $0.sync })
+        #expect(rec.saves.filter { $0.id == "loop-1" }.count >= 1)
+        #expect(registry.clusters.first { $0.id == "loop-1" }?.iCloudSync == false)
+        #expect(metadata.servers.pendingSync.isEmpty)
+    }
+
+    @Test func aSecretSavedBeforeTheServerWasKnownBecomesSynchronizableOnlyIfAllowed() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let home = try s.home()
+        let rec = SecretsRecording()
+        let state = MooringsState(overrides: DiscoveredClusterStore(fileURL: s.root.appending(path: "o.json")),
+                                  preferences: MooringsPreferencesStore(fileURL: s.root.appending(path: "p.json")), gate: openGate(home: home))
+        let settings = MacClusterSettingsStore(fileURL: s.root.appending(path: "cs.json"))
+        let creds = InMemoryCredentialStore()
+        let metadata = CompositeMetadataStore(keychain: ClusterMetadataStore(directory: try s.dir("m"), mirror: InMemoryMetadataMirror()),
+                                              credentials: rec, state: state, settings: settings, gate: openGate(home: home))
+        _ = creds
+        let store = CompositeCredentialStore(keychain: rec, state: state, gate: openGate(home: home), settings: settings, index: metadata.servers)
+        try store.save(ClusterSecrets(token: "t"), clusterID: "early", synchronizable: true)
+        #expect(rec.lastSync == false)
+        #expect(metadata.servers.pendingSync == ["early"])
+        // The metadata arrives: not loopback, so the secret is re-saved as synchronizable.
+        try metadata.save([ClusterConfig(id: "early", name: "e", server: URL(string: "https://ok.example.test")!, iCloudSync: true)])
+        #expect(metadata.servers.pendingSync.isEmpty)
+        #expect(rec.lastSync == true)
+        // A loopback cluster stays off iCloud even after the same dance.
+        try store.save(ClusterSecrets(token: "t"), clusterID: "early-loop", synchronizable: true)
+        try metadata.save([ClusterConfig(id: "early-loop", name: "l", server: URL(string: "https://127.0.0.1:1")!, iCloudSync: true)])
+        #expect(rec.lastSync == false)
+    }
+
+    @Test func turningSyncOffMovesTheSecretOffICloud() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let home = try s.home()
+        let rec = SecretsRecording()
+        try rec.save(ClusterSecrets(token: "t"), clusterID: "c", synchronizable: true)
+        let state = MooringsState(overrides: DiscoveredClusterStore(fileURL: s.root.appending(path: "o.json")),
+                                  preferences: MooringsPreferencesStore(fileURL: s.root.appending(path: "p.json")), gate: openGate(home: home))
+        let metadata = CompositeMetadataStore(keychain: ClusterMetadataStore(directory: try s.dir("m"), mirror: InMemoryMetadataMirror()),
+                                              credentials: rec, state: state, settings: MacClusterSettingsStore(fileURL: s.root.appending(path: "cs.json")), gate: openGate(home: home))
+        var c = ClusterConfig(id: "c", name: "c", server: URL(string: "https://ok.example.test")!, iCloudSync: true)
+        try metadata.save([c])
+        c.iCloudSync = false
+        try metadata.save([c])
+        #expect(rec.lastSync == false)
+    }
+}
+
+private final class SecretsRecording: CredentialStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [ClusterID: ClusterSecrets] = [:]
+    private(set) var lastSync: Bool?
+    func load(clusterID: ClusterID) throws -> ClusterSecrets { lock.withLock { items[clusterID] ?? ClusterSecrets() } }
+    func save(_ secrets: ClusterSecrets, clusterID: ClusterID, synchronizable: Bool) throws { lock.withLock { items[clusterID] = secrets; lastSync = synchronizable } }
+    func delete(clusterID: ClusterID) throws {}
+}
+
 @Suite("Allow Changes cannot be bypassed (M3)")
 struct AllowChangesTests {
     @Test func savingNeverClearsReadOnlyAndAProductionClusterNeedsAuthenticationEvenWhenNotSuggested() async throws {
@@ -165,6 +254,12 @@ struct AllowChangesTests {
         // allowChanges asks for authentication because the CURRENT environment is Production; denied here.
         await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: ctx.id, environment: .staging) }
         #expect(composite.load().first?.readOnly == true)
+        // A plain save cannot lower Production either (that would skip the authentication above).
+        var lowered = try #require(composite.load().first)
+        lowered.environment = .staging
+        try composite.save([lowered])
+        #expect(composite.load().first?.environment == .production)
+        #expect(h.state.overrides.override(for: ctx.id)?.environment == .production)
     }
 }
 

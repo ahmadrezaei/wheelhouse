@@ -209,6 +209,7 @@ public final class ClusterRegistry {
     public func add(_ config: ClusterConfig, secrets: ClusterSecrets) throws {
         var config = config
         config.modifiedAt = Date()
+        config.iCloudSync = metadata.effectiveSync(for: config)
         try credentials.save(secrets, clusterID: config.id, synchronizable: config.iCloudSync)
         realClusters.append(config)
         try persist()
@@ -223,6 +224,7 @@ public final class ClusterRegistry {
         let old = realClusters[i]
         var config = config
         config.modifiedAt = Date()
+        config.iCloudSync = metadata.effectiveSync(for: config)
         if secrets != nil || old.iCloudSync != config.iCloudSync {
             let existing = try secrets ?? credentials.load(clusterID: config.id)
             do {

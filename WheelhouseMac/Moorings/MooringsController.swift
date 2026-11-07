@@ -57,9 +57,8 @@ final class MooringsController {
         self.broker = broker
         self.shellEnvironment = shell
         self.metadata = CompositeMetadataStore(keychain: keychainMetadata, credentials: keychainCredentials, state: state, settings: settings, gate: gate)
-        let servers = metadata.servers
         self.credentials = CompositeCredentialStore(keychain: keychainCredentials, state: state, gate: gate, settings: settings,
-                                                    serverLookup: { servers.server(for: $0) })
+                                                    index: metadata.servers)
         self.factory = DesktopClientFactory(state: state, settings: settings, broker: broker, gate: gate) { id in
             Task { @MainActor in ClusterEvents.postInvalidated(id, removed: false) }
         }

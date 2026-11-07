@@ -9,6 +9,13 @@ final class RedirectingProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let url = request.url!
+        if url.host()?.hasPrefix("downgrade-") == true {
+            // Same host, but https becomes http.
+            let target = URLRequest(url: URL(string: "http://\(url.host()!):6443/version")!)
+            let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": target.url!.absoluteString])!
+            client?.urlProtocol(self, wasRedirectedTo: target, redirectResponse: response)
+            return
+        }
         if url.host()?.hasPrefix("redirecting-") == true {
             var target = URLRequest(url: URL(string: "https://elsewhere.test/version")!)
             target.httpMethod = "GET"
@@ -36,6 +43,20 @@ struct HostGateClientTests {
         let host = "redirecting-\(UUID().uuidString.lowercased().prefix(6)).test"
         let c = client(hostAllowed: { _ in true }, host: host)       // even an allowed target host: a redirect leaves the original host
         await #expect(throws: KubeError.self) { _ = try await c.version() }
+    }
+
+    @Test func aSameHostSchemeDowngradeIsRefused() async {
+        let host = "downgrade-\(UUID().uuidString.lowercased().prefix(6)).test"
+        let c = client(hostAllowed: { _ in true }, host: host)
+        await #expect(throws: KubeError.self) { _ = try await c.version() }
+    }
+
+    @Test func sameOriginComparesSchemeHostAndPortWithDefaults() {
+        let a = URL(string: "https://x.test")!
+        #expect(ClusterSessionDelegate.sameOrigin(a, URL(string: "https://X.test:443/y")!))
+        #expect(!ClusterSessionDelegate.sameOrigin(a, URL(string: "http://x.test")!))
+        #expect(!ClusterSessionDelegate.sameOrigin(a, URL(string: "https://x.test:8443")!))
+        #expect(!ClusterSessionDelegate.sameOrigin(a, nil))
     }
 
     @Test func withoutAGateRedirectsAreFollowedAsOnIOS() async throws {

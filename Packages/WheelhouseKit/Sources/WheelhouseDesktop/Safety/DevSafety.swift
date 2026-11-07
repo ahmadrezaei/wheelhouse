@@ -6,6 +6,8 @@ import WheelhouseKit
 public enum DevSafetyError: Error, Equatable, Sendable, LocalizedError {
     /// A path under `~/.kube` (after resolving symlinks) was about to be read while the gate is active.
     case homeKubeconfig(String)
+    /// A kubeconfig or credential file with more than one hard link (it could be an alias of a protected file).
+    case extraHardLinks(String)
     /// A server host that is not one of the allowed test hosts.
     case hostNotAllowed(String)
     /// The explicit test kubeconfig could not be used.
@@ -16,6 +18,7 @@ public enum DevSafetyError: Error, Equatable, Sendable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .homeKubeconfig: "Development builds can't read ~/.kube."
+        case .extraHardLinks(let p): "Development builds don't read files with extra hard links: \((p as NSString).lastPathComponent)."
         case .hostNotAllowed(let host): "Blocked in development builds: \(host) is not a test cluster."
         case .invalidTestKubeconfig(let why): "The test kubeconfig can't be used: \(why)"
         case .disabledInDevelopment(let what): "\(what) is disabled in development builds."
@@ -85,10 +88,15 @@ public struct DevSafetyPolicy: Sendable {
 
     /// The account's real home from the password database. `NSHomeDirectory()` follows `CFFIXED_USER_HOME` and `$HOME`, which a
     /// launching process can redirect, so it is never the only source of truth.
-    public static var accountHome: URL {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir { return URL(fileURLWithPath: String(cString: dir), isDirectory: true) }
+    public static let accountHome: URL = {
+        var pwd = passwd()
+        var result: UnsafeMutablePointer<passwd>?
+        var buffer = [CChar](repeating: 0, count: 4096)
+        if getpwuid_r(getuid(), &pwd, &buffer, buffer.count, &result) == 0, result != nil, let dir = pwd.pw_dir {
+            return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
+        }
         return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-    }
+    }()
 
     public init(isActive: Bool, allowedHosts: Set<String> = [], home: URL = DevSafetyPolicy.accountHome) {
         self.isActive = isActive
@@ -189,7 +197,8 @@ public struct DevSafetyPolicy: Sendable {
     /// Throws ``DevSafetyError/homeKubeconfig(_:)`` for any path under `~/.kube` while the gate is active (every source type).
     public func assertReadable(_ url: URL) throws {
         guard isActive else { return }
-        if isUnderHomeKube(url) || Self.hasExtraHardLinks(url) { throw DevSafetyError.homeKubeconfig(url.path) }
+        if isUnderHomeKube(url) { throw DevSafetyError.homeKubeconfig(url.path) }
+        if Self.hasExtraHardLinks(url) { throw DevSafetyError.extraHardLinks(url.path) }
     }
 }
 #endif

@@ -89,8 +89,15 @@ final class ClusterSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
         guard let hostAllowed else { return request }
-        guard let to = request.url, hostAllowed(to), to.host()?.lowercased() == task.originalRequest?.url?.host()?.lowercased() else { return nil }
+        guard let to = request.url, hostAllowed(to), Self.sameOrigin(to, task.originalRequest?.url) else { return nil }
         return request
+    }
+
+    /// Same scheme, host and port (defaults applied): an https to http redirect on the same host is a different origin.
+    static func sameOrigin(_ a: URL, _ b: URL?) -> Bool {
+        guard let b else { return false }
+        func port(_ u: URL) -> Int { u.port ?? ((u.scheme ?? "").lowercased() == "http" ? 80 : 443) }
+        return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased() && port(a) == port(b)
     }
 
     init(anchors: [SecCertificate], insecure: Bool, serverName: String? = nil, systemTrustFirst: Bool = false, identityProvider: (@Sendable () -> Result<ClientIdentityBuilder.Result, ClientIdentityError>)? = nil) {

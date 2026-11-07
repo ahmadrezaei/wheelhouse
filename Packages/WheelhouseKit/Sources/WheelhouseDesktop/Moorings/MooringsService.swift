@@ -547,6 +547,8 @@ public actor MooringsService: MooringsSourceAdding {
     public func prepareAdoption(id: ClusterID) throws -> Adoption {
         guard let ctx = state.context(for: id), let server = ctx.context.server else { throw MooringsError.notAvailable }
         guard !ctx.blockedInDevelopment else { throw DevSafetyError.hostNotAllowed(server.host() ?? "") }
+        // An adopted cluster gets a new (UUID) id, so the Production hold would never apply to it: adoption needs a Check first.
+        guard !state.isContactHeld(id) else { throw MooringsError.notChecked }
         let override = state.overrides.override(for: id) ?? DiscoveredOverride()
         guard var cluster = state.makeConfig(for: ctx, override: override) else { throw MooringsError.notAvailable }
         var secrets = DiscoveredSecrets.resolve(ctx.context, gate: config.gate)
@@ -570,10 +572,13 @@ public enum MooringsError: Error, Equatable, Sendable, LocalizedError {
     case authorizationDenied
     case notAvailable
     case credentialsUnreadable
+    /// A Production-suggested context must be checked (or opened) before it can be adopted.
+    case notChecked
     public var errorDescription: String? {
         switch self {
         case .authorizationDenied: "Changes were not allowed."
         case .notAvailable: "This context is not available any more."
+        case .notChecked: "Check this cluster first. It is suggested as Production and has not been contacted."
         case .credentialsUnreadable: "The credential files of this context could not be read, so it can’t be adopted."
         }
     }

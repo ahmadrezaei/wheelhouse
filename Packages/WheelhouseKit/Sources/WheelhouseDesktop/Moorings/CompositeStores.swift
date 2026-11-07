@@ -75,7 +75,29 @@ public final class CompositeMetadataStore: ClusterMetadataStoring {
         let discovered = clusters.filter { $0.origin != nil }
         keychainClusters.forEach { servers.set($0.server, for: $0.id) }
         try keychain.save(keychainClusters)
+        reconcileSecretSync(keychainClusters)
         try saveOverlay(discovered)
+    }
+
+    /// The registry asks before it writes secrets for a cluster that is not persisted yet.
+    public func effectiveSync(for config: ClusterConfig) -> Bool {
+        servers.set(config.server, for: config.id)
+        return sanitizedForSync(config).iCloudSync
+    }
+
+    /// Keeps the secrets in step with the persisted flag: a secret saved non-synchronizable while its server was unknown becomes
+    /// synchronizable only if the cluster may sync; a flag that went true to false moves the secret and the Prometheus token off iCloud.
+    private func reconcileSecretSync(_ clusters: [ClusterConfig]) {
+        for c in clusters {
+            let was = servers.recordSync(c.iCloudSync, for: c.id)
+            if servers.takePending(c.id), c.iCloudSync, let secrets = try? credentials.load(clusterID: c.id), !secrets.isEmpty {
+                try? credentials.save(secrets, clusterID: c.id, synchronizable: true)
+            }
+            if was == true, !c.iCloudSync {
+                if let secrets = try? credentials.load(clusterID: c.id), !secrets.isEmpty { try? credentials.save(secrets, clusterID: c.id, synchronizable: false) }
+                if let token = PrometheusTokenStore.load(clusterID: c.id) { _ = PrometheusTokenStore.save(token, clusterID: c.id, synchronizable: false) }
+            }
+        }
     }
 
     /// Forces `iCloudSync = false` for an exec-adopted cluster (iOS cannot run plugins) and for a loopback server.
@@ -104,8 +126,12 @@ public final class CompositeMetadataStore: ClusterMetadataStoring {
             let defaultName = state.context(for: config.id)?.displayName ?? o.lastKnown?.displayName
             o.name = config.name == defaultName ? nil : config.name
             if let computed, config.environment != (o.environment ?? computed.environment) {
-                o.environment = config.environment
-                o.environmentChosen = true
+                // Production is never lowered here: that needs `MooringsService.allowChanges` (authentication). Raising is fine.
+                let current = o.environment ?? computed.environment
+                if current != .production {
+                    o.environment = config.environment
+                    o.environmentChosen = true
+                }
             }
             // Saving never leaves read-only: only `MooringsService.allowChanges` does (explicit environment, Touch ID for Production).
             // It can still turn read-only ON. M1b's Cluster Settings toggle must call `allowChanges` to turn it off.
@@ -126,17 +152,17 @@ public final class CompositeCredentialStore: CredentialStoring {
     private let state: MooringsState
     private let gate: DevSafetyPolicy
     private let settings: MacClusterSettingsStore?
-    private let serverLookup: @Sendable (ClusterID) -> URL?
+    private let index: ServerIndex
 
     /// `settings` and `serverLookup` enforce the sync blocks for Keychain secrets: an exec-adopted cluster and a loopback server are
     /// always stored with `synchronizable = false`, whatever the caller asks for.
     public init(keychain: any CredentialStoring, state: MooringsState, gate: DevSafetyPolicy = .current,
-                settings: MacClusterSettingsStore? = nil, serverLookup: @escaping @Sendable (ClusterID) -> URL? = { _ in nil }) {
+                settings: MacClusterSettingsStore? = nil, index: ServerIndex = ServerIndex()) {
         self.keychain = keychain
         self.state = state
         self.gate = gate
         self.settings = settings
-        self.serverLookup = serverLookup
+        self.index = index
     }
 
     static func isDiscovered(_ id: ClusterID) -> Bool { id.hasPrefix("kc-") }
@@ -153,7 +179,14 @@ public final class CompositeCredentialStore: CredentialStoring {
         var sync = synchronizable
         if sync {
             if settings?.execAdoption(for: clusterID) != nil { sync = false }
-            if let server = serverLookup(clusterID), ServerURL.isLoopback(server) { sync = false }
+            if let server = index.server(for: clusterID) {
+                if ServerURL.isLoopback(server) { sync = false }
+            } else if sync {
+                // The server is not known yet (a first save, before the metadata): fail closed. The metadata save re-saves the
+                // secret as synchronizable once it knows the cluster is allowed to sync.
+                sync = false
+                index.markPending(clusterID)
+            }
         }
         try keychain.save(secrets, clusterID: clusterID, synchronizable: sync)
     }
@@ -166,10 +199,16 @@ public final class CompositeCredentialStore: CredentialStoring {
 }
 #endif
 
-/// A thread-safe `ClusterID` to server map.
+/// A thread-safe `ClusterID` to server map, plus the ids whose secrets were saved NON-synchronizable because their server was not
+/// known yet (fail closed), and the sync flag last persisted per id.
 public final class ServerIndex: Sendable {
-    private let state = Mutex<[ClusterID: URL]>([:])
+    private struct State { var servers: [ClusterID: URL] = [:]; var pending: Set<ClusterID> = []; var lastSync: [ClusterID: Bool] = [:] }
+    private let state = Mutex(State())
     public init() {}
-    public func set(_ url: URL, for id: ClusterID) { state.withLock { $0[id] = url } }
-    public func server(for id: ClusterID) -> URL? { state.withLock { $0[id] } }
+    public func set(_ url: URL, for id: ClusterID) { state.withLock { $0.servers[id] = url } }
+    public func server(for id: ClusterID) -> URL? { state.withLock { $0.servers[id] } }
+    func markPending(_ id: ClusterID) { state.withLock { _ = $0.pending.insert(id) } }
+    func takePending(_ id: ClusterID) -> Bool { state.withLock { $0.pending.remove(id) != nil } }
+    func recordSync(_ value: Bool, for id: ClusterID) -> Bool? { state.withLock { let old = $0.lastSync[id]; $0.lastSync[id] = value; return old } }
+    public var pendingSync: Set<ClusterID> { state.withLock { $0.pending } }
 }
