@@ -5,7 +5,7 @@ import Synchronization
 /// REST client for a real cluster. One instance per cluster; owns its `URLSession` and TLS delegate.
 public actor LiveKubeClient: KubeClientProtocol {
     public nonisolated let config: ClusterConfig
-    private nonisolated let session: URLSession
+    nonisolated let session: URLSession
     nonisolated let delegate: ClusterSessionDelegate
     private nonisolated let token: String?
     private nonisolated let identity: LazyClientIdentity?

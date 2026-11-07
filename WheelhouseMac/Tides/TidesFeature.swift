@@ -1,7 +1,11 @@
 import SwiftUI
 import WheelhouseKit
 
-/// Stub. M9 replaces the contents of this file (and only this folder).
+/// Tides: GitOps with Flux and Argo CD (ARCHITECTURE-MAC §7, DESIGN-MAC §6.10).
+///
+/// Detection is by CRD discovery (the sidebar nodes appear only when a group is served). Reads go through the shared
+/// `unstructuredStore`s, which run only while a Tides view is visible. Every action is a kube API patch behind ConfirmSheet
+/// with a server dry-run first (`GitOpsPlanner` in WheelhouseKit).
 enum TidesFeature: WheelhouseFeature {
     static var id: FeatureID { .tides }
     static var title: String { "Tides" }
@@ -27,6 +31,10 @@ enum TidesFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Tides", milestone: "M9")
+        switch destination {
+        case .tides(let scope): TidesRootView(scope: scope)
+        case .gitopsApp(let ref): GitOpsAppDestinationView(ref: ref)
+        default: FeaturePlaceholderView(title: "Tides", milestone: "M9")
+        }
     }
 }
