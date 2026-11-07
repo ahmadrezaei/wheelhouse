@@ -327,6 +327,7 @@ enum ForwardPump {
         for attempt in 0..<2 {
             do {
                 let endpoint = try await resolve(attempt > 0)
+                try await client.prepareStreaming()
                 let ws = try client.portForwardWebSocket(namespace: target.namespace, pod: endpoint.pod, ports: [endpoint.port])
                 ws.resume()
                 let result = await tunnel(conn: conn, ws: ws, port: endpoint.port, counters: counters)

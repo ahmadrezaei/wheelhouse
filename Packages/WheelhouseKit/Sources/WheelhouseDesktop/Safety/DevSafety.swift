@@ -6,6 +6,8 @@ import WheelhouseKit
 public enum DevSafetyError: Error, Equatable, Sendable, LocalizedError {
     /// A path under `~/.kube` (after resolving symlinks) was about to be read while the gate is active.
     case homeKubeconfig(String)
+    /// A kubeconfig or credential file with more than one hard link (it could be an alias of a protected file).
+    case extraHardLinks(String)
     /// A server host that is not one of the allowed test hosts.
     case hostNotAllowed(String)
     /// The explicit test kubeconfig could not be used.
@@ -16,6 +18,7 @@ public enum DevSafetyError: Error, Equatable, Sendable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .homeKubeconfig: "Development builds can't read ~/.kube."
+        case .extraHardLinks(let p): "Development builds don't read files with extra hard links: \((p as NSString).lastPathComponent)."
         case .hostNotAllowed(let host): "Blocked in development builds: \(host) is not a test cluster."
         case .invalidTestKubeconfig(let why): "The test kubeconfig can't be used: \(why)"
         case .disabledInDevelopment(let what): "\(what) is disabled in development builds."
@@ -83,7 +86,19 @@ public struct DevSafetyPolicy: Sendable {
     /// The user's home directory (injected in tests).
     public var home: URL
 
-    public init(isActive: Bool, allowedHosts: Set<String> = [], home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+    /// The account's real home from the password database. `NSHomeDirectory()` follows `CFFIXED_USER_HOME` and `$HOME`, which a
+    /// launching process can redirect, so it is never the only source of truth.
+    public static let accountHome: URL = {
+        var pwd = passwd()
+        var result: UnsafeMutablePointer<passwd>?
+        var buffer = [CChar](repeating: 0, count: 4096)
+        if getpwuid_r(getuid(), &pwd, &buffer, buffer.count, &result) == 0, result != nil, let dir = pwd.pw_dir {
+            return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    }()
+
+    public init(isActive: Bool, allowedHosts: Set<String> = [], home: URL = DevSafetyPolicy.accountHome) {
         self.isActive = isActive
         self.allowedHosts = allowedHosts
         self.home = home
@@ -155,19 +170,35 @@ public struct DevSafetyPolicy: Sendable {
     /// under another name (a hard link: same device and inode, compared with `stat`).
     public func isUnderHomeKube(_ url: URL) -> Bool {
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
-        let kube = resolvedKubeDirectory.path
-        if resolved == kube || resolved.hasPrefix(kube + "/") { return true }
-        guard let id = Self.fileIdentity(url) else { return false }
-        for protected in [resolvedKubeDirectory.appending(path: "config"), resolvedKubeDirectory] {
-            if let p = Self.fileIdentity(protected), p.dev == id.dev, p.ino == id.ino { return true }
+        let id = Self.fileIdentity(url)
+        // The injected home, the account's real home, `NSHomeDirectory()` and `$HOME` can differ (CFFIXED_USER_HOME, a redirected
+        // environment): a path under the `.kube` of ANY of them is refused.
+        var homes = [home, Self.accountHome, URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)]
+        if let env = ProcessInfo.processInfo.environment["HOME"], env.hasPrefix("/") { homes.append(URL(fileURLWithPath: env, isDirectory: true)) }
+        for h in homes {
+            let kubeDir = h.appending(path: ".kube", directoryHint: .isDirectory).resolvingSymlinksInPath().standardizedFileURL
+            if resolved == kubeDir.path || resolved.hasPrefix(kubeDir.path + "/") { return true }
+            guard let id else { continue }
+            for protected in [kubeDir.appending(path: "config"), kubeDir] {
+                if let p = Self.fileIdentity(protected), p.dev == id.dev, p.ino == id.ino { return true }
+            }
         }
         return false
+    }
+
+    /// True for a regular file with more than one hard link. A hard link can hide any file under another name, so while the gate is
+    /// active no kubeconfig or credential file may have one.
+    static func hasExtraHardLinks(_ url: URL) -> Bool {
+        var st = stat()
+        guard stat(url.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return false }
+        return st.st_nlink > 1
     }
 
     /// Throws ``DevSafetyError/homeKubeconfig(_:)`` for any path under `~/.kube` while the gate is active (every source type).
     public func assertReadable(_ url: URL) throws {
         guard isActive else { return }
         if isUnderHomeKube(url) { throw DevSafetyError.homeKubeconfig(url.path) }
+        if Self.hasExtraHardLinks(url) { throw DevSafetyError.extraHardLinks(url.path) }
     }
 }
 #endif

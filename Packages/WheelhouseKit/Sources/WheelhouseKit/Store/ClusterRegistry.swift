@@ -209,6 +209,7 @@ public final class ClusterRegistry {
     public func add(_ config: ClusterConfig, secrets: ClusterSecrets) throws {
         var config = config
         config.modifiedAt = Date()
+        config.iCloudSync = metadata.effectiveSync(for: config)
         try credentials.save(secrets, clusterID: config.id, synchronizable: config.iCloudSync)
         realClusters.append(config)
         try persist()
@@ -223,6 +224,7 @@ public final class ClusterRegistry {
         let old = realClusters[i]
         var config = config
         config.modifiedAt = Date()
+        config.iCloudSync = metadata.effectiveSync(for: config)
         if secrets != nil || old.iCloudSync != config.iCloudSync {
             let existing = try secrets ?? credentials.load(clusterID: config.id)
             do {
@@ -273,6 +275,36 @@ public final class ClusterRegistry {
         if currentClusterID == id { currentClusterID = realClusters.first?.id }
         removed = true
         try persist()
+    }
+
+    /// Re-reads the metadata store (Mac: Moorings found, changed or lost contexts). New clusters are appended, removed ones are
+    /// dropped with their sessions, and a cluster whose config changed in something its client is built from (or that is listed in
+    /// `invalidating`) gets a new session. Posts ``ClusterEvents/invalidated`` for each affected cluster. Additive: iOS never calls it.
+    public func reloadFromStore(invalidating: Set<ClusterID> = []) {
+        let loaded = metadata.load()
+        let loadedIDs = Set(loaded.map(\.id))
+        for old in realClusters where !loadedIDs.contains(old.id) {
+            sessions[old.id]?.invalidateAll(); sessions[old.id] = nil
+            transientSessions[old.id]?.session.invalidateAll(); transientSessions[old.id] = nil
+            namespaceSelections[old.id] = nil
+            ClusterEvents.postInvalidated(old.id, removed: true)
+        }
+        var next: [ClusterConfig] = []
+        for old in realClusters { if let updated = loaded.first(where: { $0.id == old.id }) { next.append(updated) } }
+        let known = Set(next.map(\.id))
+        next += loaded.filter { !known.contains($0.id) }
+        for new in next {
+            guard let old = realClusters.first(where: { $0.id == new.id }) else { continue }
+            if invalidating.contains(new.id) || Self.requiresNewClient(old, new) {
+                sessions[new.id]?.invalidateAll(); sessions[new.id] = nil
+                transientSessions[new.id]?.session.invalidateAll(); transientSessions[new.id] = nil
+                ClusterEvents.postInvalidated(new.id, removed: false)
+            } else if old != new {
+                sessions[new.id]?.update(config: new)
+            }
+        }
+        realClusters = next
+        if !realClusters.contains(where: { $0.id == currentClusterID }) { currentClusterID = realClusters.first?.id }
     }
 
     public func move(fromOffsets: IndexSet, toOffset: Int) {

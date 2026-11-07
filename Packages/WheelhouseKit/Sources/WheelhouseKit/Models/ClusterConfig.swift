@@ -75,6 +75,9 @@ public struct ClusterConfig: Identifiable, Codable, Hashable, Sendable {
     public var isDemo: Bool
     public var createdAt: Date
     public var modifiedAt: Date
+    /// Mac only: where a discovered cluster comes from. `nil` = a Keychain or imported cluster (the iOS meaning). Deliberately NOT a
+    /// coding key: it is never encoded, so no mirror, file or older decoder ever sees it (see ``ClusterOrigin``).
+    public var origin: ClusterOrigin? = nil
     /// Keys this build does not know (written by a newer app). Ignored when reading, written back unchanged when the config is
     /// re-saved, so an older device never strips data another device added.
     public internal(set) var unknownFields: [String: JSONValue] = [:]
