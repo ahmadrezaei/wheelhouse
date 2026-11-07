@@ -45,38 +45,18 @@ public enum DevSafety {
 
     /// true = development safety ON (the default for every build except Distribution).
     ///
-    /// Reading this never does file I/O and never calls Security, so it is safe in `App.init` on the main thread. A Distribution
-    /// candidate reads as ON (fail closed) until ``resolveSignatureInBackground(completion:)`` has checked the code signature
-    /// off the main thread; every other build is decided immediately and permanently.
+    /// Decided exactly once, on the first read, and never changed afterwards. Debug, Profile and local Release builds are decided
+    /// from Info.plist and the bundle ID alone and make no Security call. Only a Distribution candidate (`WHDevSafety` = `NO` with the
+    /// shipped bundle ID) checks its code signature, synchronously, on that first read.
     public static var isActive: Bool {
         gateState.withLock { state in
             if let state { return state }
-            if !isDistributionCandidate(info: Bundle.main.infoDictionary ?? [:], bundleID: Bundle.main.bundleIdentifier) { state = true; return true }
-            return true
-        }
-    }
-
-    /// False while a Distribution candidate's signature check is still pending (the gate then reads as ON).
-    public static var isResolved: Bool {
-        gateState.withLock { state in
-            if state != nil { return true }
-            return !isDistributionCandidate(info: Bundle.main.infoDictionary ?? [:], bundleID: Bundle.main.bundleIdentifier)
-        }
-    }
-
-    /// Checks the running app's code signature on a utility queue, once, and caches the answer. Does nothing for builds that are
-    /// not Distribution candidates (they never need Security). `completion` runs on that queue.
-    public static func resolveSignatureInBackground(completion: (@Sendable (Bool) -> Void)? = nil) {
-        let info = Bundle.main.infoDictionary ?? [:], bundleID = Bundle.main.bundleIdentifier
-        guard isDistributionCandidate(info: info, bundleID: bundleID), !isResolved else { completion?(isActive); return }
-        DispatchQueue.global(qos: .utility).async {
-            let active = evaluate(info: info, bundleID: bundleID, signature: CodeSignature.ofRunningApp())
-            let final = gateState.withLock { state -> Bool in
-                if let state { return state }
-                state = active
-                return active
-            }
-            completion?(final)
+            let info = Bundle.main.infoDictionary ?? [:], bundleID = Bundle.main.bundleIdentifier
+            let value = isDistributionCandidate(info: info, bundleID: bundleID)
+                ? evaluate(info: info, bundleID: bundleID, signature: CodeSignature.ofRunningApp())
+                : true
+            state = value
+            return value
         }
     }
 

@@ -3,8 +3,8 @@ import Testing
 import Foundation
 @testable import WheelhouseDesktop
 
-/// The gate is decided at launch without Security: only a Distribution candidate needs the code-signature check, which then runs off
-/// the main thread while the gate reads as ON (fail closed).
+/// The gate is decided on its first read and never changes afterwards. Only a Distribution candidate needs the code-signature check,
+/// which runs synchronously on that first read.
 @Suite("DevSafety launch")
 struct DevSafetyLaunchTests {
     @Test func onlyADistributionBuildIsACandidateForTurningTheGateOff() {
@@ -16,13 +16,11 @@ struct DevSafetyLaunchTests {
         #expect(!DevSafety.isDistributionCandidate(info: ["WHDevSafety": "NO"], bundleID: nil))
     }
 
-    @Test func aBuildThatIsNotACandidateIsDecidedWithoutSecurity() {
-        // The test bundle is not a Distribution app: reading the gate decides it at once and calls no signature code.
-        #expect(DevSafety.isActive)
-        #expect(DevSafety.isResolved)
-        nonisolated(unsafe) var completed = false
-        DevSafety.resolveSignatureInBackground { _ in completed = true }
-        #expect(completed)                                    // completes synchronously: nothing was dispatched
+    @Test func theGateIsDecidedOnceAndNeverChanges() {
+        // The test bundle is not a Distribution app: the first read decides it from Info.plist alone (no Security call), ON.
+        let first = DevSafety.isActive
+        #expect(first)
+        for _ in 0..<50 { #expect(DevSafety.isActive == first) }
     }
 
     @Test func theConfigurationErrorIsStoredForTheImportUI() {

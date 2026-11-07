@@ -32,6 +32,7 @@ struct WheelhouseMacApp: App {
         .commands { MacCommands(env: env) }
         Settings {
             MacSettingsView().environment(env).environment(env.registry).environment(env.preferences)
+                .environment(\.clusterClientFactory, MacAppEnvironment.guardedClientFactory())
         }
     }
 }

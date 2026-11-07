@@ -11,6 +11,7 @@
 		02FFED5D30E66EF238D02E44 /* SessionsHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309FD722690ACE35D393E993 /* SessionsHub.swift */; };
 		03381643954AD1B9FC1ADC14 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5059A2198553AB06D391E97A /* ShellModel.swift */; };
 		0580638D2F6B10FC247CD065 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C9C52EE391C749B058D73B /* main.swift */; };
+		05EE3699B3DFEA88FDCA7BD2 /* ClusterClientFactoryKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */; };
 		084E1734EA95E59104BCB6A9 /* DrainSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2BA55B44724291DF21B17F /* DrainSheet.swift */; };
 		08D23AF20991B264DC6474C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C7BB97A1F3B0DDEAA77F6CC6 /* Assets.xcassets */; };
 		09D07F7ACCA1C414F9FC99E9 /* DetailParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80B5A977728C271B46021ACC /* DetailParts.swift */; };
@@ -240,6 +241,7 @@
 		E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
 		E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60529108D22876F77D9BC34D /* TidesTests.swift */; };
 		E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A46A647721E3C56CE978924 /* MooringsFeature.swift */; };
+		E489FC81C9B9C09E5B3F5254 /* ClusterClientFactoryKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */; };
 		E60A0441AE08B68A5C6FB5ED /* UpdatesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC31A097551011978189FEA /* UpdatesPane.swift */; };
 		E76FADA898F4573A68220E9C /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2491B10D0A4DEEFA08E0CA5E /* WheelhouseKit */; };
 		E8DBC9A5BFAC199B4163EA00 /* BiometryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F571944261785B64EFE1268 /* BiometryKind.swift */; };
@@ -448,6 +450,7 @@
 		73ED59F4234D11F4C3D73D8B /* MacEnergyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacEnergyCoordinator.swift; sourceTree = "<group>"; };
 		7748F223C621D083612450AB /* ReleaseDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseDetailView.swift; sourceTree = "<group>"; };
 		77ADCA66968AED2346DE5301 /* wh-pty-exec */ = {isa = PBXFileReference; includeInIndex = 0; path = "wh-pty-exec"; sourceTree = BUILT_PRODUCTS_DIR; };
+		792E8557F92B43B695C7EF1C /* WheelhouseMacUI.xctestplan */ = {isa = PBXFileReference; path = WheelhouseMacUI.xctestplan; sourceTree = "<group>"; };
 		7A118008A70158B94776F981 /* TerminalExtraKeysBar+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalExtraKeysBar+iOS.swift"; sourceTree = "<group>"; };
 		7A7FBC7A6606669B9B7F41D5 /* wheelhouse-mcp */ = {isa = PBXFileReference; includeInIndex = 0; path = "wheelhouse-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AEB9A8F06EBB72B0B3ADD38 /* AdvancedPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPane.swift; sourceTree = "<group>"; };
@@ -499,6 +502,7 @@
 		B5305FABCD1583085D1278F4 /* RootView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+iOS.swift"; sourceTree = "<group>"; };
 		B5830746258110C64A63B1FE /* PerfScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfScenario.swift; sourceTree = "<group>"; };
 		B6D6CEB1D55B12F7AE3BD204 /* SurveyModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyModelTests.swift; sourceTree = "<group>"; };
+		B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterClientFactoryKey.swift; sourceTree = "<group>"; };
 		B92939BAB81753820027D51F /* TidesOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesOverviewView.swift; sourceTree = "<group>"; };
 		BA37AF948581F58A22C8045D /* Distribution.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Distribution.xcconfig; sourceTree = "<group>"; };
 		BC05C15A1E8ED6D6E42BBBCB /* RiggingFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiggingFeature.swift; sourceTree = "<group>"; };
@@ -894,6 +898,7 @@
 			children = (
 				25DBC4EC930E2924210B3E63 /* AppLockController.swift */,
 				18E629946671A1519BEFD10D /* AppRouter.swift */,
+				B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */,
 				7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */,
 				F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */,
 				53995759C6782852A5AF1FCC /* LockScreenView.swift */,
@@ -1148,6 +1153,7 @@
 		EC28128F2CCE8A09023C0327 /* WheelhouseMacUITests */ = {
 			isa = PBXGroup;
 			children = (
+				792E8557F92B43B695C7EF1C /* WheelhouseMacUI.xctestplan */,
 				34124FD5A5071D426525B826 /* WheelhouseMacUITests.swift */,
 			);
 			path = WheelhouseMacUITests;
@@ -1637,6 +1643,7 @@
 				1FCAC21B7201297D8127B3AD /* ChartRoomServices.swift in Sources */,
 				EDCF1277DD6D4F3C92553E47 /* ChartRoomView.swift in Sources */,
 				3E5BA1537C5DFEAE142973A9 /* ChartsAndRepositoriesView.swift in Sources */,
+				05EE3699B3DFEA88FDCA7BD2 /* ClusterClientFactoryKey.swift in Sources */,
 				97F4FD62A35AC8EFF6623C03 /* ClusterDashModel.swift in Sources */,
 				40662D5001B9122EA45961C1 /* ClusterDashboardView.swift in Sources */,
 				852158A06D2CDAAB2C8FC351 /* ClustersPane.swift in Sources */,
@@ -1789,6 +1796,7 @@
 				65948EB387DC93FDDEA48937 /* BackgroundRefresh+iOS.swift in Sources */,
 				210AA3728CC12AA81BDBC053 /* BasicTerminalSurface+iOS.swift in Sources */,
 				E8DBC9A5BFAC199B4163EA00 /* BiometryKind.swift in Sources */,
+				E489FC81C9B9C09E5B3F5254 /* ClusterClientFactoryKey.swift in Sources */,
 				D93BFC6950ACF2C590D4DA8C /* ClusterDashModel.swift in Sources */,
 				9622618BE33BFBE12B03B5F0 /* ClusterDashboardView.swift in Sources */,
 				EC8AAD8583824DD80C230B28 /* CodeEditor+Shared.swift in Sources */,

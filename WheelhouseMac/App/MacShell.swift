@@ -20,14 +20,17 @@ struct MacShell: View {
 
     private var registry: ClusterRegistry { env.registry }
     private var showsWelcome: Bool { registry.clusters.isEmpty && !registry.isDemoMode }
+    private var locked: Bool { env.lock.isLocked }
+    private var clientFactory: ClusterRegistry.ClientFactory { MacAppEnvironment.guardedClientFactory() }
 
     var body: some View {
         @Bindable var router = router
         @Bindable var importer = env.importer
         ZStack {
-            if !env.isReady {
-                ProgressView().controlSize(.small).accessibilityLabel("Starting").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if showsWelcome { WelcomeView().environment(router) } else { workspace }
+            // Demo needs no test kubeconfig, so it never waits for the folder prompt.
+            if !env.isReady && !registry.isDemoMode {
+                StartingView()
+            } else if showsWelcome { WelcomeView().environment(router) } else { workspace.disabled(locked).accessibilityHidden(locked) }
             if env.lock.isLocked {
                 LockScreenView().environment(env.lock.controller).transition(.identity)
             }
@@ -39,6 +42,7 @@ struct MacShell: View {
         .environment(network)
         .environment(env.sidebar)
         .environment(\.kubeconfigImportPolicy, env.importer.policy)
+        .environment(\.clusterClientFactory, clientFactory)
         .focusedSceneValue(\.router, router)
         .focusedSceneValue(\.macNavigation, env.navigation)
         .tint(Palette.tint)
@@ -47,12 +51,14 @@ struct MacShell: View {
             SheetRouteView(route: presented.route)
                 .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
                 .environment(\.kubeconfigImportPolicy, env.importer.policy)
+                .environment(\.clusterClientFactory, clientFactory)
                 .frame(minWidth: 520, minHeight: 480)
         }
         .sheet(item: $importer.presented) { request in
             NavigationStack { KubeconfigImportView(initialFile: request.url) }
                 .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
                 .environment(\.kubeconfigImportPolicy, env.importer.policy)
+                .environment(\.clusterClientFactory, clientFactory)
                 .frame(minWidth: 560, minHeight: 520)
         }
         // A tap on a notification, a deep link or a Finder "Open With" lands here.
@@ -66,9 +72,9 @@ struct MacShell: View {
         .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.tint, style: StrokeStyle(lineWidth: 3, dash: [8, 6])).padding(6).allowsHitTesting(false) } }
         .task {
             router.isCompact = false
-            env.startServices()
             NotificationCoordinator.shared.install { handle($0) }
             env.whenReady {
+                env.startServices()
                 if let id = registry.currentCluster?.id { env.sidebar.focus(cluster: id) }
                 openLaunchRequests()
             }
@@ -86,6 +92,7 @@ struct MacShell: View {
                 router.sheet = nil
                 ChartRoomMemory.scrub()
                 env.importer.dismiss()
+                Self.coverWindows()
             } else {
                 if let url = pendingURL { pendingURL = nil; handle(url) }
                 env.importer.presentDeferred()
@@ -117,6 +124,15 @@ struct MacShell: View {
         .navigationSplitViewStyle(.balanced)
     }
 
+    /// Locking takes the keyboard away from every window (a focused text field or table would otherwise keep receiving keys beneath
+    /// the overlay) and closes the Settings window, which the overlay of this window does not cover.
+    private static func coverWindows() {
+        for window in NSApp.windows {
+            window.makeFirstResponder(nil)
+            if window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true { window.close() }
+        }
+    }
+
     // MARK: Opening things
 
     private func handle(_ url: URL) {
@@ -141,4 +157,26 @@ struct MacShell: View {
 
 extension FocusedValues {
     @Entry var macNavigation: MacNavigation?
+}
+
+/// Shown until the allowed hosts are known. After five seconds it says what it is waiting for: macOS may be asking for access to the
+/// folder that holds the test kubeconfig, and the prompt can sit behind other windows.
+private struct StartingView: View {
+    @State private var waitedLong = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView().controlSize(.small).accessibilityLabel("Starting")
+            if waitedLong {
+                Text("Waiting for access to the folder with the test kubeconfig")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            try? await Task.sleep(for: .seconds(5))
+            waitedLong = true
+        }
+    }
 }

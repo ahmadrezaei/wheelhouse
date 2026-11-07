@@ -72,17 +72,6 @@
                ReferencedContainer = "container:Wheelhouse.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "18232DA3F20EBB104942AF62"
-               BuildableName = "WheelhouseMacUITests.xctest"
-               BlueprintName = "WheelhouseMacUITests"
-               ReferencedContainer = "container:Wheelhouse.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

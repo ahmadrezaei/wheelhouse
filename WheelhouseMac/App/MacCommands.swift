@@ -13,6 +13,8 @@ struct MacCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     private var registry: ClusterRegistry { env.registry }
+    /// While App Lock is on every command that reaches content is off; only Lock and Quit (and the app menu) stay.
+    private var locked: Bool { env.lock.isLocked }
     private var readOnlyCurrent: Bool { registry.currentCluster?.readOnly ?? true }
 
     private func go(_ destination: SidebarDestination) {
@@ -31,6 +33,7 @@ struct MacCommands: Commands {
 
         // File
         CommandGroup(replacing: .newItem) {
+            Group {
             Button("New Window") { openWindow(id: "workspace") }.keyboardShortcut("n")
             Divider()
             Button("Add Cluster with Token…") { router?.push(.addCluster) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(router == nil)
@@ -42,19 +45,25 @@ struct MacCommands: Commands {
             .disabled(router == nil || registry.currentCluster == nil || readOnlyCurrent)
             Divider()
             Button("Open File…") { env.importer.presentOpenPanel(whileLocked: env.lock.isLocked) }.keyboardShortcut("o")
+            }
+            .disabled(locked)
         }
 
         // View
         SidebarCommands()
         CommandGroup(after: .sidebar) {
+            Group {
             Button("Filter Sidebar…") { filterFocus?.run() }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(filterFocus == nil)
             Toggle("Show Forbidden Kinds", isOn: Binding(get: { env.sidebar.showsForbiddenKinds }, set: { env.sidebar.showsForbiddenKinds = $0 }))
             Button("Expand All Groups") { if let id = registry.currentCluster?.id { env.sidebar.setAllGroups(expanded: true, in: id) } }
             Button("Collapse All Groups") { if let id = registry.currentCluster?.id { env.sidebar.setAllGroups(expanded: false, in: id) } }
+            }
+            .disabled(locked)
         }
 
         // Go
         CommandMenu("Go") {
+            Group {
             Button("Search…") { go(.search) }.keyboardShortcut("f").disabled(router == nil)
             Divider()
             Button("Fleet") { go(.fleet) }.keyboardShortcut("0").disabled(router == nil)
@@ -66,6 +75,8 @@ struct MacCommands: Commands {
             Divider()
             Button("Alerts") { go(.alerts) }.keyboardShortcut("a", modifiers: [.command, .option]).disabled(router == nil)
             Button("Sessions") { go(.sessions) }.keyboardShortcut("e", modifiers: [.command, .option]).disabled(router == nil)
+            }
+            .disabled(locked)
         }
     }
 }

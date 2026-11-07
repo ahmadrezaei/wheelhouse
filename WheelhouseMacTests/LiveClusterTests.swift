@@ -38,7 +38,7 @@ struct LiveClusterTests {
         made.config.environment = environment
         made.config.readOnly = readOnly
         let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: UserDefaults(suiteName: "wh.live.tests")!,
-                                       clientFactory: MacAppEnvironment.guardedClientFactory(gate: .current))
+                                       clientFactory: MacAppEnvironment.guardedClientFactory())
         try registry.add(made.config, secrets: made.secrets)
         let session = try #require(registry.session(for: made.config.id))
         return Live(registry: registry, session: session, config: made.config)

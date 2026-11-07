@@ -69,7 +69,8 @@ struct KubeconfigFileInliner {
     }
 
     private func assertAllowed(_ url: URL) throws {
-        if gate.isActive, gate.isUnderHomeKube(url) { throw Failure.homeKube(url.path) }
+        // `assertReadable` also covers symlinks and hard links into ~/.kube (device and inode), exactly like the kubeconfig itself.
+        do { try gate.assertReadable(url) } catch { throw Failure.homeKube(url.path) }
     }
 
     private func read(_ url: URL, display: String) throws -> Data {

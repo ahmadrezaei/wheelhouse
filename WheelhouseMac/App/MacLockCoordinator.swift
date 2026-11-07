@@ -10,8 +10,9 @@ import WheelhouseKit
 /// - locking on **sleep** (`NSWorkspace.willSleepNotification`) and when the **screen locks** (`com.apple.screenIsLocked`),
 ///   each switchable in Settings and on by default;
 /// - **Lock Wheelhouse** (Wheelhouse menu, no default shortcut: ⌥⌘L is Previous Logs);
-/// - the overlay: `MacShell` draws `LockScreenView` over every workspace window and turns hit testing off beneath it, sheets are
-///   dismissed, and a file that arrives while locked is held until unlock.
+/// - coverage: `MacShell` draws `LockScreenView` over the workspace, disables the workspace and hides it from accessibility,
+///   resigns the first responder of every window, closes the Settings window and dismisses sheets; the File, View and Go
+///   commands are disabled (Lock and Quit stay). A file that arrives while locked is held until unlock.
 ///
 /// The cold launch with App Lock on starts locked, so no content is ever drawn first.
 @MainActor @Observable

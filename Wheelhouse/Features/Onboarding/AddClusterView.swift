@@ -8,6 +8,7 @@ struct AddClusterView: View {
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
+    @Environment(\.clusterClientFactory) private var clientFactory
     @Environment(\.dismiss) private var dismiss
 
     private let editingID: ClusterID?
@@ -233,7 +234,7 @@ struct AddClusterView: View {
         guard let config = draft.makeConfig() else { return }
         test = .running
         let secrets = draft.makeSecrets(existing: existingSecrets())
-        let client = LiveKubeClient(config: config, secrets: secrets, tlsServerName: config.tlsServerName)
+        let client = clientFactory(config, secrets)
         let result = await ConnectionTester.run(client: client, namespace: config.defaultNamespace)
         if !Task.isCancelled { test = .done(result) }
     }

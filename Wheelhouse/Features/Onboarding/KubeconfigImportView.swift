@@ -19,6 +19,7 @@ struct KubeconfigImportView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
     @Environment(\.kubeconfigImportPolicy) private var policy
+    @Environment(\.clusterClientFactory) private var clientFactory
     @Environment(\.dismiss) private var dismiss
 
     @State private var config: Kubeconfig?
@@ -354,11 +355,14 @@ struct KubeconfigImportView: View {
     private func testSelected(_ kc: Kubeconfig) async {
         let targets = kc.contexts.filter { selection.contains($0.id) }
         for c in targets { results[c.id] = .running }
+        let makeClient = clientFactory
         await withTaskGroup(of: (String, ConnectionTestResult).self) { group in
             for c in targets {
                 guard let (cfg, secrets) = build(c, forTest: true) else { continue }
                 group.addTask {
-                    let client = LiveKubeClient(config: cfg, secrets: secrets, tlsServerName: c.tlsServerName)
+                    var config = cfg
+                    config.tlsServerName = c.tlsServerName ?? cfg.tlsServerName
+                    let client = makeClient(config, secrets)
                     return (c.id, await ConnectionTester.run(client: client, namespace: cfg.defaultNamespace))
                 }
             }

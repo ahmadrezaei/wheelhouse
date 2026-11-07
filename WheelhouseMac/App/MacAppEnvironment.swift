@@ -53,9 +53,11 @@ final class MacAppEnvironment {
 
     /// Every client is built through this: while the gate is active a server that is not an allowed test host is pointed at a
     /// reserved name that never resolves (`*.invalid`), so it can only fail. M3's `DesktopClientFactory` replaces it.
-    nonisolated static func guardedClientFactory(gate: DevSafetyPolicy) -> ClusterRegistry.ClientFactory {
-        let base = ClusterRegistry.defaultClientFactory
-        return { config, secrets in base(gatedConfig(config, gate: gate), secrets) }
+    /// `gate` is evaluated on EVERY call, not captured: the allowed hosts are configured after launch, and a factory that captured the
+    /// gate during `App.init` would rewrite every server to the blocked name for good.
+    nonisolated static func guardedClientFactory(gate: @escaping @Sendable () -> DevSafetyPolicy = { .current },
+                                                 base: @escaping ClusterRegistry.ClientFactory = ClusterRegistry.defaultClientFactory) -> ClusterRegistry.ClientFactory {
+        return { config, secrets in base(gatedConfig(config, gate: gate()), secrets) }
     }
 
     /// The config a client is built from: unchanged for Demo clusters, allowed hosts and an inactive gate; otherwise the server is
@@ -70,7 +72,8 @@ final class MacAppEnvironment {
     /// Builds the environment. This runs in `App.init` on the main thread: it does NO file read of the test kubeconfig and NO Security
     /// call (the code-signature check and the kubeconfig read happen in `start(reader:)` on a utility queue after launch).
     /// `reader` is a test seam that records where the read happens.
-    static func live(reader: @escaping @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }) -> MacAppEnvironment {
+    static func live(reader: @escaping @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) },
+                     testKubeconfig explicitTestFile: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig()) -> MacAppEnvironment {
         let gateActive = DevSafety.isActive
         // While the gate is on (Debug, Profile, local Release) the app group and both keychain groups are forced to the Debug
         // ones, whatever Info.plist says: a local Release build then cannot open the production group container or name the shared
@@ -81,7 +84,7 @@ final class MacAppEnvironment {
 
         // The explicit test kubeconfig (never ~/.kube) defines the only allowed hosts while the gate is active. It is READ later, off the
         // main thread (`start(reader:)`): it may live in a folder that macOS protects with a prompt, which must never block launch.
-        let testFile = gateActive ? KubeconfigDiscoveryPolicy.explicitTestKubeconfig() : nil
+        let testFile = gateActive ? explicitTestFile : nil
         if gateActive, testFile == nil { notes.append("no test kubeconfig") }
         try? paths.prepare()
 
@@ -95,10 +98,9 @@ final class MacAppEnvironment {
 
         // Real clusters live in the Debug keychain group (credentials) and a JSON file under the isolated app-support folder
         // (list). The iCloud mirror is used only when the gate is off (Distribution).
-        let gate = DevSafetyPolicy.current
         let metadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: !gateActive)
         let registry = ClusterRegistry(credentials: KeychainCredentialStore(), metadata: metadata, defaults: defaults,
-                                       clientFactory: guardedClientFactory(gate: gate))
+                                       clientFactory: guardedClientFactory())
         // `-WHResetState` (development builds only): start from an empty cluster list, as UI tests need.
         if gateActive, ProcessInfo.processInfo.arguments.contains("-WHResetState") {
             for c in registry.clusters where !c.isDemo { try? registry.remove(id: c.id) }
@@ -119,10 +121,9 @@ final class MacAppEnvironment {
 
     @ObservationIgnored private var notes: [String] = []
 
-    /// After launch: resolves the code-signature gate and reads the test kubeconfig, both on a utility queue, exactly once (a denial or a
+    /// After launch: reads the test kubeconfig on a utility queue, exactly once (a denial or a
     /// failure is reported and never retried). Fail-closed throughout: until it finishes the gate is ON and no host is allowed.
     func start() {
-        DevSafety.resolveSignatureInBackground()
         guard let file = testKubeconfig, hostsState == .pending else { finishHosts(.notConfigured); return }
         let reader = self.reader
         DispatchQueue.global(qos: .utility).async { [weak self] in
