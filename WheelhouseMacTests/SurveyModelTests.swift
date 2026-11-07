@@ -44,8 +44,10 @@ struct SurveyModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let finding = SecurityFinding(ruleID: "WH-W07", severity: .low, clusterID: "c", namespace: "n", object: FindingObject(kind: "Deployment", namespace: "n", name: "d"),
                                       title: "t", evidence: [])
-        let hub = SurveyHub(riskFile: url)
+        var prepared = 0
+        let hub = SurveyHub(riskFile: url, prepare: { prepared += 1 })
         hub.accept(finding, scope: .ruleInNamespace, reason: "tracked", days: 90)
+        #expect(prepared == 1)
         let again = SurveyHub(riskFile: url)
         #expect(again.risks.status(of: finding).isAccepted)
         again.removeRisk(again.risks.risks[0].id)
@@ -70,6 +72,10 @@ struct SurveyModelTests {
         let rows = SurveyFilters.rows(from: [report], names: ["c": "Cluster"], category: .workload, book: book)
         #expect(rows.count == 3)
         #expect(SurveyFilters.apply(rows, severity: nil, search: "", hideSystemNamespaces: true, showAccepted: false, namespace: nil).map(\.finding.ruleID) == ["WH-W01"])
+        // access findings in kube-system are never hidden by the system-namespace switch
+        let access = SecurityFinding(ruleID: "WH-A05", severity: .high, clusterID: "c", namespace: "kube-system", object: FindingObject(kind: "User", name: "u"), title: "t", evidence: [])
+        let accessRows = [FindingRow(finding: access, status: .open, clusterName: "Cluster")]
+        #expect(SurveyFilters.apply(accessRows, severity: nil, search: "", hideSystemNamespaces: true, showAccepted: false, namespace: nil).count == 1)
         #expect(SurveyFilters.apply(rows, severity: .low, search: "", hideSystemNamespaces: false, showAccepted: true, namespace: nil).count == 2)
         #expect(SurveyFilters.apply(rows, severity: nil, search: "w07", hideSystemNamespaces: false, showAccepted: true, namespace: "kube-system").count == 1)
     }

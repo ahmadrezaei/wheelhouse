@@ -21,12 +21,15 @@ public struct ContainerSecurity: Hashable, Sendable {
     public var hostPorts: [Int]
     public var hasCPULimit: Bool
     public var hasMemoryLimit: Bool
+    public var hostProcess: Bool?
+    public var isEphemeral: Bool
 
     public init(name: String, isInit: Bool = false, image: String = "", privileged: Bool? = nil, allowPrivilegeEscalation: Bool? = nil,
                 runAsNonRoot: Bool? = nil, runAsUser: Int? = nil, readOnlyRootFilesystem: Bool? = nil, capabilitiesAdd: [String] = [],
                 capabilitiesDrop: [String] = [], seccompType: String? = nil, appArmorType: String? = nil, procMount: String? = nil,
                 seLinuxType: String? = nil, seLinuxUser: String? = nil, seLinuxRole: String? = nil, hostPorts: [Int] = [],
-                hasCPULimit: Bool = false, hasMemoryLimit: Bool = false) {
+                hasCPULimit: Bool = false, hasMemoryLimit: Bool = false, hostProcess: Bool? = nil, isEphemeral: Bool = false) {
+        self.hostProcess = hostProcess; self.isEphemeral = isEphemeral
         self.name = name; self.isInit = isInit; self.image = image; self.privileged = privileged
         self.allowPrivilegeEscalation = allowPrivilegeEscalation; self.runAsNonRoot = runAsNonRoot; self.runAsUser = runAsUser
         self.readOnlyRootFilesystem = readOnlyRootFilesystem; self.capabilitiesAdd = capabilitiesAdd; self.capabilitiesDrop = capabilitiesDrop
@@ -35,7 +38,7 @@ public struct ContainerSecurity: Hashable, Sendable {
         self.hasCPULimit = hasCPULimit; self.hasMemoryLimit = hasMemoryLimit
     }
 
-    init(json c: JSONValue, isInit: Bool) {
+    init(json c: JSONValue, isInit: Bool, isEphemeral: Bool = false) {
         let sc = c["securityContext"]
         let caps = sc?["capabilities"]
         func strings(_ v: JSONValue?) -> [String] { (v?.arrayValue ?? []).compactMap(\.stringValue) }
@@ -57,7 +60,8 @@ public struct ContainerSecurity: Hashable, Sendable {
             seLinuxType: sc?.value(at: "seLinuxOptions.type")?.stringValue, seLinuxUser: sc?.value(at: "seLinuxOptions.user")?.stringValue,
             seLinuxRole: sc?.value(at: "seLinuxOptions.role")?.stringValue,
             hostPorts: (c["ports"]?.arrayValue ?? []).compactMap { $0["hostPort"]?.intValue }.filter { $0 != 0 },
-            hasCPULimit: present("cpu"), hasMemoryLimit: present("memory"))
+            hasCPULimit: present("cpu"), hasMemoryLimit: present("memory"),
+            hostProcess: sc?.value(at: "windowsOptions.hostProcess")?.boolValue, isEphemeral: isEphemeral)
     }
 
     /// `CAP_` prefix removed and upper-cased, so `cap_sys_admin` and `SYS_ADMIN` compare equal.
@@ -103,13 +107,17 @@ public struct PodSecuritySpec: Hashable, Sendable {
     public var seLinuxUser: String?
     public var seLinuxRole: String?
     public var sysctls: [String]
+    public var hostProcess: Bool?
+    /// Containers the legacy annotation `container.apparmor.security.beta.kubernetes.io/<name>: unconfined` names.
+    public var unconfinedAppArmorContainers: [String]
     public var containers: [ContainerSecurity]
     public var volumes: [VolumeSecurity]
 
     public init(hostNetwork: Bool = false, hostPID: Bool = false, hostIPC: Bool = false, serviceAccountName: String? = nil,
                 automountServiceAccountToken: Bool? = nil, runAsNonRoot: Bool? = nil, runAsUser: Int? = nil, seccompType: String? = nil,
                 appArmorType: String? = nil, seLinuxType: String? = nil, seLinuxUser: String? = nil, seLinuxRole: String? = nil,
-                sysctls: [String] = [], containers: [ContainerSecurity] = [], volumes: [VolumeSecurity] = []) {
+                sysctls: [String] = [], hostProcess: Bool? = nil, unconfinedAppArmorContainers: [String] = [], containers: [ContainerSecurity] = [], volumes: [VolumeSecurity] = []) {
+        self.hostProcess = hostProcess; self.unconfinedAppArmorContainers = unconfinedAppArmorContainers
         self.hostNetwork = hostNetwork; self.hostPID = hostPID; self.hostIPC = hostIPC; self.serviceAccountName = serviceAccountName
         self.automountServiceAccountToken = automountServiceAccountToken; self.runAsNonRoot = runAsNonRoot; self.runAsUser = runAsUser
         self.seccompType = seccompType; self.appArmorType = appArmorType; self.seLinuxType = seLinuxType; self.seLinuxUser = seLinuxUser
@@ -125,6 +133,7 @@ public struct PodSecuritySpec: Hashable, Sendable {
         }
         let containers = (spec["containers"]?.arrayValue ?? []).map { ContainerSecurity(json: $0, isInit: false) }
             + (spec["initContainers"]?.arrayValue ?? []).map { ContainerSecurity(json: $0, isInit: true) }
+            + (spec["ephemeralContainers"]?.arrayValue ?? []).map { ContainerSecurity(json: $0, isInit: false, isEphemeral: true) }
         self.init(
             hostNetwork: spec["hostNetwork"]?.boolValue ?? false, hostPID: spec["hostPID"]?.boolValue ?? false,
             hostIPC: spec["hostIPC"]?.boolValue ?? false,
@@ -135,6 +144,7 @@ public struct PodSecuritySpec: Hashable, Sendable {
             seLinuxType: sc?.value(at: "seLinuxOptions.type")?.stringValue, seLinuxUser: sc?.value(at: "seLinuxOptions.user")?.stringValue,
             seLinuxRole: sc?.value(at: "seLinuxOptions.role")?.stringValue,
             sysctls: (sc?["sysctls"]?.arrayValue ?? []).compactMap { $0["name"]?.stringValue },
+            hostProcess: sc?.value(at: "windowsOptions.hostProcess")?.boolValue,
             containers: containers, volumes: volumes)
     }
 
@@ -176,8 +186,14 @@ public struct SurveyWorkload: Hashable, Sendable, Identifiable {
         func map(_ v: JSONValue?) -> [String: String] {
             (v?.objectValue ?? [:]).compactMapValues(\.stringValue)
         }
+        var podSpec = PodSecuritySpec(json: spec)
+        // The legacy AppArmor annotations live on the Pod (template) metadata.
+        let podMetaPath = path == "spec" ? "metadata" : String(path.dropLast(".spec".count)) + ".metadata"
+        let prefix = "container.apparmor.security.beta.kubernetes.io/"
+        let podAnnotations = map(raw.value(at: podMetaPath + ".annotations"))
+        podSpec.unconfinedAppArmorContainers = podAnnotations.compactMap { $0.key.hasPrefix(prefix) && $0.value.lowercased() == "unconfined" ? String($0.key.dropFirst(prefix.count)) : nil }.sorted()
         self.init(ref: WorkloadRef(kind: kind, namespace: meta?["namespace"]?.stringValue ?? "default", name: name),
-                  spec: PodSecuritySpec(json: spec), labels: map(meta?["labels"]), annotations: map(meta?["annotations"]))
+                  spec: podSpec, labels: map(meta?["labels"]), annotations: map(meta?["annotations"]))
     }
 
     /// Helm, Argo CD or Flux manage this object when their labels or annotations say so: a patch applied in the cluster is reverted.

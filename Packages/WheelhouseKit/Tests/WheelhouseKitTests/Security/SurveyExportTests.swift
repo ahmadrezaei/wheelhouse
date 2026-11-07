@@ -133,7 +133,7 @@ struct SurveyExportTests {
         let run = doc.value(at: "runs")?[0]
         #expect(run?.value(at: "tool.driver.rules")?.arrayValue?.count == 21)
         let first = run?["results"]?.arrayValue?.first { $0["ruleId"]?.stringValue == "WH-W01" }
-        #expect(first?.value(at: "locations")?[0]?.value(at: "logicalLocations")?[0]?["fullyQualifiedName"]?.stringValue?.split(separator: "/").count == 4)
+        #expect(first?.value(at: "locations")?[0]?.value(at: "logicalLocations")?[0]?["fullyQualifiedName"]?.stringValue?.split(separator: "/").count ?? 0 >= 4)
         // every result points at its rule in the catalogue
         for r in run?["results"]?.arrayValue ?? [] {
             let i = r["ruleIndex"]?.intValue ?? -1

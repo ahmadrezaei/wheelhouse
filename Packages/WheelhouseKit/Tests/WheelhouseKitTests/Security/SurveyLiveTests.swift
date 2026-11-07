@@ -23,7 +23,7 @@ struct SurveyLiveTests {
     /// "RULE|Kind|name" for every finding about a `wh-m8a` fixture (the list in scripts/testcluster-fixtures.d/m8a-survey.sh).
     static let expected: Set<String> = [
         "WH-A01|Role|wh-m8a-wild-role", "WH-A01|ClusterRole|wh-m8a-wild-verbs",
-        "WH-A02|User|wh-m8a-admin-user",
+        "WH-A02|User|wh-m8a-admin-user", "WH-A02|Group|system:bootstrappers:wh-m8a",
         "WH-A03|User|wh-m8a-secrets-user",
         "WH-A04|User|wh-m8a-binder-user",
         "WH-A05|User|wh-m8a-kubesystem-user",
@@ -64,6 +64,8 @@ struct SurveyLiveTests {
         let counts = report.counts()
         print("SURVEY live severities:", Severity.allCases.map { "\($0.rawValue)=\(counts[$0] ?? 0)" }.joined(separator: " "))
 
+        // The default cluster-admin binding to system:masters, and every other binding Kubernetes created, stays silent.
+        #expect(!report.findings.contains { $0.ruleID == "WH-A02" && $0.object.name == "system:masters" })
         // The running Deployment is judged once through its template, never again through its Pod.
         #expect(!report.findings.contains { $0.object.kind == "Pod" && $0.object.name.hasPrefix("wh-m8a-running-") })
         // The PSA report knows about the fixture namespaces.

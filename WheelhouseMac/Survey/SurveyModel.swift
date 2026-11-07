@@ -177,16 +177,19 @@ struct FleetSurveyEntry: Identifiable {
 /// App-wide Survey state: the per-cluster models, the fleet results and the accepted risks.
 @MainActor @Observable
 final class SurveyHub {
-    static let shared = SurveyHub(riskFile: AppPaths.current.root.appending(path: "survey-accepted-risks.json"))
+    static let shared = SurveyHub(riskFile: AppPaths.current.root.appending(path: "survey-accepted-risks.json"), prepare: { try? AppPaths.current.prepare() })
 
     private(set) var risks: AcceptedRiskBook
     private(set) var fleet: [FleetSurveyEntry] = []
     private(set) var isLoadingFleet = false
     @ObservationIgnored private var models: [ClusterID: SurveyModel] = [:]
     @ObservationIgnored private let riskFile: URL?
+    /// Creates the app's folder (mode 0700) before the first save.
+    @ObservationIgnored private let prepare: (() -> Void)?
 
-    init(riskFile: URL?) {
+    init(riskFile: URL?, prepare: (() -> Void)? = nil) {
         self.riskFile = riskFile
+        self.prepare = prepare
         risks = riskFile.map(AcceptedRiskStorage.load(from:)) ?? AcceptedRiskBook()
     }
 
@@ -221,6 +224,7 @@ final class SurveyHub {
 
     private func persist() {
         guard let riskFile else { return }
+        prepare?()
         try? AcceptedRiskStorage.save(risks, to: riskFile)
     }
 
@@ -244,7 +248,7 @@ final class SurveyHub {
             var out: [(ClusterID, SurveyReport?, String?)] = []
             var iterator = jobs.makeIterator()
             func add() {
-                guard let (id, client) = iterator.next() else { return }
+                guard !Task.isCancelled, let (id, client) = iterator.next() else { return }
                 group.addTask {
                     let snapshot = await SurveyLoader.load(client: client, clusterID: id)
                     if snapshot.limitations.count >= 6 && snapshot.bindingCount == 0 {
@@ -257,6 +261,7 @@ final class SurveyHub {
             for await result in group { out.append(result); add() }
             return out
         }
+        if Task.isCancelled { fleet = []; return }
         for (id, report, failure) in results {
             if let report { set(id, .done(report)) } else { setFailed(id, failure ?? "Failed") }
         }

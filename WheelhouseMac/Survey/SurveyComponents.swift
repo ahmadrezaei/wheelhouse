@@ -115,7 +115,7 @@ enum SurveyFilters {
         return rows.filter { r in
             if let severity, r.finding.severity != severity { return false }
             if !showAccepted, r.status.isAccepted { return false }
-            if hideSystemNamespaces, let ns = r.finding.namespace, systemNamespaces.contains(ns) { return false }
+            if hideSystemNamespaces, r.finding.category == .workload, let ns = r.finding.namespace, systemNamespaces.contains(ns) { return false }
             if let namespace, r.finding.namespace != namespace { return false }
             if !q.isEmpty {
                 let hay = (r.finding.ruleID + " " + r.finding.title + " " + r.objectText + " " + (r.finding.namespace ?? "")).lowercased()

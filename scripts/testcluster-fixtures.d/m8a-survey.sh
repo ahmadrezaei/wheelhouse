@@ -14,7 +14,7 @@
 # EXPECTED FINDINGS for objects named wh-m8a* (the live test in Packages/WheelhouseKit/Tests/.../Security/SurveyLiveTests.swift asserts
 # exactly this set; findings about other objects of the cluster are ignored):
 #   WH-A01  Role wh-m8a/wh-m8a-wild-role, ClusterRole wh-m8a-wild-verbs
-#   WH-A02  User wh-m8a-admin-user (CRB wh-m8a-admin)
+#   WH-A02  User wh-m8a-admin-user (CRB wh-m8a-admin), Group system:bootstrappers:wh-m8a (CRB wh-m8a-bootstrappers, a user-created binding to a system subject)
 #   WH-A03  User wh-m8a-secrets-user (CRB wh-m8a-secrets)
 #   WH-A04  User wh-m8a-binder-user (CRB wh-m8a-binder)
 #   WH-A05  User wh-m8a-kubesystem-user (RoleBinding in kube-system)
@@ -158,6 +158,12 @@ kind: ClusterRoleBinding
 metadata: { name: wh-m8a-admin, labels: { wh-m8a: "true" } }
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin }
 subjects: [ { apiGroup: rbac.authorization.k8s.io, kind: User, name: wh-m8a-admin-user } ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: wh-m8a-bootstrappers, labels: { wh-m8a: "true" } }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin }
+subjects: [ { apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:bootstrappers:wh-m8a" } ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -24,7 +24,6 @@ struct RBACRulesTests {
             roles: [SF.role("explicit", ns: "dev", rules: [SF.rule(resources: ["pods", "pods/log"], verbs: ["get", "list"])])],
             clusterRoles: [
                 SF.clusterRole("cluster-admin", rules: [SF.rule(groups: ["*"], resources: ["*"], verbs: ["*"])], labels: bootstrap),
-                SF.clusterRole("system:foo", rules: [SF.rule(resources: ["*"], verbs: ["*"])]),
                 SF.clusterRole("agg", rules: [SF.rule(resources: ["*"], verbs: ["*"])], aggregate: [["x": "y"]]),
                 // a rule that only lists nonResourceURLs has no resources and is not a resource wildcard
                 SF.clusterRole("urls", rules: [.object(["nonResourceURLs": ["/healthz"], "verbs": ["*"]])]),
@@ -50,10 +49,66 @@ struct RBACRulesTests {
     @Test func a02NegativeSystemSubjectsAndOtherRoles() {
         let r = SF.run(SF.snapshot(clusterRoleBindings: [
             SF.clusterBinding("cluster-admin", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")], labels: bootstrap),
-            SF.clusterBinding("kcm", role: "cluster-admin", subjects: [SF.subject("User", "system:kube-controller-manager")]),
+            SF.clusterBinding("system:kcm", role: "cluster-admin", subjects: [SF.subject("User", "system:kube-controller-manager")]),
             SF.clusterBinding("viewers", role: "view", subjects: [SF.subject("User", "alice")]),
         ]))
         #expect(!SF.has(r, "WH-A02"))
+    }
+
+    @Test func a02ReportsUserCreatedBindingsToSystemSubjects() {
+        let r = SF.run(SF.snapshot(clusterRoleBindings: [
+            SF.clusterBinding("boot", role: "cluster-admin", subjects: [SF.subject("Group", "system:bootstrappers")]),
+            SF.clusterBinding("nodes", role: "cluster-admin", subjects: [SF.subject("Group", "system:nodes"), SF.subject("User", "system:node:worker-1")]),
+            // the default binding Kubernetes creates stays silent, and so does system:masters under any name
+            SF.clusterBinding("cluster-admin", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")], labels: bootstrap),
+            SF.clusterBinding("my-masters", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")]),
+        ]))
+        #expect(Set(r.findings.filter { $0.ruleID == "WH-A02" }.map(\.object.name)) == ["system:bootstrappers", "system:nodes", "system:node:worker-1"])
+    }
+
+    @Test func aBindingWithASystemNameIsNotADefaultWhenItBindsAnOrdinarySubject() {
+        let r = SF.run(SF.snapshot(
+            clusterRoles: [SF.clusterRole("secret-reader", rules: [SF.rule(resources: ["secrets"], verbs: ["get", "list"])])],
+            roleBindings: [SF.binding("system:sneaky", ns: "dev", role: "edit", subjects: [SF.subject("ServiceAccount", "default", ns: "dev")])],
+            clusterRoleBindings: [SF.clusterBinding("system:sneaky", role: "secret-reader", subjects: [SF.subject("User", "mallory")]),
+                                  SF.clusterBinding("system:admin-ish", role: "cluster-admin", subjects: [SF.subject("User", "mallory")])]))
+        #expect(SF.has(r, "WH-A03", object: "mallory"))
+        #expect(SF.has(r, "WH-A02", object: "mallory"))
+        #expect(SF.has(r, "WH-A07"))
+    }
+
+    @Test func aSystemNamedRoleWithoutTheBootstrapLabelIsStillJudged() {
+        let r = SF.run(SF.snapshot(roles: [SF.role("system:foo", ns: "kube-system", rules: [SF.rule(resources: ["*"], verbs: ["get"])])],
+                                   clusterRoles: [SF.clusterRole("system:coredns-like", rules: [SF.rule(resources: ["*"], verbs: ["*"])]),
+                                                  SF.clusterRole("system:labelled", rules: [SF.rule(resources: ["*"], verbs: ["*"])], labels: bootstrap)]))
+        #expect(Set(r.findings.filter { $0.ruleID == "WH-A01" }.map(\.object.name)) == ["system:coredns-like", "system:foo"])
+    }
+
+    @Test func idsAndLocationsKeepServiceAccountsOfDifferentNamespacesApart() {
+        let r = SF.run(SF.snapshot(clusterRoleBindings: [SF.clusterBinding("a", role: "cluster-admin", subjects: [SF.subject("ServiceAccount", "deployer", ns: "team-a")]),
+                                                         SF.clusterBinding("b", role: "cluster-admin", subjects: [SF.subject("ServiceAccount", "deployer", ns: "team-b")])]))
+        let f = r.findings.filter { $0.ruleID == "WH-A02" }
+        #expect(f.count == 2)
+        #expect(Set(f.map(\.id)).count == 2)
+        #expect(Set(f.map(\.logicalLocation)).count == 2)
+        #expect(f.contains { $0.logicalLocation.contains("team-a/deployer") })
+        // the same subject bound twice by the same binding name in different namespaces' ServiceAccounts, through capability findings
+        let caps = SF.run(SF.snapshot(clusterRoles: [SF.clusterRole("sr", rules: [SF.rule(resources: ["secrets"], verbs: ["get"])])],
+                                      clusterRoleBindings: [SF.clusterBinding("x", role: "sr", subjects: [SF.subject("ServiceAccount", "deployer", ns: "team-a"), SF.subject("ServiceAccount", "deployer", ns: "team-b")])]))
+        #expect(Set(caps.findings.filter { $0.ruleID == "WH-A03" }.map(\.id)).count == 2)
+    }
+
+    @Test func podAccessCapabilityCoversAttachGetAndWorkloadControllersInKubeSystem() {
+        let r = SF.run(SF.snapshot(
+            roles: [SF.role("attach", ns: "kube-system", rules: [SF.rule(resources: ["pods/attach"], verbs: ["create"])]),
+                    SF.role("exec-get", ns: "kube-system", rules: [SF.rule(resources: ["pods/exec"], verbs: ["get"])]),
+                    SF.role("deployer", ns: "kube-system", rules: [SF.rule(groups: ["apps"], resources: ["deployments"], verbs: ["create"])]),
+                    SF.role("cron", ns: "kube-system", rules: [SF.rule(groups: ["batch"], resources: ["cronjobs"], verbs: ["create"])]),
+                    SF.role("reader", ns: "kube-system", rules: [SF.rule(groups: ["apps"], resources: ["deployments"], verbs: ["get", "list"])])],
+            roleBindings: ["attach", "exec-get", "deployer", "cron", "reader"].map {
+                SF.binding("rb-\($0)", ns: "kube-system", roleKind: "Role", role: $0, subjects: [SF.subject("User", "u-\($0)")])
+            }))
+        #expect(Set(r.findings.filter { $0.ruleID == "WH-A05" }.map(\.object.name)) == ["u-attach", "u-exec-get", "u-deployer", "u-cron"])
     }
 
     // MARK: WH-A03
@@ -272,7 +327,7 @@ struct RBACRulesTests {
         let r = SF.run(SF.snapshot(
             clusterRoles: [SF.clusterRole("system:controller:x", rules: [SF.rule(resources: ["secrets"], verbs: ["get", "list"])], labels: bootstrap)],
             clusterRoleBindings: [SF.clusterBinding("system:controller:x", role: "system:controller:x", subjects: [SF.subject("ServiceAccount", "x", ns: "kube-system")], labels: bootstrap),
-                                  SF.clusterBinding("sched", role: "system:controller:x", subjects: [SF.subject("User", "system:kube-scheduler")])]))
+                                  SF.clusterBinding("system:sched", role: "system:controller:x", subjects: [SF.subject("User", "system:kube-scheduler")])]))
         #expect(r.accessFindings.isEmpty)
     }
 
@@ -325,7 +380,7 @@ struct RBACRulesTests {
         #expect(PolicyRule.resourceMatches("*", requested: "pods/exec"))
         #expect(PolicyRule.resourceMatches("pods", requested: "pods"))
         #expect(!PolicyRule.resourceMatches("pods", requested: "pods/exec"))
-        #expect(PolicyRule.resourceMatches("pods/*", requested: "pods/exec"))
+        #expect(!PolicyRule.resourceMatches("pods/*", requested: "pods/exec"))      // not upstream syntax
         #expect(PolicyRule.resourceMatches("*/exec", requested: "pods/exec"))
         #expect(!PolicyRule.resourceMatches("*/exec", requested: "pods"))
     }

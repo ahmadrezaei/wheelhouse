@@ -68,6 +68,12 @@ public enum PSAEvaluator {
         if spec.hostIPC { hostNS.append("hostIPC") }
         if !hostNS.isEmpty { v.append(PSAViolation(control: "Host Namespaces", detail: hostNS.joined(separator: ", ") + " is true")) }
 
+        if spec.hostProcess == true || spec.containers.contains(where: { $0.hostProcess == true }) {
+            v.append(PSAViolation(control: "HostProcess", detail: "windowsOptions.hostProcess is true"))
+        }
+        for name in spec.unconfinedAppArmorContainers {
+            v.append(PSAViolation(control: "AppArmor", detail: "annotation marks container \(name) unconfined"))
+        }
         for c in spec.containers {
             if c.privileged == true { v.append(PSAViolation(control: "Privileged Containers", detail: "container \(c.name) is privileged")) }
             let added = c.capabilitiesAdd.map(ContainerSecurity.normalizedCapability).filter { !allowedBaselineCapabilities.contains($0) }

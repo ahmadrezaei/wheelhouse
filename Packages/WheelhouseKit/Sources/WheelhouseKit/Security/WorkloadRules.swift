@@ -99,7 +99,7 @@ public enum WorkloadRules {
         }
 
         // W08
-        let unlimited = spec.containers.filter { !$0.hasCPULimit || !$0.hasMemoryLimit }
+        let unlimited = spec.containers.filter { !$0.isEphemeral && (!$0.hasCPULimit || !$0.hasMemoryLimit) }
         if !unlimited.isEmpty {
             emit("WH-W08", .low, "\(noun) has containers without CPU or memory limits",
                  evidence: unlimited.map { c in

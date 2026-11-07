@@ -79,8 +79,17 @@ public enum SystemSubjects {
     /// Roles and bindings created by Kubernetes carry this label.
     public static let bootstrapLabel = ("kubernetes.io/bootstrapping", "rbac-defaults")
 
-    public static func isDefaultObject(_ meta: ObjectMeta) -> Bool {
-        meta.labels[bootstrapLabel.0] == bootstrapLabel.1 || meta.name.hasPrefix("system:")
+    /// A Role or ClusterRole Kubernetes created itself: only the bootstrap label says so (a `system:` name alone proves nothing).
+    public static func isDefaultRole(_ meta: ObjectMeta) -> Bool {
+        meta.labels[bootstrapLabel.0] == bootstrapLabel.1
+    }
+
+    /// A binding Kubernetes created itself: it has the bootstrap label, or it has a `system:` name and binds only system subjects
+    /// (control-plane identities and kube-system ServiceAccounts).
+    public static func isDefaultBinding(_ meta: ObjectMeta, subjects: [SubjectKey]) -> Bool {
+        if meta.labels[bootstrapLabel.0] == bootstrapLabel.1 { return true }
+        guard meta.name.hasPrefix("system:"), !subjects.isEmpty else { return false }
+        return subjects.allSatisfy { isSystem($0) || ($0.kind == "ServiceAccount" && $0.namespace == "kube-system") }
     }
 }
 
@@ -99,15 +108,11 @@ public extension PolicyRule {
         return true
     }
 
-    /// `*`, an exact match, `*/sub` for a subresource, or `res/*` for every subresource of `res`.
+    /// `*`, an exact match, or `*/sub` for a subresource (the upstream authorizer supports nothing else).
     static func resourceMatches(_ rule: String, requested: String) -> Bool {
         if rule == "*" || rule == requested { return true }
         guard let slash = requested.firstIndex(of: "/") else { return false }
-        let base = requested[..<slash]
-        let sub = requested[requested.index(after: slash)...]
-        if rule == "*/\(sub)" { return true }
-        if rule.hasSuffix("/*"), rule.dropLast(2) == base { return true }
-        return false
+        return rule == "*/\(requested[requested.index(after: slash)...])"
     }
 
     var hasWildcardVerbOrResource: Bool { verbs.contains("*") || resources.contains("*") }
@@ -154,12 +159,19 @@ public struct Capabilities: OptionSet, Hashable, Sendable {
                 if core {
                     if (all || r == "secrets") && (has("get") || has("list") || has("watch")) { result.insert(.readSecrets) }
                     if (all || r == "pods") && has("create") { result.insert(.createPods) }
-                    if (all || r == "pods/exec" || r == "pods/*" || r == "*/exec") && has("create") { result.insert(.execPods) }
-                    if (all || r == "nodes/proxy" || r == "nodes/*" || r == "*/proxy") && (has("create") || has("update") || has("patch") || has("get")) {
+                    if (all || r == "pods/exec" || r == "pods/attach" || r == "*/exec" || r == "*/attach") && (has("create") || has("get")) { result.insert(.execPods) }
+                    if (all || r == "nodes/proxy" || r == "*/proxy") && (has("create") || has("update") || has("patch") || has("get")) {
                         result.insert(.nodesProxy)
                     }
-                    if (all || r == "serviceaccounts/token" || r == "serviceaccounts/*" || r == "*/token") && has("create") { result.insert(.createServiceAccountTokens) }
+                    if (all || r == "serviceaccounts/token" || r == "*/token") && has("create") { result.insert(.createServiceAccountTokens) }
                     if (all || r == "users" || r == "groups" || r == "serviceaccounts" || r == "uids") && has("impersonate") { result.insert(.impersonate) }
+                }
+                // Creating a workload controller creates Pods (WH-A05 counts it for kube-system).
+                let apps = anyGroup || groups.contains("apps"), batch = anyGroup || groups.contains("batch")
+                if has("create"),
+                   (apps && (all || ["deployments", "daemonsets", "statefulsets", "replicasets"].contains(r)))
+                    || (batch && (all || ["jobs", "cronjobs"].contains(r))) {
+                    result.insert(.createPods)
                 }
                 if rbac, all || r == "roles" || r == "clusterroles" {
                     if has("escalate") { result.insert(.escalate) }

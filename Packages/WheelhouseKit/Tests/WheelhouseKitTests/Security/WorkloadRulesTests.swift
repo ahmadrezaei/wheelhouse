@@ -214,6 +214,35 @@ struct WorkloadRulesTests {
         #expect(controls(podLevel).isEmpty)
     }
 
+    @Test func ephemeralContainersAreParsedAndJudged() {
+        let spec: JSONValue = ["containers": [SF.container(security: SF.hardenedSecurity)],
+                               "ephemeralContainers": [["name": "debugger", "image": "busybox", "securityContext": ["privileged": true]]]]
+        let findings = WorkloadRules.findings(for: SF.deployment(spec: spec), clusterID: SF.cluster)
+        #expect(findings.first { $0.ruleID == "WH-W01" }?.containers == ["debugger"])
+        #expect(!findings.contains { $0.ruleID == "WH-W08" && $0.containers.contains("debugger") })     // ephemeral containers cannot have limits
+        #expect(PSAEvaluator.baselineViolations(SF.deployment(spec: spec).spec).contains { $0.control == "Privileged Containers" })
+    }
+
+    @Test func psaHostProcessAndLegacyAppArmorAnnotation() {
+        var win = SF.hardenedSecurity; win["windowsOptions"] = ["hostProcess": true]
+        #expect(PSAEvaluator.baselineViolations(SF.deployment(spec: hardenedPlus(security: win)).spec).contains { $0.control == "HostProcess" })
+        let podLevel = hardenedPlus(["securityContext": ["windowsOptions": ["hostProcess": true]]])
+        #expect(PSAEvaluator.baselineViolations(SF.deployment(spec: podLevel).spec).contains { $0.control == "HostProcess" })
+        #expect(!PSAEvaluator.baselineViolations(SF.hardened().spec).contains { $0.control == "HostProcess" })
+
+        func workload(_ value: String) -> SurveyWorkload {
+            let raw: JSONValue = ["metadata": ["name": "web", "namespace": "shop"],
+                                  "spec": ["template": ["metadata": ["annotations": ["container.apparmor.security.beta.kubernetes.io/app": .string(value)]],
+                                                        "spec": hardenedPlus()]]]
+            return SurveyWorkload(raw: raw, kind: "Deployment")!
+        }
+        #expect(PSAEvaluator.baselineViolations(workload("unconfined").spec).contains { $0.control == "AppArmor" })
+        #expect(!PSAEvaluator.baselineViolations(workload("runtime/default").spec).contains { $0.control == "AppArmor" })
+        let pod = SurveyWorkload(raw: ["metadata": ["name": "p", "namespace": "n", "annotations": ["container.apparmor.security.beta.kubernetes.io/app": "unconfined"]],
+                                       "spec": hardenedPlus()], kind: "Pod")!
+        #expect(pod.spec.unconfinedAppArmorContainers == ["app"])
+    }
+
     @Test func psaNamespaceReportCountsFailingWorkloads() {
         var priv = SF.hardenedSecurity; priv["privileged"] = true
         let bad = SF.deployment("bad", ns: "payments", spec: hardenedPlus(security: priv))

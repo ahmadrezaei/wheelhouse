@@ -88,14 +88,14 @@ public struct SecurityFinding: Codable, Hashable, Sendable, Identifiable {
     }
 
     public static func makeID(ruleID: String, clusterID: ClusterID, namespace: String?, object: FindingObject, discriminator: String) -> String {
-        [ruleID, clusterID, namespace ?? "", "\(object.kind)/\(object.name)", discriminator].joined(separator: "|")
+        [ruleID, clusterID, namespace ?? "", "\(object.kind)/\(object.namespace.map { $0 + "/" } ?? "")\(object.name)", discriminator].joined(separator: "|")
     }
 
     public var category: FindingCategory { ruleID.hasPrefix("WH-A") ? .access : .workload }
 
     /// `cluster/namespace/kind/name` (SARIF logical location; `-` stands for "no namespace").
     public var logicalLocation: String {
-        "\(clusterID)/\(namespace.flatMap { $0.isEmpty ? nil : $0 } ?? "-")/\(object.kind)/\(object.name)"
+        "\(clusterID)/\(namespace.flatMap { $0.isEmpty ? nil : $0 } ?? "-")/\(object.kind)/\(object.namespace.map { $0 + "/" } ?? "")\(object.name)"
     }
 
     public var catalogueEntry: SecurityRule? { RuleCatalogue.rule(ruleID) }

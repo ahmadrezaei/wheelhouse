@@ -70,7 +70,7 @@ public struct PermissionIndex: Sendable {
 
         for b in snapshot.clusterRoleBindings {
             guard b.roleRef.kind == "ClusterRole", let info = clusterRoles[b.roleRef.name] else { continue }
-            let isDefault = SystemSubjects.isDefaultObject(b.metadata)
+            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: b.subjects.map { SubjectKey($0, bindingNamespace: nil) })
             let grant = Grant(binding: FindingObject(kind: "ClusterRoleBinding", name: b.metadata.name),
                               role: FindingObject(kind: "ClusterRole", name: b.roleRef.name), rules: info.rules, capabilities: info.caps, ruleCapabilities: info.ruleCaps, isDefault: isDefault)
             for s in b.subjects { clusterGrants[SubjectKey(s, bindingNamespace: nil), default: []].append(grant) }
@@ -85,7 +85,7 @@ public struct PermissionIndex: Sendable {
             default: continue
             }
             guard let info else { continue }
-            let isDefault = SystemSubjects.isDefaultObject(b.metadata)
+            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: b.subjects.map { SubjectKey($0, bindingNamespace: ns) })
             let grant = Grant(binding: FindingObject(kind: "RoleBinding", namespace: ns, name: b.metadata.name), role: roleObject,
                               rules: info.rules, capabilities: info.caps, ruleCapabilities: info.ruleCaps, isDefault: isDefault)
             for s in b.subjects { namespaceGrants[SubjectKey(s, bindingNamespace: ns), default: [:]][ns, default: []].append(grant) }
@@ -217,7 +217,7 @@ public enum RBACAnalyzer {
 
     static func wildcardRoles(_ s: SurveySnapshot) -> [SecurityFinding] {
         var out: [SecurityFinding] = []
-        for role in s.roles where !SystemSubjects.isDefaultObject(role.metadata) {
+        for role in s.roles where !SystemSubjects.isDefaultRole(role.metadata) {
             let bad = role.rules.filter { !$0.resources.isEmpty && $0.hasWildcardVerbOrResource }
             guard !bad.isEmpty else { continue }
             let ns = role.metadata.namespace
@@ -226,7 +226,7 @@ public enum RBACAnalyzer {
                                        title: "Role \(ns.map { $0 + "/" } ?? "")\(role.metadata.name) grants wildcard verbs or resources",
                                        evidence: bad.map(excerpt)))
         }
-        for role in s.clusterRoles where role.aggregationRule == nil && !SystemSubjects.isDefaultObject(role.metadata) {
+        for role in s.clusterRoles where role.aggregationRule == nil && !SystemSubjects.isDefaultRole(role.metadata) {
             let bad = role.rules.filter { !$0.resources.isEmpty && $0.hasWildcardVerbOrResource }
             guard !bad.isEmpty else { continue }
             out.append(SecurityFinding(ruleID: "WH-A01", severity: .high, clusterID: s.clusterID, namespace: nil,
@@ -242,7 +242,9 @@ public enum RBACAnalyzer {
     static func clusterAdminBindings(_ s: SurveySnapshot) -> [SecurityFinding] {
         var out: [SecurityFinding] = []
         for b in s.clusterRoleBindings where b.roleRef.kind == "ClusterRole" && b.roleRef.name == "cluster-admin" {
-            for subject in b.subjects.map({ SubjectKey($0, bindingNamespace: nil) }) where !SystemSubjects.isSystem(subject) {
+            let keys = b.subjects.map { SubjectKey($0, bindingNamespace: nil) }
+            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: keys)
+            for subject in keys where subject.name != "system:masters" && !(SystemSubjects.isSystem(subject) && isDefault) {
                 out.append(SecurityFinding(
                     ruleID: "WH-A02", severity: .critical, clusterID: s.clusterID, namespace: nil,
                     object: FindingObject(kind: subject.kind, namespace: subject.namespace, name: subject.name), discriminator: "CRB:\(b.metadata.name)",
@@ -253,7 +255,9 @@ public enum RBACAnalyzer {
         }
         for b in s.roleBindings where b.roleRef.kind == "ClusterRole" && b.roleRef.name == "cluster-admin" {
             let ns = b.metadata.namespace ?? ""
-            for subject in b.subjects.map({ SubjectKey($0, bindingNamespace: ns) }) where !SystemSubjects.isSystem(subject) {
+            let keys = b.subjects.map { SubjectKey($0, bindingNamespace: ns) }
+            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: keys)
+            for subject in keys where subject.name != "system:masters" && !(SystemSubjects.isSystem(subject) && isDefault) {
                 out.append(SecurityFinding(
                     ruleID: "WH-A02", severity: .critical, clusterID: s.clusterID, namespace: ns,
                     object: FindingObject(kind: subject.kind, namespace: subject.namespace, name: subject.name), discriminator: "RB:\(ns)/\(b.metadata.name)",
@@ -304,7 +308,7 @@ public enum RBACAnalyzer {
 
     static func capabilityFindings(_ s: SurveySnapshot, index: PermissionIndex) -> [SecurityFinding] {
         var out: [SecurityFinding] = []
-        for subject in index.allSubjects where !SystemSubjects.isSystem(subject) {
+        for subject in index.allSubjects where subject.name != "system:masters" {
             let clusterGrants = index.clusterGrants[subject] ?? []
             let namespaceGrants = index.namespaceGrants[subject] ?? [:]
             // Most subjects hold harmless roles: leave them after one pass over their grants.
@@ -398,12 +402,12 @@ public enum RBACAnalyzer {
             e.related.append(FindingObject(kind: roleKind, namespace: roleKind == "Role" ? ns : nil, name: roleName))
             byNamespace[ns] = e
         }
-        for b in s.clusterRoleBindings where !SystemSubjects.isDefaultObject(b.metadata) {
+        for b in s.clusterRoleBindings where !SystemSubjects.isDefaultBinding(b.metadata, subjects: b.subjects.map { SubjectKey($0, bindingNamespace: nil) }) {
             for subject in b.subjects.map({ SubjectKey($0, bindingNamespace: nil) }) where subject.kind == "ServiceAccount" && subject.name == "default" {
                 add(ns: subject.namespace ?? "", binding: FindingObject(kind: "ClusterRoleBinding", name: b.metadata.name), roleKind: b.roleRef.kind, roleName: b.roleRef.name)
             }
         }
-        for b in s.roleBindings where !SystemSubjects.isDefaultObject(b.metadata) {
+        for b in s.roleBindings where !SystemSubjects.isDefaultBinding(b.metadata, subjects: b.subjects.map { SubjectKey($0, bindingNamespace: b.metadata.namespace) }) {
             let ns = b.metadata.namespace ?? ""
             for subject in b.subjects.map({ SubjectKey($0, bindingNamespace: ns) }) where subject.kind == "ServiceAccount" && subject.name == "default" {
                 add(ns: subject.namespace ?? ns, binding: FindingObject(kind: "RoleBinding", namespace: ns, name: b.metadata.name), roleKind: b.roleRef.kind, roleName: b.roleRef.name)
