@@ -32,12 +32,8 @@ final class WheelhouseMacUITests: XCTestCase {
         return app
     }
 
-    private func attach(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot())
-        a.name = name
-        a.lifetime = .keepAlways
-        add(a)
-    }
+    /// Screenshots are deliberately not taken: UI checks read the accessibility tree instead (no screen capture of the desktop).
+    private func attach(_ app: XCUIApplication, _ name: String) { dump(app, name) }
 
     private func dump(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(string: app.debugDescription)

@@ -451,7 +451,9 @@ public final class LogStream {
             // 100 ms normally; slower in Low Power Mode / when the device is hot, and slower again for a firehose:
             // nobody reads 200 lines a second, but every table update costs a fixed amount.
             let rate = Self.adaptiveInterval(lastBatch: self?.lastBatchCount ?? 0)
-            let seconds = Swift.max(EnergyPolicy.current.publishInterval, rate)
+            // The Mac (limits on) publishes at most 4 times a second per view (ARCHITECTURE-MAC section 12.3.2); iOS keeps 10 Hz.
+            let floor = (self?.limits.isUnlimited ?? true) ? 0 : 0.25
+            let seconds = Swift.max(EnergyPolicy.current.publishInterval, rate, floor)
             try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
             guard !Task.isCancelled else { return }
             self?.flushTask = nil

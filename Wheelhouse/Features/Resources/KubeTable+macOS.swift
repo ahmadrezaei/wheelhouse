@@ -130,6 +130,9 @@ final class KubeNSTable: NSTableView {
         super.keyDown(with: event)
     }
 
+    /// Return reaches here when AppKit routes the key through the text-input system instead of `keyDown`.
+    override func insertNewline(_ sender: Any?) { openHandler?() }
+
     @objc func copy(_ sender: Any?) { copyHandler?() }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {

@@ -129,7 +129,7 @@ cpu = [r[0] for r in rows]; idlew = [r[1] for r in rows]; power = [r[2] for r in
 foot = []; fds = []; thr = []
 for line in list(open(csvf))[1:]:
     p = line.strip().split(',')
-    foot.append(float(p[1])); fds.append(int(p[2])); thr.append(int(p[3]))
+    foot.append(float(p[1])); fds.append(int(p[2])); thr.append(int(re.sub(r'/.*$', '', p[3])))
 out = {"scenario": scenario, "bundleID": bid, "date": datetime.datetime.now().isoformat(timespec='seconds'),
        "samples": len(rows), "intervalSec": interval}
 if rows:
