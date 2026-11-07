@@ -243,7 +243,8 @@ public enum RBACAnalyzer {
         var out: [SecurityFinding] = []
         for b in s.clusterRoleBindings where b.roleRef.kind == "ClusterRole" && b.roleRef.name == "cluster-admin" {
             let keys = b.subjects.map { SubjectKey($0, bindingNamespace: nil) }
-            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: keys)
+            // Kubernetes binds cluster-admin only to system:masters, and labels that binding: the label alone marks a default here.
+            let isDefault = b.metadata.labels[SystemSubjects.bootstrapLabel.0] == SystemSubjects.bootstrapLabel.1
             for subject in keys where subject.name != "system:masters" && !(SystemSubjects.isSystem(subject) && isDefault) {
                 out.append(SecurityFinding(
                     ruleID: "WH-A02", severity: .critical, clusterID: s.clusterID, namespace: nil,
@@ -256,7 +257,8 @@ public enum RBACAnalyzer {
         for b in s.roleBindings where b.roleRef.kind == "ClusterRole" && b.roleRef.name == "cluster-admin" {
             let ns = b.metadata.namespace ?? ""
             let keys = b.subjects.map { SubjectKey($0, bindingNamespace: ns) }
-            let isDefault = SystemSubjects.isDefaultBinding(b.metadata, subjects: keys)
+            // Kubernetes binds cluster-admin only to system:masters, and labels that binding: the label alone marks a default here.
+            let isDefault = b.metadata.labels[SystemSubjects.bootstrapLabel.0] == SystemSubjects.bootstrapLabel.1
             for subject in keys where subject.name != "system:masters" && !(SystemSubjects.isSystem(subject) && isDefault) {
                 out.append(SecurityFinding(
                     ruleID: "WH-A02", severity: .critical, clusterID: s.clusterID, namespace: ns,

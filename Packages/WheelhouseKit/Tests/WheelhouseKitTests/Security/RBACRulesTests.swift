@@ -49,7 +49,7 @@ struct RBACRulesTests {
     @Test func a02NegativeSystemSubjectsAndOtherRoles() {
         let r = SF.run(SF.snapshot(clusterRoleBindings: [
             SF.clusterBinding("cluster-admin", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")], labels: bootstrap),
-            SF.clusterBinding("system:kcm", role: "cluster-admin", subjects: [SF.subject("User", "system:kube-controller-manager")]),
+            SF.clusterBinding("system:kcm", role: "cluster-admin", subjects: [SF.subject("User", "system:kube-controller-manager")], labels: bootstrap),
             SF.clusterBinding("viewers", role: "view", subjects: [SF.subject("User", "alice")]),
         ]))
         #expect(!SF.has(r, "WH-A02"))
@@ -64,6 +64,14 @@ struct RBACRulesTests {
             SF.clusterBinding("my-masters", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")]),
         ]))
         #expect(Set(r.findings.filter { $0.ruleID == "WH-A02" }.map(\.object.name)) == ["system:bootstrappers", "system:nodes", "system:node:worker-1"])
+    }
+
+    @Test func a02ReportsASystemNamedBindingThatIsNotLabelledAsADefault() {
+        let r = SF.run(SF.snapshot(clusterRoleBindings: [
+            SF.clusterBinding("system:sneaky-nodes", role: "cluster-admin", subjects: [SF.subject("Group", "system:nodes")]),
+            SF.clusterBinding("cluster-admin", role: "cluster-admin", subjects: [SF.subject("Group", "system:masters")], labels: bootstrap),
+        ]))
+        #expect(Set(r.findings.filter { $0.ruleID == "WH-A02" }.map(\.object.name)) == ["system:nodes"])
     }
 
     @Test func aBindingWithASystemNameIsNotADefaultWhenItBindsAnOrdinarySubject() {
