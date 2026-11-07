@@ -254,6 +254,10 @@ public protocol KubeClientProtocol: Sendable {
     func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                       headers: [String: String], body: Data?) async throws -> ProxyResponse
 
+    /// Runs the asynchronous part of authentication (an exec credential plugin) before the synchronous socket builders below.
+    /// `ExecSession.start` and the port-forward pump call it first. Default: no-op.
+    func prepareStreaming() async throws
+
     // Sockets (protocols are implemented by feature code)
     func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket
     func portForwardWebSocket(namespace: String, pod: String, ports: [Int]) throws -> KubeWebSocket
@@ -289,6 +293,7 @@ public struct ProxyResponse: Sendable {
 // MARK: - Seam defaults
 
 public extension KubeClientProtocol {
+    func prepareStreaming() async throws {}
     func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
         throw KubeError.unsupported("Metadata-only listing is not available for this client.")
     }

@@ -92,6 +92,7 @@ public struct SecretStrippingClient: KubeClientProtocol {
     public func proxyGET(namespace: String, service: String, port: String, path: String, query: [String: String]) async throws -> Data {
         try await base.proxyGET(namespace: namespace, service: service, port: port, path: path, query: query)
     }
+    public func prepareStreaming() async throws { try await base.prepareStreaming() }
     public func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket { try base.execWebSocket(namespace: namespace, pod: pod, options: options) }
     public func portForwardWebSocket(namespace: String, pod: String, ports: [Int]) throws -> KubeWebSocket { try base.portForwardWebSocket(namespace: namespace, pod: pod, ports: ports) }
 }

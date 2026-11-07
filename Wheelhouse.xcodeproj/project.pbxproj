@@ -139,6 +139,7 @@
 		986C75C08A97B39AFD41A86A /* LogsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6588A384B938BCFED31E6199 /* LogsModel.swift */; };
 		98E48F3DF6F721D48B00A40F /* YAMLEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */; };
 		9A0E860EB75F190F907B40C3 /* ResourceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */; };
+		9DAF2740E790BB6FD70FF124 /* MooringsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1372DA7415597DAFEB2EAACD /* MooringsController.swift */; };
 		9E6FB8CD9F202694AFA67941 /* PadShell+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6EFD06CAE1A0E63B81DDAA /* PadShell+iOS.swift */; };
 		A067A43426AA2689B58D0921 /* WorkspaceDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23F934D607C6736AA7850A4 /* WorkspaceDestination.swift */; };
 		A0909F6327B43105F8D5DCEB /* MacImportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262EE9C0925CDF2CB0660F03 /* MacImportPolicy.swift */; };
@@ -150,6 +151,7 @@
 		A6A6C8916200CC0A8F0E1F42 /* AboutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */; };
 		A7A6FE9D2EDEE2E650AEA7F0 /* DetailKinds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE171009E69D91B7CBAC3D /* DetailKinds.swift */; };
 		A876BA1C2EF7010826E22BDB /* PerfScenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5830746258110C64A63B1FE /* PerfScenario.swift */; };
+		AA14646AF44297D9C9635F20 /* SignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB8C8FF29952189955D7D92 /* SignInSheet.swift */; };
 		AB5991DCEFB482DF05F93B97 /* BiometryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F571944261785B64EFE1268 /* BiometryKind.swift */; };
 		AC86A12F0C0C7CDFE600E849 /* CodeEditor+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA58D0E5FF11737B4BAEB7A /* CodeEditor+Shared.swift */; };
 		AE517472D6BE9FC52D56073B /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B66C59008AFD229769E23F /* DashboardComponents.swift */; };
@@ -172,6 +174,7 @@
 		C17F64A6EEA12A4BC97163AE /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1ED9D02FBECAF3C542C53443 /* WheelhouseUI */; };
 		C1DAF27FABC6CCE699096D94 /* TerminalPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 951A2B14985875AD7FB06D45 /* TerminalPane.swift */; };
 		C256F63C5F12C71F2350B17D /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72DAC6F8EBD962CBA6F07781 /* Destinations.swift */; };
+		C288B6A3AA936A1A23772EEF /* MooringsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AC9112AFDD43844779E752D /* MooringsViews.swift */; };
 		C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */; };
 		C4EA83932F9B86D57C4B4CDE /* CrowsNestPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6671AC37FD8CBFA1EE079AE2 /* CrowsNestPanel.swift */; };
 		C4F858BF8386AB9F54632D17 /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3C546C16695AD9E2351D6E /* Providers.swift */; };
@@ -326,6 +329,7 @@
 		0D9A6F860BFB18BDE3F3CCDB /* SurveyPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyPane.swift; sourceTree = "<group>"; };
 		0F13DCEB437CE6A298E9C69F /* WheelhouseMacPerfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacPerfTests.swift; sourceTree = "<group>"; };
 		0FA58D0E5FF11737B4BAEB7A /* CodeEditor+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodeEditor+Shared.swift"; sourceTree = "<group>"; };
+		1372DA7415597DAFEB2EAACD /* MooringsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsController.swift; sourceTree = "<group>"; };
 		154E3E63CDDD3FE3693DD62C /* LockWindowManager+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LockWindowManager+iOS.swift"; sourceTree = "<group>"; };
 		15B01F58EFE269038200722A /* MacImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportCoordinator.swift; sourceTree = "<group>"; };
 		15B66C59008AFD229769E23F /* DashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardComponents.swift; sourceTree = "<group>"; };
@@ -350,11 +354,13 @@
 		3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		3AD102426EA9E7E598EAE10C /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
+		3FB8C8FF29952189955D7D92 /* SignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInSheet.swift; sourceTree = "<group>"; };
 		4271F087BBF30B039F71536D /* ClusterDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashModel.swift; sourceTree = "<group>"; };
 		43BD22253A08400AB21572FA /* MacSceneRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSceneRoot.swift; sourceTree = "<group>"; };
 		46F48152520311B2144B42D8 /* MacAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppEnvironment.swift; sourceTree = "<group>"; };
 		49AC7DE33B55565935B6DB40 /* ActivityFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeature.swift; sourceTree = "<group>"; };
 		4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistryTests.swift; sourceTree = "<group>"; };
+		4AC9112AFDD43844779E752D /* MooringsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsViews.swift; sourceTree = "<group>"; };
 		4FAA412529D59CBC7707DC77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
 		5059A2198553AB06D391E97A /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
@@ -581,7 +587,10 @@
 		0F40020C0EF308BF94C8BA3F /* Moorings */ = {
 			isa = PBXGroup;
 			children = (
+				1372DA7415597DAFEB2EAACD /* MooringsController.swift */,
 				3A46A647721E3C56CE978924 /* MooringsFeature.swift */,
+				4AC9112AFDD43844779E752D /* MooringsViews.swift */,
+				3FB8C8FF29952189955D7D92 /* SignInSheet.swift */,
 			);
 			path = Moorings;
 			sourceTree = "<group>";
@@ -1527,8 +1536,10 @@
 				A0AC8600177AB365A7A78377 /* MacLockCoordinator.swift in Sources */,
 				F9601CA5253CC65B09CF48CE /* MacSceneRoot.swift in Sources */,
 				9737905FE277852DD18FEB8C /* MacSettingsView.swift in Sources */,
+				9DAF2740E790BB6FD70FF124 /* MooringsController.swift in Sources */,
 				E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */,
 				12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */,
+				C288B6A3AA936A1A23772EEF /* MooringsViews.swift in Sources */,
 				20D58BCF8DADAFBC8F9748D9 /* NetworkMonitor.swift in Sources */,
 				1CF3C3F35606568FBEE53904 /* NotificationCoordinator.swift in Sources */,
 				F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */,
@@ -1557,6 +1568,7 @@
 				3F08DC9D73B98A9F29932C20 /* SidebarCatalog.swift in Sources */,
 				704D50E4386D08EE2F06A54A /* SidebarModel.swift in Sources */,
 				73B3B3430CDE01D3989438FF /* SidebarTree.swift in Sources */,
+				AA14646AF44297D9C9635F20 /* SignInSheet.swift in Sources */,
 				4BEFC363D1AA767D635C5110 /* SurveyFeature.swift in Sources */,
 				873844BC564255BE7D82185A /* SurveyPane.swift in Sources */,
 				59BA81055871163FA9B75237 /* SwiftTermSurface+macOS.swift in Sources */,

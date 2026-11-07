@@ -11,6 +11,6 @@ enum MooringsFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Moorings", milestone: "M3")
+        MooringsScreen()
     }
 }

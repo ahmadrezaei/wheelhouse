@@ -185,7 +185,8 @@ public struct ClusterMetadataStore: ClusterMetadataStoring {
     }
 
     public func save(_ clusters: [ClusterConfig]) throws {
-        let persistent = clusters.filter { !$0.isDemo }
+        // Discovered clusters (`origin != nil`) never reach the file or the iCloud mirror.
+        let persistent = clusters.filter { !$0.isDemo && $0.origin == nil }
         let local = readLocalFile()
         let previous = local.clusters
         var merged = readMirror()
