@@ -53,9 +53,11 @@ struct LogsView: View {
 
     // MARK: Content
 
+    /// Everything read here re-renders the whole screen (chips, toolbar, banners), so nothing here may read what changes with every
+    /// flush of new lines: the lines, the footer and the stream sync are child views with their own observation (`LogsLinesPane`,
+    /// `LogsFooter`, `LogsStreamSync`), and the toolbar reads `hasLines`.
     @ViewBuilder
     private func content(session: ClusterSession, model: LogsModel) -> some View {
-        @Bindable var model = model
         VStack(spacing: 0) {
             ContextLine(cluster: session.config, namespace: pod.namespace, kind: "pod/\(pod.name)")
                 .padding(.horizontal, Spacing.l).padding(.vertical, 6)
@@ -64,50 +66,21 @@ struct LogsView: View {
             if model.isSearching { searchBar(model) }
             if model.suggestPrevious { suggestionBanner(model) }
             if model.stream.problem != nil { watcherBanner(model) }
-            ZStack(alignment: .bottom) {
-                list(model, session: session)
-                if !model.follow && !model.previous && !model.visible.isEmpty { jumpToLive(model) }
-            }
-            footer(model)
+            LogsLinesPane(model: model, session: session) { detail = $0 }
+            LogsFooter(model: model)
         }
         .background(Color.whSystemBackground)
         .toolbar { toolbar(model) }
-        .onChange(of: model.stream.revision) { _, _ in model.syncFromStream() }
-        .onChange(of: model.stream.state) { _, _ in model.syncFromStream() }
+        #if os(macOS)
+        // The Mac keeps SwiftUI off the per-flush path entirely: the model syncs itself and the table follows the model. Keyed to the
+        // model, so a screen reused for another pod stops the old model's sync and starts the new one's.
+        .background { MacLogsStreamSync(model: model).id(model.id) }
+        #else
+        .background { LogsStreamSync(model: model) }
+        #endif
         .sheet(item: $detail) { LogLineDetailSheet(line: $0) }
         .sheet(item: $shareURL) { ShareSheet(url: $0.url) }
         .background { shortcuts(model) }
-    }
-
-    @ViewBuilder
-    private func list(_ model: LogsModel, session: ClusterSession) -> some View {
-        if let error = model.podError, model.visible.isEmpty, model.stream.state != .streaming {
-            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { Task { await model.load() } } }
-        } else if case .failed(let error) = model.stream.state, model.visible.isEmpty {
-            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { model.reload() } }
-        } else if model.visible.isEmpty {
-            if model.stream.state == .connecting || model.stream.state == .idle {
-                EmptyState(.loading)
-            } else if model.matchesOnly, model.matcher != nil {
-                EmptyState(.filteredEmpty(filter: model.query))
-            } else {
-                EmptyState(.empty(title: model.previous ? "No Previous Logs" : "No Log Output",
-                                  systemImage: "text.alignleft",
-                                  hint: model.previous ? "This container has not been restarted, so there is no previous instance." : "This container has not written anything yet\(model.since == .all ? "" : " in the selected time range").")) {
-                    if model.previous { Button("Show Current Logs") { model.setPrevious(false) } }
-                }
-            }
-        } else {
-            LogsTableView(
-                lines: model.visible,
-                settings: LogsDisplaySettings(wrap: model.wrap, timestamps: model.timestamps, fontSize: model.fontSize, query: model.query,
-                                              useRegex: model.useRegex, currentLineID: model.currentLineID),
-                matcher: model.matcher, follow: model.follow, scrollTarget: model.scrollTarget,
-                onUserScrolledAway: { model.userScrolledAway() }, onReachedBottom: { model.userReachedBottom() },
-                onSelect: { detail = $0 }
-            )
-            .accessibilityLabel("Log lines")
-        }
     }
 
     // MARK: Chips
@@ -228,51 +201,6 @@ struct LogsView: View {
         .padding(.horizontal, Spacing.l).padding(.bottom, 6)
     }
 
-    // MARK: Overlay & footer
-
-    private func jumpToLive(_ model: LogsModel) -> some View {
-        Button { model.jumpToLive() } label: {
-            Label(model.newLinesWhileAway > 0 ? "Jump to Live · \(model.newLinesWhileAway) new" : "Jump to Live", systemImage: "arrow.down.to.line")
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16).padding(.vertical, 10)
-        }
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.bottom, 12)
-        .transition(.scale.combined(with: .opacity))
-        .accessibilityLabel("Jump to live, \(model.newLinesWhileAway) new lines")
-    }
-
-    private func footer(_ model: LogsModel) -> some View {
-        HStack(spacing: 8) {
-            switch model.stream.state {
-            case .streaming where model.isPolling:
-                Label("Polling (live streaming unavailable on this node)", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(Palette.warningText).lineLimit(2)
-            case .streaming: HStack(spacing: 4) { LiveDot(); Text("Live").foregroundStyle(Palette.healthyText) }
-            case .connecting: HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Connecting") }
-            case .finished: Label(model.previous ? "Previous instance" : "Stream ended", systemImage: "checkmark.circle")
-            case .paused:
-                switch model.stream.pauseReason {
-                case .background: Label("Paused in background", systemImage: "pause.circle")
-                case .preempted: Label("Stopped: another stream took over", systemImage: "pause.circle")
-                default: Label("Paused", systemImage: "pause.circle")
-                }
-            case .failed(let e): Label(e.summary, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.criticalText)
-            case .idle: EmptyView()
-            }
-            Spacer()
-            if model.stream.droppedCount > 0 { Text("\(model.stream.droppedCount.formatted()) older dropped").foregroundStyle(Palette.warningText) }
-            Text("\(model.visible.count.formatted()) lines").monospacedDigit()
-            // A previous instance is not live: nothing to resume unless loading it failed (then it is a retry).
-            if !model.previous ? (model.stream.state == .finished || model.stream.state == .paused || model.stream.state.isFailed) : model.stream.state.isFailed {
-                Button("Resume") { model.stream.resume() }.font(.caption.weight(.semibold))
-            }
-        }
-        .font(.caption).foregroundStyle(.secondary)
-        .padding(.horizontal, Spacing.l).padding(.vertical, 6)
-        .background(.bar)
-        .accessibilityElement(children: .combine)
-    }
-
     // MARK: Toolbar & shortcuts
 
     @ToolbarContentBuilder
@@ -284,7 +212,7 @@ struct LogsView: View {
         }
         ToolbarItem(placement: .whTrailing) {
             Button { if let url = model.exportFileURL() { shareURL = ShareItem(url: url) } } label: { Image(systemName: "square.and.arrow.up") }
-                .accessibilityLabel("Share logs").disabled(model.visible.isEmpty)
+                .accessibilityLabel("Share logs").disabled(!model.hasLines)
         }
         ToolbarItem(placement: .whTrailing) {
             Menu {
@@ -319,6 +247,142 @@ struct LogsView: View {
 
 private extension LogStream.State {
     var isFailed: Bool { if case .failed = self { true } else { false } }
+}
+
+// MARK: - Per-flush parts
+//
+// New lines arrive several times a second. Each part below observes only what it shows, so a flush re-renders the list (and, at most
+// once a second on the Mac, the footer) instead of the whole screen with its chips, menus and toolbar.
+
+#if os(macOS)
+/// Holds the model's own stream sync while it is on screen (see `LogsModel.startStreamSync()`). Observes nothing.
+private struct MacLogsStreamSync: View {
+    let model: LogsModel
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear { model.startStreamSync() }
+            .onDisappear { model.stopStreamSync() }
+    }
+}
+#else
+/// Moves new lines from the stream into the model. Its own view, so only it observes `stream.revision`.
+private struct LogsStreamSync: View {
+    let model: LogsModel
+
+    var body: some View {
+        Color.clear
+            .onChange(of: model.stream.revision) { _, _ in model.syncFromStream() }
+            .onChange(of: model.stream.state) { _, _ in model.syncFromStream() }
+    }
+}
+#endif
+
+/// The lines (or the empty, loading and error states) and the Jump to Live button.
+private struct LogsLinesPane: View {
+    let model: LogsModel
+    let session: ClusterSession
+    var onSelect: (LogLine) -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            list
+            if !model.follow && !model.previous && model.hasLines { jumpToLive }
+        }
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if let error = model.podError, !model.hasLines, model.stream.state != .streaming {
+            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { Task { await model.load() } } }
+        } else if case .failed(let error) = model.stream.state, !model.hasLines {
+            EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) { Button("Retry") { model.reload() } }
+        } else if !model.hasLines {
+            if model.stream.state == .connecting || model.stream.state == .idle {
+                EmptyState(.loading)
+            } else if model.matchesOnly, model.matcher != nil {
+                EmptyState(.filteredEmpty(filter: model.query))
+            } else {
+                EmptyState(.empty(title: model.previous ? "No Previous Logs" : "No Log Output",
+                                  systemImage: "text.alignleft",
+                                  hint: model.previous ? "This container has not been restarted, so there is no previous instance." : "This container has not written anything yet\(model.since == .all ? "" : " in the selected time range").")) {
+                    if model.previous { Button("Show Current Logs") { model.setPrevious(false) } }
+                }
+            }
+        } else {
+            // The Mac table follows the model's lines itself (no SwiftUI update per flush); iOS passes them by value.
+            #if os(macOS)
+            LogsTableView(
+                source: model,
+                settings: LogsDisplaySettings(wrap: model.wrap, timestamps: model.timestamps, fontSize: model.fontSize, query: model.query,
+                                              useRegex: model.useRegex, currentLineID: model.currentLineID),
+                matcher: model.matcher, follow: model.follow, scrollTarget: model.scrollTarget,
+                onUserScrolledAway: { model.userScrolledAway() }, onReachedBottom: { model.userReachedBottom() },
+                onSelect: onSelect
+            )
+            .accessibilityLabel("Log lines")
+            #else
+            LogsTableView(
+                lines: model.visible,
+                settings: LogsDisplaySettings(wrap: model.wrap, timestamps: model.timestamps, fontSize: model.fontSize, query: model.query,
+                                              useRegex: model.useRegex, currentLineID: model.currentLineID),
+                matcher: model.matcher, follow: model.follow, scrollTarget: model.scrollTarget,
+                onUserScrolledAway: { model.userScrolledAway() }, onReachedBottom: { model.userReachedBottom() },
+                onSelect: onSelect
+            )
+            .accessibilityLabel("Log lines")
+            #endif
+        }
+    }
+
+    private var jumpToLive: some View {
+        Button { model.jumpToLive() } label: {
+            Label(model.newLinesWhileAway > 0 ? "Jump to Live · \(model.newLinesWhileAway) new" : "Jump to Live", systemImage: "arrow.down.to.line")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .padding(.bottom, 12)
+        .transition(.scale.combined(with: .opacity))
+        .accessibilityLabel("Jump to live, \(model.newLinesWhileAway) new lines")
+    }
+}
+
+/// Stream state and the line counts (the throttled status values of the model).
+private struct LogsFooter: View {
+    let model: LogsModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch model.stream.state {
+            case .streaming where model.isPolling:
+                Label("Polling (live streaming unavailable on this node)", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(Palette.warningText).lineLimit(2)
+            case .streaming: HStack(spacing: 4) { LiveDot(); Text("Live").foregroundStyle(Palette.healthyText) }
+            case .connecting: HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Connecting") }
+            case .finished: Label(model.previous ? "Previous instance" : "Stream ended", systemImage: "checkmark.circle")
+            case .paused:
+                switch model.stream.pauseReason {
+                case .background: Label("Paused in background", systemImage: "pause.circle")
+                case .preempted: Label("Stopped: another stream took over", systemImage: "pause.circle")
+                default: Label("Paused", systemImage: "pause.circle")
+                }
+            case .failed(let e): Label(e.summary, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.criticalText)
+            case .idle: EmptyView()
+            }
+            Spacer()
+            if model.statusDroppedCount > 0 { Text("\(model.statusDroppedCount.formatted()) older dropped").foregroundStyle(Palette.warningText) }
+            Text("\(model.statusLineCount.formatted()) lines").monospacedDigit()
+            // A previous instance is not live: nothing to resume unless loading it failed (then it is a retry).
+            if !model.previous ? (model.stream.state == .finished || model.stream.state == .paused || model.stream.state.isFailed) : model.stream.state.isFailed {
+                Button("Resume") { model.stream.resume() }.font(.caption.weight(.semibold))
+            }
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .padding(.horizontal, Spacing.l).padding(.vertical, 6)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
+    }
 }
 
 struct ShareItem: Identifiable { let id = UUID(); let url: URL }

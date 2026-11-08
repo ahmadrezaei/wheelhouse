@@ -102,7 +102,19 @@ final class LogsModel: Identifiable {
     var follow = true
 
     // Visible lines + search
+    /// The lines the list shows. Only the list reads it: a screen part that only needs "any lines?" or the count reads ``hasLines``
+    /// or the status values below, so a flush of new lines re-renders the list and nothing else.
     private(set) var visible: [LogLine] = []
+    /// `visible` without registering an observation: the Mac table reads it while SwiftUI may be tracking (`updateNSView`), and a
+    /// tracked read there would put every flush back on SwiftUI's path. It observes `visible.count` itself instead.
+    var untrackedVisible: [LogLine] { _visible }
+    /// `!visible.isEmpty`, written only when it changes.
+    private(set) var hasLines = false
+    /// The footer's line and dropped counts. Where the stream enforces the desktop limits they change at most once a second
+    /// (ARCHITECTURE-MAC section 12.3.2: status bars update at most once a second), always with a trailing update so the last value
+    /// lands; elsewhere (iOS) they follow every flush, as before.
+    private(set) var statusLineCount = 0
+    private(set) var statusDroppedCount = 0
     var query = "" { didSet { if oldValue != query { queryChanged() } } }
     var useRegex = false { didSet { if oldValue != useRegex { queryChanged() } } }
     var matchesOnly = false { didSet { if oldValue != matchesOnly { syncFromStream(force: true) } } }
@@ -125,10 +137,15 @@ final class LogsModel: Identifiable {
     @ObservationIgnored private var startDeferred = false
     @ObservationIgnored private var syncedAppended = 0
     @ObservationIgnored private var syncedDropped = 0
+    @ObservationIgnored private var streamSyncGeneration = 0
+    @ObservationIgnored private var streamSyncClients = 0
+    @ObservationIgnored private var statusUpdatedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
 
     /// `maxLines` and `fontSize` come from Settings (`AppPreferences.logMaxLines` / `logFontSize`).
-    init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12) {
-        let limits = LogLimits.platformDefault
+    /// `limits` is a test seam; the app uses the platform default (desktop caps on the Mac, unlimited on iOS).
+    init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12,
+         limits: LogLimits = .platformDefault) {
         self.stream = LogStream(capacity: min(max(maxLines, 1_000), limits.maxLines), limits: limits)
         self.fontSize = CGFloat(min(max(fontSize, 9), 22))
         self.pod = pod
@@ -187,6 +204,7 @@ final class LogsModel: Identifiable {
         options.container = container
         stream.start(client: clusterSession.client, namespace: ns, pod: pod.name, containers: targets, options: options, scope: pod.clusterID)
         visible = []; matchIDs = []; scannedUpTo = -1; lastCount = 0; currentMatch = nil; newLinesWhileAway = 0
+        visibleDidChange(forceStatus: true)
     }
 
     func reload() { startStream() }
@@ -195,6 +213,7 @@ final class LogsModel: Identifiable {
     func clear() {
         stream.clear()
         visible = []; matchIDs = []; scannedUpTo = -1; currentMatch = nil; lastCount = 0
+        visibleDidChange(forceStatus: true)
     }
 
     // MARK: Lifecycle
@@ -216,12 +235,14 @@ final class LogsModel: Identifiable {
     /// Leaving the screen closes the follow connection (the kubelet holds an inotify watcher per follow) unless pinned.
     func screenDidDisappear() {
         isOnScreen = false
+        statusTask?.cancel(); statusTask = nil
         stream.isVisible = false
         if !pinned { stream.suspend(reason: .screenLeft) }
     }
 
     func screenDidAppear() {
         isOnScreen = true
+        updateStatus(force: true)
         stream.isVisible = true
         if stream.state == .paused, stream.pauseReason == .screenLeft { stream.resume() }
         startDeferredIfPossible()
@@ -247,6 +268,37 @@ final class LogsModel: Identifiable {
 
     // MARK: Stream sync
 
+    /// Keeps `visible` in step with the stream without a SwiftUI view in between (the Mac log screen; iOS uses `.onChange`): observes
+    /// `stream.revision` and `stream.state` and syncs after each change while at least one screen showing this model has called this
+    /// and not yet ``stopStreamSync()`` (one model can be on two screens, and the new one may appear before the old one goes).
+    func startStreamSync() {
+        streamSyncClients += 1
+        guard streamSyncClients == 1 else { return }
+        streamSyncGeneration += 1
+        armStreamSync(streamSyncGeneration)
+        syncFromStream()
+    }
+
+    func stopStreamSync() {
+        guard streamSyncClients > 0 else { return }
+        streamSyncClients -= 1
+        if streamSyncClients == 0 { streamSyncGeneration += 1 }
+    }
+
+    private func armStreamSync(_ generation: Int) {
+        withObservationTracking {
+            _ = stream.revision
+            _ = stream.state
+        } onChange: { [weak self] in
+            // Fires before the change; the sync runs on the next main-actor turn, after it.
+            Task { @MainActor [weak self] in
+                guard let self, self.streamSyncGeneration == generation else { return }
+                self.armStreamSync(generation)
+                self.syncFromStream()
+            }
+        }
+    }
+
     /// Called when `stream.revision` changes.
     func syncFromStream(force: Bool = false) {
         let buffer = stream.buffer
@@ -267,12 +319,46 @@ final class LogsModel: Identifiable {
             syncedEpoch = stream.epoch; syncedAppended = stream.appendedTotal; syncedDropped = buffer.droppedCount
         }
         if !follow, visible.count > lastCount { newLinesWhileAway += visible.count - lastCount }
-        if follow { newLinesWhileAway = 0 }
+        if follow, newLinesWhileAway != 0 { newLinesWhileAway = 0 }
         lastCount = visible.count
+        visibleDidChange(forceStatus: false)
         rescanMatches(incremental: !force)
         if stream.state == .finished, !markerAdded, let note = terminationNote {
             markerAdded = true
             stream.appendMarker(note)
+        }
+    }
+
+    // MARK: Derived display state
+
+    /// Seconds between status updates: 1 s where the stream enforces the desktop limits (the Mac), immediate otherwise (iOS).
+    private var statusInterval: Duration { stream.limits.isUnlimited ? .zero : .seconds(1) }
+
+    private func visibleDidChange(forceStatus: Bool) {
+        let has = !visible.isEmpty
+        if hasLines != has { hasLines = has }
+        updateStatus(force: forceStatus)
+    }
+
+    /// Publishes the footer counts, at most once per ``statusInterval`` unless `force` (a reset must show at once).
+    func updateStatus(force: Bool = false) {
+        let count = visible.count, dropped = stream.droppedCount
+        guard count != statusLineCount || dropped != statusDroppedCount else { return }
+        let now = ContinuousClock.now
+        if force || statusInterval == .zero || statusUpdatedAt.map({ now - $0 >= statusInterval }) ?? true {
+            statusTask?.cancel(); statusTask = nil
+            statusUpdatedAt = now
+            if statusLineCount != count { statusLineCount = count }
+            if statusDroppedCount != dropped { statusDroppedCount = dropped }
+            return
+        }
+        guard statusTask == nil, let last = statusUpdatedAt else { return }
+        let wait = statusInterval - (now - last)
+        statusTask = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard !Task.isCancelled, let self else { return }
+            self.statusTask = nil
+            self.updateStatus(force: true)
         }
     }
 
@@ -288,16 +374,22 @@ final class LogsModel: Identifiable {
     }
 
     private func rescanMatches(incremental: Bool) {
-        guard let matcher else { matchIDs = []; currentMatch = nil; return }
-        if !incremental { matchIDs = []; scannedUpTo = -1 }
-        // Drop matches that scrolled out of the ring buffer.
-        if let first = visible.first?.id { matchIDs.removeAll { $0 < first } }
-        let start = visible.firstIndex { $0.id > scannedUpTo } ?? visible.count
-        for line in visible[start...] where line.kind == .line {
-            if matcher.matches(line.message) { matchIDs.append(line.id) }
+        // Written only when they change: these are observed, and this runs on every flush.
+        guard let matcher else {
+            if !matchIDs.isEmpty { matchIDs = [] }
+            if currentMatch != nil { currentMatch = nil }
+            return
         }
+        if !incremental { if !matchIDs.isEmpty { matchIDs = [] }; scannedUpTo = -1 }
+        // Drop matches that scrolled out of the ring buffer.
+        if let first = visible.first?.id, let oldest = matchIDs.first, oldest < first { matchIDs.removeAll { $0 < first } }
+        let start = visible.firstIndex { $0.id > scannedUpTo } ?? visible.count
+        let found = visible[start...].filter { $0.kind == .line && matcher.matches($0.message) }.map(\.id)
+        if !found.isEmpty { matchIDs.append(contentsOf: found) }
         scannedUpTo = visible.last?.id ?? scannedUpTo
-        if matchIDs.isEmpty { currentMatch = nil } else if let c = currentMatch, c >= matchIDs.count { currentMatch = matchIDs.count - 1 }
+        if matchIDs.isEmpty {
+            if currentMatch != nil { currentMatch = nil }
+        } else if let c = currentMatch, c >= matchIDs.count { currentMatch = matchIDs.count - 1 }
     }
 
     func nextMatch() {

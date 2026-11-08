@@ -7,5 +7,6 @@
   "panes": [
     "logs:chatter",
     "deck-terminal:kubectl get pods -n wh-perf -w"
-  ]
+  ],
+  "cycleSeconds": 300
 }

@@ -1,4 +1,6 @@
 import AppKit
+import notify
+import os
 import SwiftUI
 import UniformTypeIdentifiers
 import WheelhouseDesktop
@@ -30,11 +32,17 @@ struct MacShell: View {
             // Demo needs no test kubeconfig, so it never waits for the folder prompt.
             if !env.isReady && !registry.isDemoMode {
                 StartingView()
-            } else if showsWelcome { WelcomeView().environment(router) } else { workspace.disabled(locked).accessibilityHidden(locked) }
+            } else if showsWelcome {
+                WelcomeView().environment(router).onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
+            } else {
+                workspace.disabled(locked).accessibilityHidden(locked)
+                    .onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
+            }
             if env.lock.isLocked {
                 LockScreenView().environment(env.lock.controller).transition(.identity)
             }
         }
+        .background(WorkspaceWindowMarker().frame(width: 0, height: 0))
         .environment(registry)
         .environment(env.preferences)
         .environment(router)
@@ -120,7 +128,7 @@ struct MacShell: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
         } content: {
             MacContentColumn()
-                .navigationSplitViewColumnWidth(min: 420, ideal: 600)
+                .navigationSplitViewColumnWidth(min: MacContentColumn.minimumWidth, ideal: 600)
         } detail: {
             MacDetailColumn()
         }
@@ -154,6 +162,93 @@ struct MacShell: View {
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-WHImportFile"), args.indices.contains(i + 1) {
             env.importer.import(url: URL(fileURLWithPath: args[i + 1]), whileLocked: env.lock.isLocked)
+        }
+    }
+}
+
+/// A column screen's minimum size, answered without measuring the screen.
+///
+/// On the Mac each `NavigationSplitView` column is its own `NSHostingView`, and AppKit asks it for its minimum size in every Auto Layout
+/// pass, which follows every SwiftUI update in that column. Measured from the content, that question walked the whole screen (stacks,
+/// scroll views, every Text) each time: about 7 ms per update of a log screen's footer, for example (performance pass P1). This layout
+/// answers a zero proposal (the minimum) with the constant and passes concrete sizes through, so the screen still fills its column. It
+/// sits on a screen inside the column's `NavigationStack` (a modifier outside the stack is not part of the column's measurement), and
+/// only on the screens that update many times a second and whose content fits the constant (the resource lists and the log screen).
+/// Every other screen (Chart Room and Survey split views, for example, need 840-940 pt) is measured as before, so its real minimum
+/// still holds the column open.
+struct ConstantMinimumSize: ViewModifier {
+    let minimum: CGSize
+
+    func body(content: Content) -> some View {
+        MinimumSizeLayout(minimum: minimum) { content }
+    }
+
+    struct MinimumSizeLayout: Layout {
+        let minimum: CGSize
+
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            guard let width = proposal.width, let height = proposal.height else {
+                // An unspecified dimension (ideal size) is the content's answer, never below the minimum.
+                let ideal = subviews.first?.sizeThatFits(proposal) ?? minimum
+                return CGSize(width: max(ideal.width, minimum.width), height: max(ideal.height, minimum.height))
+            }
+            return CGSize(width: max(width, minimum.width), height: max(height, minimum.height))
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: ProposedViewSize(bounds.size))
+        }
+
+        // No alignment guides from the content: the default asks the content for its guides, which measures and places it, and the
+        // enclosing stack asks for them while computing the minimum.
+        func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+        func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
+    }
+}
+
+extension View {
+    /// See ``ConstantMinimumSize``. With `enabled` false the view is unchanged (measured as usual).
+    @ViewBuilder
+    func constantMinimumSize(width: CGFloat, height: CGFloat, enabled: Bool = true) -> some View {
+        if enabled { modifier(ConstantMinimumSize(minimum: CGSize(width: width, height: height))) } else { self }
+    }
+}
+
+/// Registers the window that hosts the workspace with ``WorkspaceWindows`` (the energy rules count only these windows).
+private struct WorkspaceWindowMarker: NSViewRepresentable {
+    final class MarkerView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { WorkspaceWindows.register(window) }
+        }
+    }
+
+    func makeNSView(context: Context) -> MarkerView { MarkerView() }
+    func updateNSView(_ view: MarkerView, context: Context) {}
+}
+
+/// The end of the launch path: the first time the shell shows real content (the workspace or the welcome screen) instead of the
+/// Starting view. Emits a `FirstContent` signpost (Instruments, `Launch` category) and, in development builds, the Darwin notification
+/// `scripts/perf-launch.swift` times (budget `testLaunch.firstContentP90Sec`, ARCHITECTURE-MAC section 12.3.2). Fires once per process.
+@MainActor
+enum LaunchMarker {
+    static let firstContentNotification = "com.ahmadrezaei.wheelhouse.perf.first-content"
+    private static let signposter = OSSignposter(subsystem: Bundle.main.bundleIdentifier ?? "Wheelhouse", category: "Launch")
+    private(set) static var firstContentSeen = false
+
+    static func firstContentAppeared(gateActive: Bool) {
+        guard !firstContentSeen else { return }
+        firstContentSeen = true
+        // `onAppear` runs before the frame is committed: mark the end of the transaction that carries it.
+        DispatchQueue.main.async {
+            CATransaction.begin()
+            CATransaction.setCompletionBlock {
+                signposter.emitEvent("FirstContent")
+                if gateActive { notify_post(firstContentNotification) }
+            }
+            CATransaction.commit()
         }
     }
 }

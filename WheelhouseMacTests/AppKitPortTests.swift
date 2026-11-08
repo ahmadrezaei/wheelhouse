@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Foundation
 import SwiftTerm
+import SwiftUI
 import WheelhouseDesktop
 import WheelhouseKit
 @testable import WheelhouseMac
@@ -54,16 +55,109 @@ struct AppKitPortTests {
         #expect(v.isAtBottom)
     }
 
-    @Test func aFullRingDroppingAtTheFrontRemovesAndInsertsRows() async throws {
+    @Test func aFullRingDroppingAtTheFrontOnlyAddsRowsUntilTheSlackIsUsed() async throws {
         let v = logs()
         apply(v, lines(0..<20_000))
-        try await Task.sleep(for: .milliseconds(300))
-        // The ring is full: 100 lines fall off the front while 100 arrive at the back.
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        // The ring is full: 100 lines fall off the front while 100 arrive at the back. P1: the dropped lines' rows stay for now
+        // (front slack), so only rows at the end are added (removing front rows on every update rebuilt every row view).
         apply(v, lines(100..<20_100))
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(v.applyCounts.frontDrop == 1)
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        #expect(v.applyCounts.frontDrop == 1 && v.applyCounts.frontTrim == 0)
         #expect(v.applyCounts.reload == 1)               // never a second full reload
-        #expect(v.tableRowCount == 20_000 && v.isAtBottom)
+        #expect(v.tableRowCount == 20_100 && v.isAtBottom)
+        // Past the slack (a tenth of the lines) the old rows go in one removal.
+        apply(v, lines(2_500..<22_500))
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        #expect(v.applyCounts.frontTrim == 1 && v.applyCounts.reload == 1)
+        #expect(v.tableRowCount == 20_000 && v.displayedLineCount == 20_000 && v.isAtBottom)
+    }
+
+    @Test func showingAllLinesAfterMatchingOnlyIsNotAnAppend() async throws {
+        let v = logs()
+        let all = lines(0..<10)
+        apply(v, [all[0], all[5], all[9]])                                    // "matching lines only": the first line matched
+        try await Task.sleep(for: .milliseconds(300))
+        apply(v, all)                                                         // turned off: same first line, more lines
+        #expect(try await eventually { v.displayedLineCount == 10 })
+        #expect(v.displayedLineIDs == Array(0..<10))                          // not [0, 5, 9, 3, 4, ...]
+        #expect(v.applyCounts.reload == 2)
+    }
+
+    @Test func applyingTheModelsLinesDoesNotMakeThemASwiftUIDependency() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        model.stream.appendMarker("first")
+        #expect(try await eventually { model.visible.count == 1 })
+        let v = logs()
+        v.track(model)
+        try await Task.sleep(for: .milliseconds(100))
+        let fired = Fired()
+        var s = LogsDisplaySettings()
+        s.timestamps = true                                                   // urgent: applied at once, inside the tracking
+        withObservationTracking {
+            v.apply(lines: nil, settings: s, matcher: nil, follow: true, scrollTarget: nil)
+        } onChange: { fired.hit() }
+        #expect(v.displayedLineCount == 1)
+        model.stream.appendMarker("second")
+        #expect(try await eventually { model.visible.count == 2 })
+        #expect(fired.count == 0)
+        model.stopStreamSync()
+    }
+
+    @Test func aReaderScrolledAwayKeepsTheirPlaceWhileTheRingDrops() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000))
+        try await Task.sleep(for: .milliseconds(300))
+        apply(v, lines(0..<5_000), follow: false)                             // the reader scrolled away (follow off) ...
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 1_000)
+        let place = v.firstVisibleLineID, offset = v.scrollOffsetY
+        #expect(place == 1_000)
+        apply(v, lines(50..<5_050), follow: false)                            // ... and the full ring moves on
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.reload == 1 && v.applyCounts.frontDrop == 1)    // no full reload under the reader
+        #expect(v.tableRowCount == 5_050)
+        #expect(v.firstVisibleLineID == place && v.scrollOffsetY == offset)  // the same line at the same place
+    }
+
+    @Test func aTrimWhileScrolledAwayKeepsTheReadersLine() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 2_000)
+        #expect(v.firstVisibleLineID == 2_000)
+        // Past the slack (500 for 5,000 lines): the old rows go in one removal, and the reader's line stays in view.
+        apply(v, lines(800..<5_800), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.frontTrim == 1 && v.applyCounts.reload == 1)
+        #expect(v.displayedLineIDs.first == 800)
+        #expect(v.firstVisibleLineID == 2_000)
+    }
+
+    @Test func aTrimThatRemovesTheReadersLineKeepsThemAtTheOldestLine() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 100)
+        #expect(v.firstVisibleLineID == 100 && v.scrollOffsetY > 0)
+        apply(v, lines(800..<5_800), follow: false)                           // line 100 was among the trimmed rows
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.frontTrim == 1)
+        #expect(v.scrollOffsetY == 0 && v.firstVisibleLineID == 800)
+    }
+
+    @Test func aReloadWithoutTheReadersLineDoesNotJumpToTheTop() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 3_000)
+        let offset = v.scrollOffsetY
+        // "Matching lines only": another set of lines without the reader's line. Not a trim, so no jump to the top.
+        apply(v, lines(0..<5_000).filter { $0.id % 2 == 1 }, follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.reload == 2)
+        #expect(v.scrollOffsetY > 0 && v.scrollOffsetY <= offset)
     }
 
     @Test func updatesInsideAQuarterSecondAreCoalesced() async throws {
@@ -320,5 +414,285 @@ struct AppKitPortTests {
         let m = PowerSourceMonitor()
         m.start { _ in }
         m.stop()
+    }
+
+    @Test func theCoordinatorAloneSwitchesThePeriodicCadence() {
+        let periodic = PeriodicTaskRegistry()
+        var visible = true
+        let coordinator = MacEnergyCoordinator(registry: ClusterRegistry.preview(), memorySource: FakeMemorySource(), releaseGrace: 30,
+                                               visibility: { visible }, periodicTasks: periodic)
+        coordinator.evaluateVisibility()
+        #expect(periodic.windowsVisible)
+        visible = false
+        coordinator.evaluateVisibility()
+        #expect(!periodic.windowsVisible)                                    // one source of "visible": no second window scan
+    }
+
+    // MARK: Workspace windows (P1: an open Settings window is not a visible workspace)
+
+    @Test func onlyRegisteredWorkspaceWindowsCount() {
+        let workspace = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        workspace.isReleasedWhenClosed = false; settings.isReleasedWhenClosed = false
+        // The observers stay registered for the process: they hold the window weakly and count only.
+        weak let watched = workspace
+        var seen = 0
+        WorkspaceWindows.observe { if $0 === watched { seen += 1 } }
+        WorkspaceWindows.register(workspace)
+        WorkspaceWindows.register(workspace)                                   // idempotent
+        #expect(WorkspaceWindows.contains(workspace) && !WorkspaceWindows.contains(settings))
+        #expect(WorkspaceWindows.all.filter { $0 === workspace }.count == 1)
+        #expect(seen == 1)
+        var replayed = 0
+        WorkspaceWindows.observe { if $0 === watched { replayed += 1 } }     // a late observer sees the windows already registered
+        #expect(replayed == 1)
+        // The visibility rule only ever sees registered windows: Settings is not among them, whatever its state.
+        #expect(!WorkspaceWindows.all.contains { $0 === settings })
+    }
+
+    @Test func aReleasedWorkspaceWindowDropsOut() {
+        weak var gone: NSWindow?
+        autoreleasepool {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+            w.isReleasedWhenClosed = false
+            WorkspaceWindows.register(w)
+            gone = w
+        }
+        #expect(gone == nil)                                                  // the registry does not keep it alive
+        #expect(WorkspaceWindows.all.allSatisfy { $0.contentRect(forFrameRect: $0.frame).size != CGSize(width: 200, height: 100) })
+    }
+
+    // MARK: Log follow off the SwiftUI path (P1)
+
+    private func logsModel() throws -> LogsModel {
+        let registry = ClusterRegistry.preview()
+        let cluster = try #require(registry.clusters.first)
+        let session = try #require(registry.session(for: cluster.id))
+        return LogsModel(pod: ResourceRef(clusterID: cluster.id, kind: .pod, namespace: "shop", name: "chatter"), container: nil,
+                         previous: false, session: session)
+    }
+
+    /// Polls `condition` on the main actor until it holds or `timeout` passes (the stream flush and the table coalescing are timers,
+    /// slower under Low Power Mode or thermal pressure).
+    private func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now >= deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
+    @Test func theMacTableFollowsTheModelWithoutSwiftUI() async throws {
+        let model = try logsModel()
+        let v = logs()
+        v.track(model)
+        model.startStreamSync()
+        for i in 0..<50 { model.stream.appendMarker("line \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 50 })
+        #expect(model.visible.count == 50 && v.isAtBottom)
+        v.teardown()
+        model.stream.appendMarker("after teardown")
+        #expect(try await eventually { model.visible.count == 51 })
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(v.displayedLineCount == 50)                                   // no longer following
+        model.stopStreamSync()
+        model.stream.appendMarker("after stop")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(model.visible.count == 51)                                    // the model stopped syncing itself
+    }
+
+    @Test func newLinesDoNotSnapBackAfterTheUserScrolledAway() async throws {
+        let model = try logsModel()
+        let v = logs(height: 300)
+        v.track(model)
+        model.startStreamSync()
+        for i in 0..<100 { model.stream.appendMarker("line \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 100 && v.isAtBottom })
+        // A user scroll sets the model's follow to false before SwiftUI passes it on: the next lines must not scroll to the end.
+        model.userScrolledAway()
+        for i in 0..<200 { model.stream.appendMarker("more \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 300 })
+        #expect(!v.isAtBottom)
+        model.stopStreamSync()
+    }
+
+    @Test func theTableFollowsOnlyTheModelItWasLastGiven() async throws {
+        let a = try logsModel(), b = try logsModel()
+        let v = logs()
+        a.startStreamSync(); b.startStreamSync()
+        v.track(a)
+        a.stream.appendMarker("a0")
+        #expect(try await eventually { v.displayedLineCount == 1 })
+        v.track(b)
+        for i in 0..<3 { b.stream.appendMarker("b\(i)") }
+        #expect(try await eventually { v.displayedLineCount == 3 })
+        for i in 0..<5 { a.stream.appendMarker("a\(i + 1)") }
+        #expect(try await eventually { a.visible.count == 6 })
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(v.displayedLineCount == 3)                                    // the old model's lines never reach the table
+        a.stopStreamSync(); b.stopStreamSync()
+    }
+
+    @Test func aNewModelWithOverlappingLineIDsReplacesTheRows() async throws {
+        let a = try logsModel(), b = try logsModel()
+        a.startStreamSync(); b.startStreamSync()
+        for i in 0..<1_000 { a.stream.appendMarker("a\(i)") }
+        for i in 0..<300 { b.stream.appendMarker("old b\(i)") }
+        #expect(try await eventually { a.visible.count == 1_000 && b.visible.count == 300 })
+        b.clear()                                                             // ids go on counting: b now holds ids 300..<1300
+        for i in 0..<1_000 { b.stream.appendMarker("b\(i)") }
+        #expect(try await eventually { b.visible.count == 1_000 })
+        let v = logs()
+        v.track(a)
+        #expect(try await eventually { v.displayedLineCount == 1_000 })
+        let reloads = v.applyCounts.reload
+        v.track(b)
+        // As updateNSView does: the apply right after `track` reads the new model already.
+        v.apply(lines: nil, settings: LogsDisplaySettings(), matcher: nil, follow: true, scrollTarget: nil)
+        #expect(try await eventually { v.applyCounts.reload > reloads })
+        #expect(v.displayedLineCount == 1_000)                                // b's lines only, not a's rows plus b's tail
+        #expect(v.displayedLineIDs.first == b.visible.first?.id)
+        a.stopStreamSync(); b.stopStreamSync()
+    }
+
+    @Test func theStreamSyncLastsWhileAnyScreenHoldsIt() async throws {
+        let model = try logsModel()
+        model.startStreamSync()                                               // the new screen appears ...
+        model.startStreamSync()
+        model.stopStreamSync()                                                // ... before the old one goes
+        model.stream.appendMarker("still synced")
+        #expect(try await eventually { model.visible.count == 1 })
+        model.stopStreamSync()
+        model.stopStreamSync()                                                // an extra stop is harmless
+        model.stream.appendMarker("not synced")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(model.visible.count == 1)
+    }
+
+    @Test func hasLinesChangesOnlyBetweenEmptyAndNotEmpty() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        model.stream.appendMarker("first")
+        #expect(try await eventually { model.hasLines })
+        let fired = Fired()
+        withObservationTracking { _ = model.hasLines; _ = model.statusDroppedCount } onChange: { fired.hit() }
+        for i in 0..<10 { model.stream.appendMarker("more \(i)") }
+        #expect(try await eventually { model.visible.count == 11 })
+        #expect(fired.count == 0)                                             // a flush of new lines does not touch them
+        model.clear()
+        #expect(!model.hasLines && model.statusLineCount == 0)                 // a reset shows at once
+        #expect(fired.count == 1)
+        model.stopStreamSync()
+    }
+
+    @Test func statusCountsFollowAtMostOncePerSecondWithATrailingUpdate() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        for i in 0..<10 { model.stream.appendMarker("a \(i)") }
+        #expect(try await eventually { model.statusLineCount == 10 })        // the first change shows at once
+        for i in 0..<5 { model.stream.appendMarker("b \(i)") }
+        #expect(try await eventually { model.visible.count == 15 })            // about 250 ms later: inside the second
+        #expect(model.statusLineCount == 10)                                   // held back
+        let shownAt = ContinuousClock.now
+        #expect(try await eventually { model.statusLineCount == 15 })        // then the trailing update lands
+        #expect(ContinuousClock.now - shownAt <= .milliseconds(1_300))
+        model.stopStreamSync()
+    }
+
+    @Test func withoutDesktopLimitsTheStatusCountsFollowEveryFlush() async throws {
+        // iOS streams have no desktop limits: the footer follows every flush, as before P1 (the zero-interval path).
+        let registry = ClusterRegistry.preview()
+        let cluster = try #require(registry.clusters.first)
+        let session = try #require(registry.session(for: cluster.id))
+        let model = LogsModel(pod: ResourceRef(clusterID: cluster.id, kind: .pod, namespace: "shop", name: "chatter"), container: nil,
+                              previous: false, session: session, limits: .unlimited)
+        model.startStreamSync()
+        model.stream.appendMarker("a")
+        #expect(try await eventually { model.statusLineCount == 1 })
+        model.stream.appendMarker("b")
+        #expect(try await eventually { model.visible.count == 2 })
+        #expect(model.statusLineCount == 2)                                    // at once, no one-second hold
+        model.clear()
+        #expect(model.statusLineCount == 0 && !model.hasLines)
+        model.stopStreamSync()
+    }
+
+    private final class Fired: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var count: Int { lock.withLock { n } }
+        func hit() { lock.withLock { n += 1 } }
+    }
+
+    // MARK: Column minimums (P1)
+
+    @Test func onlyTheFastUpdatingScreensUseAConstantMinimum() {
+        #expect(MacContentColumn.usesConstantMinimum(.kind("c", .pod)))
+        #expect(!MacContentColumn.usesConstantMinimum(.fleet))
+        #expect(!MacContentColumn.usesConstantMinimum(.clusterOverview("c")))
+        // Chart Room (releases 520 + 420 pt, charts 520 + 320) and Survey (420 + a second pane) are measured: their split views
+        // must keep holding the column open.
+        for section in ChartRoomSection.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.chartRoom("c", section)))) }
+        for tab in SurveyTab.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.survey(SurveyScope(clusterID: "c", tab: tab, namespace: nil))))) }
+        #expect(MacContentColumn.usesConstantMinimum(route: .resourceList("c", .pod, namespace: nil)))
+        let pod = ResourceRef(clusterID: "c", kind: .pod, namespace: "shop", name: "p")
+        #expect(MacDetailColumn.usesConstantMinimum(route: .logs(pod, container: nil, previous: false)))
+        #expect(!MacDetailColumn.usesConstantMinimum(route: .resourceDetail(pod)))
+        #expect(!MacDetailColumn.usesConstantMinimum(route: .yaml(pod)))
+    }
+
+    @Test func aConstantMinimumAnswersTheMinimumWithoutMeasuring() {
+        // A screen whose real minimum is 940 x 400 (an HSplitView of 520 + 420, like Chart Room with a release selected).
+        let wide = HStack(spacing: 0) { Color.clear.frame(minWidth: 520, minHeight: 400); Color.clear.frame(minWidth: 420) }
+        let measured = NSHostingController(rootView: wide.constantMinimumSize(width: 420, height: 300, enabled: false))
+        let own = measured.sizeThatFits(in: .zero)
+        #expect(own.width >= 940 && own.height >= 400)                         // not wrapped: its own minimum holds
+        let constant = NSHostingController(rootView: wide.constantMinimumSize(width: 420, height: 300))
+        #expect(constant.sizeThatFits(in: .zero) == CGSize(width: 420, height: 300))              // zero proposal: the constant
+        #expect(constant.sizeThatFits(in: CGSize(width: 100, height: 100)) == CGSize(width: 420, height: 300))
+        #expect(constant.sizeThatFits(in: CGSize(width: 1_000, height: 700)) == CGSize(width: 1_000, height: 700))
+        // Ideal size (nil proposals): the content's own answer, never below the minimum.
+        let ideal = NSHostingView(rootView: wide.constantMinimumSize(width: 420, height: 300)).fittingSize
+        #expect(ideal.width >= 940 && ideal.height >= 400)
+    }
+
+    // MARK: Performance scenarios (P1)
+
+    @Test func aSavedPerfClusterIsRefreshedOnlyWhenTheContextChanged() throws {
+        let saved = ClusterConfig(name: "wh-perf-01", server: try #require(URL(string: "https://127.0.0.1:60561")), authKind: .clientCertificate,
+                                  environment: .development, defaultNamespace: "wh-perf")
+
+        let secrets = try JSONDecoder().decode(ClusterSecrets.self, from: Data(#"{"clientCertificatePEM":"cert","clientKeyPEM":"key","caPEM":"ca","futureKey":"kept"}"#.utf8))
+        var same = saved
+        same.id = UUID().uuidString                                            // a freshly made config has its own id and dates
+        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, secrets)) == nil)
+        var moved = same
+        moved.server = try #require(URL(string: "https://127.0.0.1:52192"))
+        let refresh = try #require(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (moved, secrets)))
+        #expect(refresh.config.id == saved.id && refresh.config.server == moved.server)
+        let newCA = ClusterSecrets(clientCertificatePEM: "cert", clientKeyPEM: "key", caPEM: "other-ca")
+        let withNewCA = try #require(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newCA))?.secrets)
+        #expect(withNewCA.caPEM == "other-ca" && withNewCA.clientKeyPEM == "key")
+        #expect(withNewCA.unknownFields == secrets.unknownFields && !secrets.unknownFields.isEmpty)   // a newer build's keys are kept
+        let newUser = ClusterSecrets(clientCertificatePEM: "other-cert", clientKeyPEM: "other-key", caPEM: "ca")
+        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newUser)) != nil)
+    }
+
+    @Test func keepVisibleIsOnlyForScenariosThatKeepTheirWindow() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "perf-scenarios-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(#"{"name":"idle-1","clusters":3,"windows":1,"tabs":1}"#.utf8).write(to: dir.appending(path: "idle-1.json"))
+        try Data(#"{"name":"soak-5","clusters":5,"windows":2,"tabs":2,"cycleSeconds":120}"#.utf8).write(to: dir.appending(path: "soak-5.json"))
+        let info: [String: Any] = ["WHPerfScenarioDirectory": dir.path]
+        let gate = DevSafetyPolicy(isActive: true)
+        let keep = ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible", "YES"]
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible"], gate: gate, info: info)?.keepsWindowVisible == false)
+        #expect(PerfScenario.requested(arguments: keep, gate: gate, info: info)?.keepsWindowVisible == true)
+        #expect(PerfScenario.requested(arguments: keep + ["-WHPerfHideAfter", "5"], gate: gate, info: info)?.keepsWindowVisible == false)
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1"], gate: gate, info: info)?.keepsWindowVisible == false)
+        #expect(PerfScenario.requested(arguments: keep, gate: DevSafetyPolicy(isActive: false), info: info) == nil)
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "soak-5"], gate: gate, info: info)?.cycleSeconds == 120)
     }
 }

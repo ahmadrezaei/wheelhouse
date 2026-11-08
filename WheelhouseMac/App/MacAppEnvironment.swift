@@ -49,7 +49,7 @@ final class MacAppEnvironment {
         self.paths = paths
         self.safetySummary = safetySummary
         self.gateActive = gateActive
-        self.energy = MacEnergyCoordinator(registry: registry)
+        self.energy = MacEnergyCoordinator(registry: registry, reportsVisibility: gateActive)
         self.alerts = MacAlertMonitor(registry: registry, preferences: preferences)
         self.sidebar = SidebarModel(provider: RegistrySidebarProvider(registry: registry))
     }

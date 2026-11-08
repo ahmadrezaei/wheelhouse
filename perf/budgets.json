@@ -28,7 +28,8 @@
     "P2"
   ],
   "informationalMetrics": [
-    "energyImpact"
+    "energyImpact",
+    "footprintSlopeMBPerHour"
   ],
   "_energyNote": "energyImpact is top's POWER column. It tracks CPU% closely (it is not Activity Monitor's energy model, and no root-free source of that exists), so a breach only warns. The battery-menu check by hand in P1 and P2 is the real energy gate. IDLEW (idleWakeupsPerSec) counts only interrupt/idle wakeups that top attributes to the process and undercounts timers coalesced by the kernel; treat it as a lower bound.",
   "notMeasuredUntil": {
@@ -36,6 +37,7 @@
     "hidden-min.minPeriodicIntervalSec": "M4b"
   },
   "_notMeasuredUntil": "A budgeted metric that is missing from a result FAILS scripts/perf-check.sh, unless it is listed here as '<scenario>.<metric>': '<first milestone that measures it>' and the milestone being checked is earlier. Edited only in P1 and P2.",
+  "_soakNote": "P1: soak-5 footprintGrowthMB is the low of the last whole-cycle window minus the low of the whole-cycle window that starts at minute 10 (each window 1.1 x cycleSeconds + one minute, scripts/perf-summary.py), scaled from the time between the two lows (about 42 minutes) to the whole span from minute 10 to the last sample, so a steady leak of 15 MB per 50 minutes measures 15 MB, not 'last minute minus minute 10': the 5-minute navigation cycle builds and releases the 2,000-row ConfigMaps store, a 15-20 MB sawtooth, and the old definition passed or failed by the phase at the two ends (M1b: +19 MB and -9 MB for one build). footprintSlopeMBPerHour (least squares from minute 10) is informational: 18 MB/h is the same 15 MB spread over the 50 measured minutes. footprintMB (peak, P1) is 200 for soak-5: the growth metric looks at the lows, so a peak bound catches a runaway that the lows hide. soak-5 is heavier than idle-1 (5 clusters, a 20,000-line followed log, the 2,000-row ConfigMaps visit), so idle-1's 150 MB does not apply; P1 measured peaks of 136 and 132 MB over 60 minutes (M1b recorded a 126 MB peak over 30 minutes and lows of 135 MB in a 15-minute run).",
   "idle-1": {
     "cpuAvgPct": 0.5,
     "cpuMaxSamplePct": 2.0,
@@ -65,10 +67,13 @@
     "footprintGrowthMB": 15,
     "leaks": 0,
     "threadsOverBaseline": 4,
-    "fdsOverBaseline": 8
+    "fdsOverBaseline": 8,
+    "footprintSlopeMBPerHour": 18,
+    "footprintMB": 200
   },
   "testLaunch": {
-    "coldLaunchP90Sec": 1.0
+    "coldLaunchP90Sec": 1.0,
+    "firstContentP90Sec": 1.0
   },
   "ui": {
     "viewUpdatesPerSecMax": 4,
@@ -97,5 +102,6 @@
     "schemaCacheDiskMB": 512,
     "helmReleaseCacheMB": 32,
     "chartCacheDiskGB": 1
-  }
+  },
+  "_launchNote": "P1: coldLaunchP90Sec is open to the first on-screen window (which may be the Starting view); firstContentP90Sec is open to the first content (the workspace or the welcome screen: the FirstContent signpost and the Darwin notification that scripts/perf-launch.swift waits for). Both are p90 by nearest rank."
 }

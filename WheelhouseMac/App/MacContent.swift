@@ -5,6 +5,22 @@ import WheelhouseUI
 /// The middle column (the selected screen) and the right column (what was opened from it), as on the iPad: three real split-view
 /// columns, each with its own navigation stack.
 struct MacContentColumn: View {
+    /// Column minimums (``ConstantMinimumSize``): sidebar 220 + content 420 + detail 300 leaves room for the dividers in the window's
+    /// minimum width of 960. Only the screens below use the constant; every other screen is measured.
+    static let minimumWidth: CGFloat = 420
+    static let minimumHeight: CGFloat = 300
+
+    /// The resource lists: their table refills with every watch event, and their content is a greedy table.
+    static func usesConstantMinimum(_ selection: SidebarDestination) -> Bool {
+        if case .kind = selection { return true }
+        return false
+    }
+
+    static func usesConstantMinimum(route: Route) -> Bool {
+        if case .resourceList = route { return true }
+        return false
+    }
+
     @Environment(MacAppEnvironment.self) private var env
     @Environment(AppRouter.self) private var router
     @Environment(ClusterRegistry.self) private var registry
@@ -15,8 +31,12 @@ struct MacContentColumn: View {
         @Bindable var router = router
         return NavigationStack(path: $router.contentPath) {
             root(selection)
+                .constantMinimumSize(width: Self.minimumWidth, height: Self.minimumHeight, enabled: Self.usesConstantMinimum(selection))
                 .id(selection)
-                .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
+                .navigationDestination(for: Route.self) { route in
+                    RouteDestinationView(route: route)
+                        .constantMinimumSize(width: Self.minimumWidth, height: Self.minimumHeight, enabled: Self.usesConstantMinimum(route: route))
+                }
         }
         .environment(\.routeColumn, .content)
     }
@@ -38,13 +58,24 @@ struct MacContentColumn: View {
 
 /// The right column: whatever was opened from the middle one.
 struct MacDetailColumn: View {
+    static let minimumWidth: CGFloat = 300
+
+    /// The log screen: a followed log updates its footer every second and its search counts with every match.
+    static func usesConstantMinimum(route: Route) -> Bool {
+        if case .logs = route { return true }
+        return false
+    }
+
     @Environment(AppRouter.self) private var router
 
     var body: some View {
         @Bindable var router = router
         return NavigationStack(path: $router.detailPath) {
             detailPlaceholder
-                .navigationDestination(for: Route.self) { RouteDestinationView(route: $0) }
+                .navigationDestination(for: Route.self) { route in
+                    RouteDestinationView(route: route)
+                        .constantMinimumSize(width: Self.minimumWidth, height: MacContentColumn.minimumHeight, enabled: Self.usesConstantMinimum(route: route))
+                }
         }
         .environment(\.routeColumn, .detail)
     }

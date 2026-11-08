@@ -11,6 +11,29 @@ perf_seed() {
   kubectl --kubeconfig "$KC" --context "$CTX" create namespace "$PERF_NS" --dry-run=client -o yaml \
     | kubectl --kubeconfig "$KC" --context "$CTX" apply -f -
 
+  # The log source, 10 lines per second, FIRST: the single test node has a 110-pod cap, and created after the 100 deployment pods
+  # the chatter pod stayed Pending, so soak runs followed a pod that wrote nothing. A chatter pod left Pending by an earlier seed
+  # is recreated (apply would leave it Pending).
+  local phase
+  phase="$(kubectl --kubeconfig "$KC" --context "$CTX" -n "$PERF_NS" get pod chatter -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  if [ -n "$phase" ] && [ "$phase" != "Running" ]; then
+    kubectl --kubeconfig "$KC" --context "$CTX" -n "$PERF_NS" delete pod chatter --wait=true
+  fi
+  cat <<YAML | kubectl --kubeconfig "$KC" --context "$CTX" apply -f -
+apiVersion: v1
+kind: Pod
+metadata: { name: chatter, namespace: $PERF_NS, labels: { app: chatter, wh-perf: "true" } }
+spec:
+  containers:
+    - name: chatter
+      image: busybox:1.36
+      command: ["sh", "-c", "i=0; while true; do i=\$((i+1)); echo \"chatter line \$i\"; sleep 0.1; done"]
+      resources: { requests: { cpu: 1m, memory: 4Mi } }
+YAML
+
+  kubectl --kubeconfig "$KC" --context "$CTX" -n "$PERF_NS" wait --for=condition=Ready pod/chatter --timeout=180s \
+    || { echo "abort: the chatter pod is not Ready (the node may be full: kubectl -n $PERF_NS get pods)" >&2; return 1; }
+
   # 5 Deployments x 20 replicas
   for i in 1 2 3 4 5; do
     cat <<YAML | kubectl --kubeconfig "$KC" --context "$CTX" apply -f -
@@ -49,19 +72,6 @@ YAML
       printf -- '---\napiVersion: v1\nkind: ConfigMap\nmetadata: { name: perf-cm-%04d, namespace: %s, labels: { wh-perf: "true" } }\ndata: { index: "%d" }\n' "$n" "$PERF_NS" "$n"
     done | kubectl --kubeconfig "$KC" --context "$CTX" apply -f -
   done
-
-  # The log source: 10 lines per second
-  cat <<YAML | kubectl --kubeconfig "$KC" --context "$CTX" apply -f -
-apiVersion: v1
-kind: Pod
-metadata: { name: chatter, namespace: $PERF_NS, labels: { app: chatter, wh-perf: "true" } }
-spec:
-  containers:
-    - name: chatter
-      image: busybox:1.36
-      command: ["sh", "-c", "i=0; while true; do i=\$((i+1)); echo \"chatter line \$i\"; sleep 0.1; done"]
-      resources: { requests: { cpu: 1m, memory: 4Mi } }
-YAML
 
   # perf-kubeconfig: 10 contexts that all point at the test cluster, with the test user and default namespace wh-perf.
   local out="$REPO/.testcluster/perf-kubeconfig"

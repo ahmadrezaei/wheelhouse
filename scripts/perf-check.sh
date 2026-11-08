@@ -6,7 +6,8 @@
 #
 # --result   a sampler summary (scripts/perf-sample.sh writes one). Every metric with a budget for the scenario must be within it.
 # --xcresult the WheelhouseMacPerf test result: reads the launch and CPU/memory metrics with `xcrun xcresulttool`.
-# --launch   the xcodebuild log of WheelhouseMacPerfTests.testLaunch (its `WHLAUNCH_RUNS [...]` line): p90 and median of the cold launches.
+# --launch   the output of scripts/perf-launch.swift: `WHLAUNCH_RUNS [...]` (launch to the first window) and `WHLAUNCH_CONTENT_RUNS [...]`
+#            (launch to the first content: the workspace instead of the Starting view): p90 (nearest rank) and median of each.
 # --record   merges the measured numbers into a baseline file (perf/baselines/<milestone>.json, one new file per milestone).
 # The previous baseline is --previous <file>, else the newest file before the current milestone in the ordered `milestones` list of
 # budgets.json (--milestone <name>, default: the --record file name). A budgeted metric that is missing FAILS unless budgets.json lists it
@@ -16,7 +17,12 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 exec python3 -I - "$REPO" "$@" <<'PY'
-import sys, json, os, glob, subprocess, statistics
+import sys, json, os, glob, math, subprocess, statistics
+
+def p90(values):
+    """Nearest-rank 90th percentile: the smallest value with at least 90 % of the runs at or below it (7 runs: the 7th)."""
+    v = sorted(values)
+    return v[max(0, math.ceil(0.9 * len(v)) - 1)]
 
 repo = sys.argv[1]; args = sys.argv[2:]
 opt = {"strict": False}
@@ -38,13 +44,21 @@ if "result" in opt:
     measured[key]["_scenario"] = opt.get("scenario") or r["scenario"]
 
 if "launch" in opt:
-    line = next((l for l in open(opt["launch"], errors="replace") if l.startswith("WHLAUNCH_RUNS ")), None)
-    if line is None: print("no WHLAUNCH_RUNS line in", opt["launch"], file=sys.stderr); sys.exit(2)
-    vals = json.loads(line.split(" ", 1)[1])
-    v = sorted(vals); p90 = v[min(len(v) - 1, int(round(0.9 * (len(v) - 1))))]
+    lines = list(open(opt["launch"], errors="replace"))
+    def runs(tag):
+        line = next((l for l in lines if l.startswith(tag + " ")), None)
+        return None if line is None else json.loads(line.split(" ", 1)[1])
+    vals = runs("WHLAUNCH_RUNS")
+    if vals is None: print("no WHLAUNCH_RUNS line in", opt["launch"], file=sys.stderr); sys.exit(2)
+    if any(x < 0 for x in vals): print("a launch timed out (a run is -1):", vals, file=sys.stderr); sys.exit(2)
     e = measured.setdefault("testLaunch", {"_scenario": "testLaunch"})
-    e["coldLaunchP90Sec"] = round(p90, 3); e["coldLaunchMedianSec"] = round(statistics.median(vals), 3)
+    e["coldLaunchP90Sec"] = round(p90(vals), 3); e["coldLaunchMedianSec"] = round(statistics.median(vals), 3)
     e["runsSec"] = [round(x, 3) for x in vals]
+    content = runs("WHLAUNCH_CONTENT_RUNS")
+    if content is not None:
+        if any(x < 0 for x in content): print("first content never arrived in a run (-1):", content, file=sys.stderr); sys.exit(2)
+        e["firstContentP90Sec"] = round(p90(content), 3); e["firstContentMedianSec"] = round(statistics.median(content), 3)
+        e["contentRunsSec"] = [round(x, 3) for x in content]
 
 if "xcresult" in opt:
     path = opt["xcresult"]
@@ -61,9 +75,8 @@ if "xcresult" in opt:
                 mid = m.get("identifier", "")
                 if not vals: continue
                 if "ApplicationLaunch" in mid and mid.endswith("duration") and "Responsive" in mid:
-                    v = sorted(vals); p90 = v[min(len(v) - 1, int(round(0.9 * (len(v) - 1))))]
                     e = measured.setdefault("testLaunch", {"_scenario": "testLaunch"})
-                    e["coldLaunchP90Sec"] = round(p90, 3); e["coldLaunchMedianSec"] = round(statistics.median(vals), 3)
+                    e["coldLaunchP90Sec"] = round(p90(vals), 3); e["coldLaunchMedianSec"] = round(statistics.median(vals), 3)
                     e["runsSec"] = [round(x, 3) for x in vals]
                 elif "XCTMetric_CPU" in mid and mid.endswith(".time"):
                     key = {"testIdleOneWindow": "idle-1", "testBusyTen": "busy-10"}.get(name, name)
