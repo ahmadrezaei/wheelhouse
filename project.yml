@@ -465,14 +465,23 @@ schemes:
       targets:
         - package: WheelhouseKit/WheelhouseKitTests
         - package: WheelhouseKit/WheelhouseDesktopTests
-        - WheelhouseMacTests
-        - WheelhouseMacUITests
+        - WheelhouseMacTests                # UI tests run through the WheelhouseMacUI scheme (a test plan that keeps no screenshots)
     profile:
       config: Profile                    # Instruments never runs a Release-identity build
       commandLineArguments:
         "-WHKubeconfigPath $(SRCROOT)/.testcluster/perf-kubeconfig": true
     archive:
       config: Release                    # local archives keep DevSafety ON; release-mac.sh passes -configuration Distribution
+  WheelhouseMacUI:                       # UI tests with a test plan that keeps no screenshots (no screen captures are retained)
+    build:
+      targets:
+        WheelhouseMac: all
+        WheelhouseMacUITests: [test]
+    test:
+      config: Debug
+      testPlans:
+        - path: WheelhouseMacUITests/WheelhouseMacUI.xctestplan
+          defaultPlan: true
   WheelhouseMacPerf:                     # perf harness (§12.3.5): optimised build, Debug identity, DevSafety on, no test hooks
     build:
       targets:

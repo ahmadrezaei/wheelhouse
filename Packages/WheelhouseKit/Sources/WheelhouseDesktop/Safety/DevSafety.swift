@@ -35,11 +35,36 @@ public enum DevSafety {
     public static let teamID = "JCZY58QP3L"
     public static let distributionBundleID = "com.ahmadrezaei.wheelhouse.mac"
 
-    /// true = development safety ON (the default for every build except Distribution). Evaluated once, at first use, which
-    /// the app triggers before any store, client, file watcher or subprocess exists.
-    public static let isActive: Bool = evaluate(info: Bundle.main.infoDictionary ?? [:],
-                                                bundleID: Bundle.main.bundleIdentifier,
-                                                signature: CodeSignature.ofRunningApp())
+    private static let gateState = Mutex<Bool?>(nil)       // nil = not decided yet
+
+    /// A build can turn the gate off only when Info.plist says `NO` AND the bundle ID is the shipped one. Every other build
+    /// (Debug, Profile, local Release) is decided right here without touching Security.
+    static func isDistributionCandidate(info: [String: Any], bundleID: String?) -> Bool {
+        (info["WHDevSafety"] as? String) == "NO" && bundleID == distributionBundleID
+    }
+
+    /// true = development safety ON (the default for every build except Distribution).
+    ///
+    /// Decided exactly once, on the first read, and never changed afterwards. Debug, Profile and local Release builds are decided
+    /// from Info.plist and the bundle ID alone and make no Security call. Only a Distribution candidate (`WHDevSafety` = `NO` with the
+    /// shipped bundle ID) checks its code signature, synchronously, on that first read.
+    public static var isActive: Bool {
+        gateState.withLock { state in
+            if let state { return state }
+            let info = Bundle.main.infoDictionary ?? [:], bundleID = Bundle.main.bundleIdentifier
+            let value = isDistributionCandidate(info: info, bundleID: bundleID)
+                ? evaluate(info: info, bundleID: bundleID, signature: CodeSignature.ofRunningApp())
+                : true
+            state = value
+            return value
+        }
+    }
+
+    private static let hostsError = Mutex<String?>(nil)
+
+    /// Why the test kubeconfig could not be read (a denied Documents prompt, a missing file), shown inline in the import UI.
+    public static var hostConfigurationError: String? { hostsError.withLock { $0 } }
+    public static func setHostConfigurationError(_ message: String?) { hostsError.withLock { $0 = message } }
 
     /// The pure decision (the truth table of `DevSafetyTests`).
     public static func evaluate(info: [String: Any], bundleID: String?, signature: CodeSignature) -> Bool {

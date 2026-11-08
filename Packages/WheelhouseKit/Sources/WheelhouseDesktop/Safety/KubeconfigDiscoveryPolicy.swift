@@ -48,9 +48,10 @@ public struct KubeconfigDiscoveryPolicy: Sendable {
 
     /// Reads the server hosts of the test kubeconfig and publishes them as the gate's allowed hosts. Throws when the file is
     /// under `~/.kube` or unreadable.
-    public static func configureAllowedHosts(testKubeconfig url: URL, gate: DevSafetyPolicy = .current) throws -> Set<String> {
+    public static func configureAllowedHosts(testKubeconfig url: URL, gate: DevSafetyPolicy = .current,
+                                             read: (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }) throws -> Set<String> {
         try gate.assertReadable(url)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { throw DevSafetyError.invalidTestKubeconfig("it could not be read") }
+        guard let text = try? read(url) else { throw DevSafetyError.invalidTestKubeconfig("it could not be read") }
         let parsed = try KubeconfigParser.parse(text)
         let servers = parsed.contexts.compactMap(\.server)
         return Set(servers.compactMap { $0.host()?.lowercased() })

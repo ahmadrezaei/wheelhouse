@@ -3,33 +3,77 @@ import Observation
 import WheelhouseDesktop
 import WheelhouseKit
 
-/// App-global services of the Mac app (ARCHITECTURE-MAC §12.1). M1a holds only what the placeholder window needs; later
-/// milestones add Moorings, Gangway, Beacon and the workspace store here.
+/// App-global services of the Mac app (ARCHITECTURE-MAC section 12.1). Later milestones add Moorings, Gangway, Beacon and the
+/// workspace store here.
 ///
-/// SAFETY: this build uses an in-memory credential store and NO keychain mirror, and starts in Demo mode with the Demo Fleet
-/// only. Nothing here reads `~/.kube`, the shared iCloud keychain group or any cluster.
+/// SAFETY: the gate (`DevSafety`) is evaluated FIRST, before any store, client, file watcher or subprocess exists. While it is active
+/// the app group and both keychain groups are forced to the Debug ones (`IsolationOverride`), `AppPaths` points at
+/// `Wheelhouse-Debug`, every client is limited to the hosts of the explicit test kubeconfig, and nothing reads `~/.kube`.
 @MainActor @Observable
 final class MacAppEnvironment {
     let registry: ClusterRegistry
     let preferences: AppPreferences
+    let macPreferences: MacPreferences
     let lock: MacLockCoordinator
     let importer: MacImportCoordinator
+    let energy: MacEnergyCoordinator
+    let alerts: MacAlertMonitor
+    let sidebar: SidebarModel
+    let navigation = MacNavigation()
     let paths: AppPaths
-    /// A short description of the safety state, shown in the placeholder window.
-    let safetySummary: String
+    /// A short description of the safety state (shown in the status line of development builds).
+    private(set) var safetySummary: String
+    let gateActive: Bool
+    /// Where the explicit test kubeconfig stands. Until it is `ready` no client is created (the shell shows a progress view), so
+    /// the gate stays fail-closed: the allowed hosts are empty and every host but the reserved fixture names is refused.
+    enum HostsState: Equatable { case pending, ready(hosts: Int), failed(String), notConfigured }
+    private(set) var hostsState: HostsState = .notConfigured
+    var isReady: Bool { hostsState != .pending }
+    @ObservationIgnored private var readyBlocks: [@MainActor () -> Void] = []
+    @ObservationIgnored private var testKubeconfig: URL?
+    @ObservationIgnored private var reader: @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }
+    private var badgeTask: PeriodicTask?
+    /// Routes to open once the window exists (performance scenarios, launch hooks).
+    var launchRoutes: [Route] = []
 
-    init(registry: ClusterRegistry, preferences: AppPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator,
-         paths: AppPaths, safetySummary: String) {
+    init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator,
+         paths: AppPaths, safetySummary: String, gateActive: Bool) {
         self.registry = registry
         self.preferences = preferences
+        self.macPreferences = macPreferences
         self.lock = lock
         self.importer = importer
         self.paths = paths
         self.safetySummary = safetySummary
+        self.gateActive = gateActive
+        self.energy = MacEnergyCoordinator(registry: registry)
+        self.alerts = MacAlertMonitor(registry: registry, preferences: preferences)
+        self.sidebar = SidebarModel(provider: RegistrySidebarProvider(registry: registry))
     }
 
-    /// Evaluates the safety gate FIRST, before any store, client, file watcher or subprocess exists.
-    static func live() -> MacAppEnvironment {
+    /// Every client is built through this: while the gate is active a server that is not an allowed test host is pointed at a
+    /// reserved name that never resolves (`*.invalid`), so it can only fail. M3's `DesktopClientFactory` replaces it.
+    /// `gate` is evaluated on EVERY call, not captured: the allowed hosts are configured after launch, and a factory that captured the
+    /// gate during `App.init` would rewrite every server to the blocked name for good.
+    nonisolated static func guardedClientFactory(gate: @escaping @Sendable () -> DevSafetyPolicy = { .current },
+                                                 base: @escaping ClusterRegistry.ClientFactory = ClusterRegistry.defaultClientFactory) -> ClusterRegistry.ClientFactory {
+        return { config, secrets in base(gatedConfig(config, gate: gate()), secrets) }
+    }
+
+    /// The config a client is built from: unchanged for Demo clusters, allowed hosts and an inactive gate; otherwise the server is
+    /// replaced by a name that can never resolve.
+    nonisolated static func gatedConfig(_ config: ClusterConfig, gate: DevSafetyPolicy) -> ClusterConfig {
+        guard gate.isActive, !config.isDemo, !gate.isAllowed(server: config.server) else { return config }
+        var blocked = config
+        blocked.server = URL(string: "https://blocked-in-development.invalid")!
+        return blocked
+    }
+
+    /// Builds the environment. This runs in `App.init` on the main thread: it does NO file read of the test kubeconfig and NO Security
+    /// call (the code-signature check and the kubeconfig read happen in `start(reader:)` on a utility queue after launch).
+    /// `reader` is a test seam that records where the read happens.
+    static func live(reader: @escaping @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) },
+                     testKubeconfig explicitTestFile: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig()) -> MacAppEnvironment {
         let gateActive = DevSafety.isActive
         // While the gate is on (Debug, Profile, local Release) the app group and both keychain groups are forced to the Debug
         // ones, whatever Info.plist says: a local Release build then cannot open the production group container or name the shared
@@ -38,32 +82,99 @@ final class MacAppEnvironment {
         let paths = AppPaths.current
         var notes = [gateActive ? "Development safety ON" : "Development safety off"]
 
-        // The explicit test kubeconfig (never ~/.kube) defines the only allowed hosts while the gate is active.
-        if gateActive {
-            if let file = KubeconfigDiscoveryPolicy.explicitTestKubeconfig() {
-                if FileManager.default.fileExists(atPath: file.path) {
-                    do {
-                        let hosts = try KubeconfigDiscoveryPolicy.configureAllowedHosts(testKubeconfig: file)
-                        DevSafety.configureAllowedHosts(hosts)
-                        notes.append("\(hosts.count) allowed host\(hosts.count == 1 ? "" : "s")")
-                    } catch {
-                        notes.append("test kubeconfig refused: \(error.localizedDescription)")
-                    }
-                } else {
-                    notes.append("test kubeconfig not found")
-                }
-            } else {
-                notes.append("no test kubeconfig")
-            }
-        }
+        // The explicit test kubeconfig (never ~/.kube) defines the only allowed hosts while the gate is active. It is READ later, off the
+        // main thread (`start(reader:)`): it may live in a folder that macOS protects with a prompt, which must never block launch.
+        let testFile = gateActive ? explicitTestFile : nil
+        if gateActive, testFile == nil { notes.append("no test kubeconfig") }
         try? paths.prepare()
 
-        // Preferences use the app's own (bundle-ID) defaults domain: no app-group access in M1a.
-        let preferences = AppPreferences(defaults: .standard)
-        let metadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: false)
-        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: metadata, defaults: .standard)
-        registry.enterDemoMode(persist: false)
-        return MacAppEnvironment(registry: registry, preferences: preferences, lock: MacLockCoordinator(), importer: MacImportCoordinator(),
-                                 paths: paths, safetySummary: notes.joined(separator: " · "))
+        // Preferences use the app's own (bundle-ID) defaults domain. The Mac keeps 20,000 log lines by default (iOS 50,000).
+        let defaults = UserDefaults.standard
+        let preferences = AppPreferences(defaults: defaults)
+        if let bundle = Bundle.main.bundleIdentifier, defaults.persistentDomain(forName: bundle)?["logMaxLines"] == nil {
+            preferences.logMaxLines = 20_000
+        }
+        let macPreferences = MacPreferences(defaults: defaults)
+
+        // Real clusters live in the Debug keychain group (credentials) and a JSON file under the isolated app-support folder
+        // (list). The iCloud mirror is used only when the gate is off (Distribution).
+        let metadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: !gateActive)
+        let registry = ClusterRegistry(credentials: KeychainCredentialStore(), metadata: metadata, defaults: defaults,
+                                       clientFactory: guardedClientFactory())
+        // `-WHResetState` (development builds only): start from an empty cluster list, as UI tests need.
+        if gateActive, ProcessInfo.processInfo.arguments.contains("-WHResetState") {
+            for c in registry.clusters where !c.isDemo { try? registry.remove(id: c.id) }
+        }
+        // `-WHDemoMode` (UI tests, screenshots) forces Demo without remembering it; otherwise the saved preference decides.
+        let forcedDemo = ProcessInfo.processInfo.arguments.contains("-WHDemoMode")
+        if preferences.demoMode || forcedDemo { registry.enterDemoMode(persist: !forcedDemo) }
+
+        let lock = MacLockCoordinator(locked: preferences.appLockEnabled)
+        let env = MacAppEnvironment(registry: registry, preferences: preferences, macPreferences: macPreferences, lock: lock,
+                                    importer: MacImportCoordinator(), paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive)
+        env.testKubeconfig = testFile
+        env.reader = reader
+        env.hostsState = testFile == nil ? .notConfigured : .pending
+        env.notes = notes
+        return env
+    }
+
+    @ObservationIgnored private var notes: [String] = []
+
+    /// After launch: reads the test kubeconfig on a utility queue, exactly once (a denial or a
+    /// failure is reported and never retried). Fail-closed throughout: until it finishes the gate is ON and no host is allowed.
+    func start() {
+        guard let file = testKubeconfig, hostsState == .pending else { finishHosts(.notConfigured); return }
+        let reader = self.reader
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result: HostsState
+            if !FileManager.default.fileExists(atPath: file.path) {
+                result = .failed("The test kubeconfig \(file.lastPathComponent) was not found.")
+            } else {
+                do {
+                    let hosts = try KubeconfigDiscoveryPolicy.configureAllowedHosts(testKubeconfig: file, read: reader)
+                    DevSafety.configureAllowedHosts(hosts)
+                    result = .ready(hosts: hosts.count)
+                } catch {
+                    result = .failed("The test kubeconfig couldn't be read: \(error.localizedDescription) If macOS asked for access to a folder, allow it and relaunch.")
+                }
+            }
+            if case .failed(let message) = result {
+                DevSafety.setHostConfigurationError(message)
+                DevSafety.configureAllowedHosts([])            // fail closed: nothing but the reserved fixture names
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.finishHosts(result) } }
+        }
+    }
+
+    private func finishHosts(_ state: HostsState) {
+        hostsState = state
+        switch state {
+        case .ready(let n): safetySummary = (notes + ["\(n) allowed host\(n == 1 ? "" : "s")"]).joined(separator: " · ")
+        case .failed(let message): safetySummary = (notes + [message]).joined(separator: " · ")
+        default: safetySummary = notes.joined(separator: " · ")
+        }
+        let blocks = readyBlocks
+        readyBlocks = []
+        blocks.forEach { $0() }
+    }
+
+    /// Runs `block` once the allowed hosts are known (immediately when they already are).
+    func whenReady(_ block: @escaping @MainActor () -> Void) {
+        if isReady { block() } else { readyBlocks.append(block) }
+    }
+
+    /// Starts the services that need a running app (observers, monitors). Called once after the first frame.
+    func startServices() {
+        lock.start(preferences: preferences, macPreferences: macPreferences)
+        energy.start()
+        alerts.start()
+        // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
+        if badgeTask == nil {
+            let sidebar = sidebar
+            let t = PeriodicTask(name: "sidebar.badges", interval: 5, hiddenInterval: nil) { await MainActor.run { sidebar.refreshBadges() } }
+            badgeTask = t
+            t.start()
+        }
     }
 }

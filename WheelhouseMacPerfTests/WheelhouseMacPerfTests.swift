@@ -27,7 +27,7 @@ final class WheelhouseMacPerfTests: XCTestCase {
 
     private func makeApp(scenario: String) throws -> XCUIApplication {
         let app = XCUIApplication(url: try appURL())
-        app.launchArguments = ["-WHPerfScenario", scenario, "-WHKubeconfigPath", repoRoot.appending(path: ".testcluster/perf-kubeconfig").path]
+        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-WHPerfScenario", scenario, "-WHKubeconfigPath", repoRoot.appending(path: ".testcluster/perf-kubeconfig").path]
         return app
     }
 
@@ -38,8 +38,24 @@ final class WheelhouseMacPerfTests: XCTestCase {
     }
 
     /// Cold launch to a responsive window, 5 iterations. Budget: p90 <= 1.0 s (`perf/budgets.json`, `testLaunch`).
+    ///
+    /// `XCTApplicationLaunchMetric` records no measurements for a macOS app in the result bundle, so each launch is also timed by hand:
+    /// from `launch()` (which returns when the app is running and idle) until its window exists. That includes about a second of
+    /// XCUITest accessibility and automation setup, so it is informational (a `WHLAUNCH_XCUI_RUNS [...]` line); the budgeted number is
+    /// `scripts/perf-launch.swift` (launch to on-screen window, no automation).
+    @MainActor
     func testLaunch() throws {
         let app = try makeApp(scenario: "idle-1")
+        var runs: [Double] = []
+        for _ in 0..<5 {
+            let start = ProcessInfo.processInfo.systemUptime
+            app.launch()
+            XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20))
+            runs.append(ProcessInfo.processInfo.systemUptime - start)
+            app.terminate()
+        }
+        let data = try JSONSerialization.data(withJSONObject: runs.map { ($0 * 1000).rounded() / 1000 })
+        print("WHLAUNCH_XCUI_RUNS \(String(decoding: data, as: UTF8.self))")
         // XCTest terminates the app between iterations itself; terminating inside the block would void the measurement.
         measure(metrics: [XCTApplicationLaunchMetric(waitUntilResponsive: true)], options: options) {
             app.launch()

@@ -150,12 +150,29 @@ public final class LogStream {
         var options: LogOptions
     }
 
-    public init(capacity: Int = 20_000) { buffer = LogRingBuffer(capacity: capacity) }
+    /// `limits` default to `.unlimited` (iOS, unchanged). The Mac passes `LogLimits.desktop` (section 12.3.2 caps).
+    public init(capacity: Int = 20_000, limits: LogLimits = .unlimited) {
+        buffer = LogRingBuffer(capacity: capacity, limits: limits)
+        self.limits = limits
+        if limits.maxTotalBytes > 0 { LogMemoryBudget.shared.register(self) }
+    }
+
+    @ObservationIgnored public let limits: LogLimits
+    /// False while no view shows this stream; the global byte budget drops the oldest lines of non-visible streams first.
+    @ObservationIgnored public var isVisible = true
 
     isolated deinit {
         for t in tasks { t.cancel() }
         reconnectTask?.cancel(); pollTask?.cancel(); flushTask?.cancel()
         LogFollowRegistry.shared.release(self)
+    }
+
+    /// Drops all but the last `n` lines (memory pressure). Views see an epoch-neutral change through `revision`.
+    @discardableResult
+    public func trim(keepingLast n: Int) -> Int {
+        let dropped = buffer.trim(keepingLast: n)
+        if dropped > 0 { droppedCount = buffer.droppedCount; lastFlushDropped = dropped; revision += 1 }
+        return dropped
     }
 
     public var capacity: Int { buffer.capacity }
@@ -434,7 +451,9 @@ public final class LogStream {
             // 100 ms normally; slower in Low Power Mode / when the device is hot, and slower again for a firehose:
             // nobody reads 200 lines a second, but every table update costs a fixed amount.
             let rate = Self.adaptiveInterval(lastBatch: self?.lastBatchCount ?? 0)
-            let seconds = Swift.max(EnergyPolicy.current.publishInterval, rate)
+            // The Mac (limits on) publishes at most 4 times a second per view (ARCHITECTURE-MAC section 12.3.2); iOS keeps 10 Hz.
+            let floor = (self?.limits.isUnlimited ?? true) ? 0 : 0.25
+            let seconds = Swift.max(EnergyPolicy.current.publishInterval, rate, floor)
             try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
             guard !Task.isCancelled else { return }
             self?.flushTask = nil
@@ -461,10 +480,47 @@ public final class LogStream {
                 return x == y ? a.id < b.id : x < y
             }
         }
+        if limits.maxLineBytes != .max { batch = batch.map(limits.truncated) }
         lastBatchCount = batch.count
         lastFlushDropped = buffer.append(contentsOf: batch)
         appendedTotal += batch.count
         droppedCount = buffer.droppedCount
         revision += 1
+        if limits.maxTotalBytes > 0 { LogMemoryBudget.shared.rebalance() }
+    }
+}
+
+/// Keeps all log streams together under `LogLimits.maxTotalBytes` (64 MB on the Mac): the oldest lines of non-visible streams go
+/// first. Streams register themselves when their limits enforce a total; iOS streams never do.
+@MainActor
+public final class LogMemoryBudget {
+    public static let shared = LogMemoryBudget()
+    private struct Ref { weak var stream: LogStream? }
+    private var refs: [Ref] = []
+    public var maxTotalBytes = LogLimits.desktop.maxTotalBytes
+
+    func register(_ stream: LogStream) {
+        refs.removeAll { $0.stream == nil }
+        refs.append(Ref(stream: stream))
+    }
+
+    public var streams: [LogStream] { refs.compactMap(\.stream) }
+    public var totalBytes: Int { streams.reduce(0) { $0 + $1.buffer.byteCount } }
+
+    /// Trims non-visible streams (largest first, a quarter at a time) while the total is over budget, then, if only visible streams
+    /// remain over budget, the largest visible one.
+    public func rebalance() {
+        var total = totalBytes
+        guard total > maxTotalBytes else { return }
+        refs.removeAll { $0.stream == nil }
+        var guardCount = 0
+        while total > maxTotalBytes, guardCount < 64 {
+            guardCount += 1
+            let live = streams
+            let hidden = live.filter { !$0.isVisible && $0.count > 1 }
+            guard let victim = (hidden.isEmpty ? live.filter { $0.count > 1 } : hidden).max(by: { $0.buffer.byteCount < $1.buffer.byteCount }) else { return }
+            victim.trim(keepingLast: max(1, victim.count * 3 / 4))
+            total = totalBytes
+        }
     }
 }

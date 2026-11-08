@@ -6,6 +6,7 @@
 #
 # --result   a sampler summary (scripts/perf-sample.sh writes one). Every metric with a budget for the scenario must be within it.
 # --xcresult the WheelhouseMacPerf test result: reads the launch and CPU/memory metrics with `xcrun xcresulttool`.
+# --launch   the xcodebuild log of WheelhouseMacPerfTests.testLaunch (its `WHLAUNCH_RUNS [...]` line): p90 and median of the cold launches.
 # --record   merges the measured numbers into a baseline file (perf/baselines/<milestone>.json, one new file per milestone).
 # The previous baseline is --previous <file>, else the newest file before the current milestone in the ordered `milestones` list of
 # budgets.json (--milestone <name>, default: the --record file name). A budgeted metric that is missing FAILS unless budgets.json lists it
@@ -35,6 +36,15 @@ if "result" in opt:
     key = opt.get("key") or opt.get("scenario") or r["scenario"]
     measured[key] = {k: v for k, v in r.items() if isinstance(v, (int, float))}
     measured[key]["_scenario"] = opt.get("scenario") or r["scenario"]
+
+if "launch" in opt:
+    line = next((l for l in open(opt["launch"], errors="replace") if l.startswith("WHLAUNCH_RUNS ")), None)
+    if line is None: print("no WHLAUNCH_RUNS line in", opt["launch"], file=sys.stderr); sys.exit(2)
+    vals = json.loads(line.split(" ", 1)[1])
+    v = sorted(vals); p90 = v[min(len(v) - 1, int(round(0.9 * (len(v) - 1))))]
+    e = measured.setdefault("testLaunch", {"_scenario": "testLaunch"})
+    e["coldLaunchP90Sec"] = round(p90, 3); e["coldLaunchMedianSec"] = round(statistics.median(vals), 3)
+    e["runsSec"] = [round(x, 3) for x in vals]
 
 if "xcresult" in opt:
     path = opt["xcresult"]

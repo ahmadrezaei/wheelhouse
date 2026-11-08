@@ -139,6 +139,14 @@ public final class ClusterRegistry {
         }
     }
 
+    /// Memory pressure: every session drops the cached items of stores nobody is using.
+    @discardableResult
+    public func trimCaches() -> Int {
+        var n = sessions.values.reduce(0) { $0 + $1.trimIdleCaches() }
+        n += transientSessions.values.reduce(0) { $0 + $1.session.trimIdleCaches() }
+        return n
+    }
+
     public var fleetAttention: [AttentionItem] { HealthEvaluator.fleetAttention(allSessions.compactMap(\.health)) }
 
     /// Pauses all watches, e.g. when the app moves to the background. Screens stay registered and cached items remain;

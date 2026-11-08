@@ -80,6 +80,12 @@ public struct ClusterHealth: Hashable, Sendable {
     /// The last probe failed but fewer than 3 times in a row, so this is the previous good result.
     public var isStale: Bool = false
 
+    public init(clusterID: ClusterID, status: HealthStatus, isReachable: Bool, items: [AttentionItem], counts: ClusterCounts, updatedAt: Date,
+                isPartial: Bool = false, failedKinds: [String] = [], isStale: Bool = false) {
+        self.clusterID = clusterID; self.status = status; self.isReachable = isReachable; self.items = items; self.counts = counts
+        self.updatedAt = updatedAt; self.isPartial = isPartial; self.failedKinds = failedKinds; self.isStale = isStale
+    }
+
     public var issueSummary: String {
         if !isReachable { return "Unreachable" }
         guard let top = items.first else { return "All workloads healthy" }

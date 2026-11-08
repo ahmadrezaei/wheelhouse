@@ -90,6 +90,17 @@ public final class ClusterSession: Identifiable {
         return s
     }
 
+    /// The shared store for these arguments if it already exists, else nil. NEVER creates a store, a list or a watch (the Mac sidebar
+    /// reads counts through this, ARCHITECTURE-MAC section 12.5).
+    public func existingStore<T: KubeObject>(for type: T.Type, namespace: String? = nil, labelSelector: String? = nil, fieldSelector: String? = nil) -> ResourceStore<T>? {
+        stores["\(T.resourceKind.id)|\(namespace ?? "*")|\(labelSelector ?? "")|\(fieldSelector ?? "")"] as? ResourceStore<T>
+    }
+
+    /// Unstructured counterpart of ``existingStore(for:namespace:labelSelector:fieldSelector:)``. Never creates anything.
+    public func existingUnstructuredStore(kind: ResourceKind, namespace: String? = nil, labelSelector: String? = nil, fieldSelector: String? = nil) -> ResourceStore<Unstructured>? {
+        stores["U|\(kind.id)|\(namespace ?? "*")|\(labelSelector ?? "")|\(fieldSelector ?? "")"] as? ResourceStore<Unstructured>
+    }
+
     /// Pauses every watch (app backgrounded). Screens stay registered as consumers and cached items remain;
     /// call ``resumeAll()`` when the app is active again.
     public func stopAll() { pauseAll() }
@@ -101,6 +112,14 @@ public final class ClusterSession: Identifiable {
     /// Restarts the watches of stores that still have consumers.
     public func resumeAll() {
         for case let s as StoreCancellable in stores.values { s.resumeStore() }
+    }
+
+    /// Memory pressure: drops the cached items of every store with no consumers. Returns how many stores gave memory back.
+    @discardableResult
+    public func trimIdleCaches() -> Int {
+        var n = 0
+        for case let s as StoreCancellable in stores.values where s.dropIdleCache() { n += 1 }
+        return n
     }
 
     /// Cancels every watch and drops all consumers (cluster removed, credentials replaced).
@@ -272,11 +291,13 @@ public final class ClusterSession: Identifiable {
     func pauseStore()
     func resumeStore()
     func invalidateStore()
+    func dropIdleCache() -> Bool
     var storeIdleSince: Date? { get }
 }
 extension ResourceStore: StoreCancellable {
     func pauseStore() { pause() }
     func resumeStore() { resume() }
     func invalidateStore() { invalidate() }
+    func dropIdleCache() -> Bool { dropCachedItemsIfIdle() }
     var storeIdleSince: Date? { idleSince }
 }
