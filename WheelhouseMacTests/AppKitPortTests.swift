@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Foundation
 import SwiftTerm
+import SwiftUI
 import WheelhouseDesktop
 import WheelhouseKit
 @testable import WheelhouseMac
@@ -110,10 +111,53 @@ struct AppKitPortTests {
         try await Task.sleep(for: .milliseconds(300))
         apply(v, lines(0..<5_000), follow: false)                             // the reader scrolled away (follow off) ...
         try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 1_000)
+        let place = v.firstVisibleLineID, offset = v.scrollOffsetY
+        #expect(place == 1_000)
         apply(v, lines(50..<5_050), follow: false)                            // ... and the full ring moves on
         try await Task.sleep(for: .milliseconds(300))
         #expect(v.applyCounts.reload == 1 && v.applyCounts.frontDrop == 1)    // no full reload under the reader
         #expect(v.tableRowCount == 5_050)
+        #expect(v.firstVisibleLineID == place && v.scrollOffsetY == offset)  // the same line at the same place
+    }
+
+    @Test func aTrimWhileScrolledAwayKeepsTheReadersLine() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 2_000)
+        #expect(v.firstVisibleLineID == 2_000)
+        // Past the slack (500 for 5,000 lines): the old rows go in one removal, and the reader's line stays in view.
+        apply(v, lines(800..<5_800), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.frontTrim == 1 && v.applyCounts.reload == 1)
+        #expect(v.displayedLineIDs.first == 800)
+        #expect(v.firstVisibleLineID == 2_000)
+    }
+
+    @Test func aTrimThatRemovesTheReadersLineKeepsThemAtTheOldestLine() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 100)
+        #expect(v.firstVisibleLineID == 100 && v.scrollOffsetY > 0)
+        apply(v, lines(800..<5_800), follow: false)                           // line 100 was among the trimmed rows
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.frontTrim == 1)
+        #expect(v.scrollOffsetY == 0 && v.firstVisibleLineID == 800)
+    }
+
+    @Test func aReloadWithoutTheReadersLineDoesNotJumpToTheTop() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000), follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        v.scrollForTest(toLineID: 3_000)
+        let offset = v.scrollOffsetY
+        // "Matching lines only": another set of lines without the reader's line. Not a trim, so no jump to the top.
+        apply(v, lines(0..<5_000).filter { $0.id % 2 == 1 }, follow: false)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.reload == 2)
+        #expect(v.scrollOffsetY > 0 && v.scrollOffsetY <= offset)
     }
 
     @Test func updatesInsideAQuarterSecondAreCoalesced() async throws {
@@ -390,15 +434,17 @@ struct AppKitPortTests {
         let workspace = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
         let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
         workspace.isReleasedWhenClosed = false; settings.isReleasedWhenClosed = false
-        var seen: [NSWindow] = []
-        WorkspaceWindows.observe { if $0 === workspace { seen.append($0) } }
+        // The observers stay registered for the process: they hold the window weakly and count only.
+        weak let watched = workspace
+        var seen = 0
+        WorkspaceWindows.observe { if $0 === watched { seen += 1 } }
         WorkspaceWindows.register(workspace)
         WorkspaceWindows.register(workspace)                                   // idempotent
         #expect(WorkspaceWindows.contains(workspace) && !WorkspaceWindows.contains(settings))
         #expect(WorkspaceWindows.all.filter { $0 === workspace }.count == 1)
-        #expect(seen.count == 1)
+        #expect(seen == 1)
         var replayed = 0
-        WorkspaceWindows.observe { if $0 === workspace { replayed += 1 } }   // a late observer sees the windows already registered
+        WorkspaceWindows.observe { if $0 === watched { replayed += 1 } }     // a late observer sees the windows already registered
         #expect(replayed == 1)
         // The visibility rule only ever sees registered windows: Settings is not among them, whatever its state.
         #expect(!WorkspaceWindows.all.contains { $0 === settings })
@@ -412,8 +458,8 @@ struct AppKitPortTests {
             WorkspaceWindows.register(w)
             gone = w
         }
-        // Held weakly: once AppKit lets the window go, it is no longer listed (AppKit may keep it alive a little longer).
-        if gone == nil { #expect(!WorkspaceWindows.all.contains { $0 === gone }) }
+        #expect(gone == nil)                                                  // the registry does not keep it alive
+        #expect(WorkspaceWindows.all.allSatisfy { $0.contentRect(forFrameRect: $0.frame).size != CGSize(width: 200, height: 100) })
     }
 
     // MARK: Log follow off the SwiftUI path (P1)
@@ -546,14 +592,29 @@ struct AppKitPortTests {
         for i in 0..<10 { model.stream.appendMarker("a \(i)") }
         #expect(try await eventually { model.statusLineCount == 10 })        // the first change shows at once
         for i in 0..<5 { model.stream.appendMarker("b \(i)") }
-        #expect(try await eventually { model.visible.count == 15 })
+        #expect(try await eventually { model.visible.count == 15 })            // about 250 ms later: inside the second
+        #expect(model.statusLineCount == 10)                                   // held back
         let shownAt = ContinuousClock.now
-        if model.statusLineCount == 10 {
-            // Held back inside the second, then the trailing update lands.
-            #expect(try await eventually { model.statusLineCount == 15 })
-            #expect(ContinuousClock.now - shownAt <= .milliseconds(1_300))
-        }
-        #expect(model.statusLineCount == 15)
+        #expect(try await eventually { model.statusLineCount == 15 })        // then the trailing update lands
+        #expect(ContinuousClock.now - shownAt <= .milliseconds(1_300))
+        model.stopStreamSync()
+    }
+
+    @Test func withoutDesktopLimitsTheStatusCountsFollowEveryFlush() async throws {
+        // iOS streams have no desktop limits: the footer follows every flush, as before P1 (the zero-interval path).
+        let registry = ClusterRegistry.preview()
+        let cluster = try #require(registry.clusters.first)
+        let session = try #require(registry.session(for: cluster.id))
+        let model = LogsModel(pod: ResourceRef(clusterID: cluster.id, kind: .pod, namespace: "shop", name: "chatter"), container: nil,
+                              previous: false, session: session, limits: .unlimited)
+        model.startStreamSync()
+        model.stream.appendMarker("a")
+        #expect(try await eventually { model.statusLineCount == 1 })
+        model.stream.appendMarker("b")
+        #expect(try await eventually { model.visible.count == 2 })
+        #expect(model.statusLineCount == 2)                                    // at once, no one-second hold
+        model.clear()
+        #expect(model.statusLineCount == 0 && !model.hasLines)
         model.stopStreamSync()
     }
 
@@ -564,12 +625,45 @@ struct AppKitPortTests {
         func hit() { lock.withLock { n += 1 } }
     }
 
+    // MARK: Column minimums (P1)
+
+    @Test func onlyTheFastUpdatingScreensUseAConstantMinimum() {
+        #expect(MacContentColumn.usesConstantMinimum(.kind("c", .pod)))
+        #expect(!MacContentColumn.usesConstantMinimum(.fleet))
+        #expect(!MacContentColumn.usesConstantMinimum(.clusterOverview("c")))
+        // Chart Room (releases 520 + 420 pt, charts 520 + 320) and Survey (420 + a second pane) are measured: their split views
+        // must keep holding the column open.
+        for section in ChartRoomSection.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.chartRoom("c", section)))) }
+        for tab in SurveyTab.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.survey(SurveyScope(clusterID: "c", tab: tab, namespace: nil))))) }
+        #expect(MacContentColumn.usesConstantMinimum(route: .resourceList("c", .pod, namespace: nil)))
+        let pod = ResourceRef(clusterID: "c", kind: .pod, namespace: "shop", name: "p")
+        #expect(MacDetailColumn.usesConstantMinimum(route: .logs(pod, container: nil, previous: false)))
+        #expect(!MacDetailColumn.usesConstantMinimum(route: .resourceDetail(pod)))
+        #expect(!MacDetailColumn.usesConstantMinimum(route: .yaml(pod)))
+    }
+
+    @Test func aConstantMinimumAnswersTheMinimumWithoutMeasuring() {
+        // A screen whose real minimum is 940 x 400 (an HSplitView of 520 + 420, like Chart Room with a release selected).
+        let wide = HStack(spacing: 0) { Color.clear.frame(minWidth: 520, minHeight: 400); Color.clear.frame(minWidth: 420) }
+        let measured = NSHostingController(rootView: wide.constantMinimumSize(width: 420, height: 300, enabled: false))
+        let own = measured.sizeThatFits(in: .zero)
+        #expect(own.width >= 940 && own.height >= 400)                         // not wrapped: its own minimum holds
+        let constant = NSHostingController(rootView: wide.constantMinimumSize(width: 420, height: 300))
+        #expect(constant.sizeThatFits(in: .zero) == CGSize(width: 420, height: 300))              // zero proposal: the constant
+        #expect(constant.sizeThatFits(in: CGSize(width: 100, height: 100)) == CGSize(width: 420, height: 300))
+        #expect(constant.sizeThatFits(in: CGSize(width: 1_000, height: 700)) == CGSize(width: 1_000, height: 700))
+        // Ideal size (nil proposals): the content's own answer, never below the minimum.
+        let ideal = NSHostingView(rootView: wide.constantMinimumSize(width: 420, height: 300)).fittingSize
+        #expect(ideal.width >= 940 && ideal.height >= 400)
+    }
+
     // MARK: Performance scenarios (P1)
 
     @Test func aSavedPerfClusterIsRefreshedOnlyWhenTheContextChanged() throws {
         let saved = ClusterConfig(name: "wh-perf-01", server: try #require(URL(string: "https://127.0.0.1:60561")), authKind: .clientCertificate,
                                   environment: .development, defaultNamespace: "wh-perf")
-        let secrets = ClusterSecrets(clientCertificatePEM: "cert", clientKeyPEM: "key", caPEM: "ca")
+
+        let secrets = try JSONDecoder().decode(ClusterSecrets.self, from: Data(#"{"clientCertificatePEM":"cert","clientKeyPEM":"key","caPEM":"ca","futureKey":"kept"}"#.utf8))
         var same = saved
         same.id = UUID().uuidString                                            // a freshly made config has its own id and dates
         #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, secrets)) == nil)
@@ -578,7 +672,9 @@ struct AppKitPortTests {
         let refresh = try #require(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (moved, secrets)))
         #expect(refresh.config.id == saved.id && refresh.config.server == moved.server)
         let newCA = ClusterSecrets(clientCertificatePEM: "cert", clientKeyPEM: "key", caPEM: "other-ca")
-        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newCA))?.secrets == newCA)
+        let withNewCA = try #require(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newCA))?.secrets)
+        #expect(withNewCA.caPEM == "other-ca" && withNewCA.clientKeyPEM == "key")
+        #expect(withNewCA.unknownFields == secrets.unknownFields && !secrets.unknownFields.isEmpty)   // a newer build's keys are kept
         let newUser = ClusterSecrets(clientCertificatePEM: "other-cert", clientKeyPEM: "other-key", caPEM: "ca")
         #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newUser)) != nil)
     }

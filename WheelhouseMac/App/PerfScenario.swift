@@ -159,11 +159,14 @@ enum PerfScenarioRunner {
         config.authKind = made.config.authKind
         config.skipTLSVerify = made.config.skipTLSVerify
         config.tlsServerName = made.config.tlsServerName
-        // Compare the credential fields only (unknown keys a newer build wrote are not part of the context).
-        let current = ClusterSecrets(token: secrets.token, clientCertificatePEM: secrets.clientCertificatePEM,
-                                     clientKeyPEM: secrets.clientKeyPEM, caPEM: secrets.caPEM)
-        guard config != existing || current != made.secrets else { return nil }
-        return (config, made.secrets)
+        // The credential fields come from the context; anything else saved with them (keys a newer build wrote) is kept.
+        var refreshedSecrets = secrets
+        refreshedSecrets.token = made.secrets.token
+        refreshedSecrets.clientCertificatePEM = made.secrets.clientCertificatePEM
+        refreshedSecrets.clientKeyPEM = made.secrets.clientKeyPEM
+        refreshedSecrets.caPEM = made.secrets.caPEM
+        guard config != existing || refreshedSecrets != secrets else { return nil }
+        return (config, refreshedSecrets)
     }
 
     /// One pane description of a scenario, as far as M1b can show it. Later panes replace earlier ones (one window, one screen).

@@ -172,7 +172,10 @@ struct MacShell: View {
 /// pass, which follows every SwiftUI update in that column. Measured from the content, that question walked the whole screen (stacks,
 /// scroll views, every Text) each time: about 7 ms per update of a log screen's footer, for example (performance pass P1). This layout
 /// answers a zero proposal (the minimum) with the constant and passes concrete sizes through, so the screen still fills its column. It
-/// sits on each screen inside the column's `NavigationStack` (a modifier outside the stack is not part of the column's measurement).
+/// sits on a screen inside the column's `NavigationStack` (a modifier outside the stack is not part of the column's measurement), and
+/// only on the screens that update many times a second and whose content fits the constant (the resource lists and the log screen).
+/// Every other screen (Chart Room and Survey split views, for example, need 840-940 pt) is measured as before, so its real minimum
+/// still holds the column open.
 struct ConstantMinimumSize: ViewModifier {
     let minimum: CGSize
 
@@ -204,8 +207,11 @@ struct ConstantMinimumSize: ViewModifier {
 }
 
 extension View {
-    /// See ``ConstantMinimumSize``.
-    func constantMinimumSize(width: CGFloat, height: CGFloat) -> some View { modifier(ConstantMinimumSize(minimum: CGSize(width: width, height: height))) }
+    /// See ``ConstantMinimumSize``. With `enabled` false the view is unchanged (measured as usual).
+    @ViewBuilder
+    func constantMinimumSize(width: CGFloat, height: CGFloat, enabled: Bool = true) -> some View {
+        if enabled { modifier(ConstantMinimumSize(minimum: CGSize(width: width, height: height))) } else { self }
+    }
 }
 
 /// Registers the window that hosts the workspace with ``WorkspaceWindows`` (the energy rules count only these windows).

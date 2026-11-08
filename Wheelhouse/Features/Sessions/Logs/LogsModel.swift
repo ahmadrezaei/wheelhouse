@@ -143,8 +143,9 @@ final class LogsModel: Identifiable {
     @ObservationIgnored private var statusTask: Task<Void, Never>?
 
     /// `maxLines` and `fontSize` come from Settings (`AppPreferences.logMaxLines` / `logFontSize`).
-    init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12) {
-        let limits = LogLimits.platformDefault
+    /// `limits` is a test seam; the app uses the platform default (desktop caps on the Mac, unlimited on iOS).
+    init(pod: ResourceRef, container: String?, previous: Bool, session: ClusterSession, maxLines: Int = 20_000, fontSize: Double = 12,
+         limits: LogLimits = .platformDefault) {
         self.stream = LogStream(capacity: min(max(maxLines, 1_000), limits.maxLines), limits: limits)
         self.fontSize = CGFloat(min(max(fontSize, 9), 22))
         self.pod = pod
