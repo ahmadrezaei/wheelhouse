@@ -46,7 +46,7 @@ struct LogsTableView: NSViewRepresentable {
         v.onSelect = onSelect
         // Never read `source.visible` here: SwiftUI tracks what `updateNSView` reads, and that would put every flush back on its path.
         if let source { v.track(source) }
-        v.apply(lines: source == nil ? lines : v.sourceLines, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
+        v.apply(lines: source == nil ? lines : nil, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
     }
 
     static func dismantleNSView(_ v: LogsScrollView, coordinator: ()) { v.teardown() }
@@ -98,7 +98,9 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     private var rowCounts: [Int: Int] = [:]
 
     // Coalescing: the newest requested state, applied at most every 250 ms and only while visible.
-    private struct Request { var lines: [LogLine]; var settings: LogsDisplaySettings; var matcher: LogMatcher?; var follow: Bool }
+    /// `lines` nil: the source's lines, read when the request is applied. Holding a copy until then would share the model's array
+    /// buffer, and every sync of the model in between would copy all its lines (copy on write).
+    private struct Request { var lines: [LogLine]?; var settings: LogsDisplaySettings; var matcher: LogMatcher?; var follow: Bool }
     private var pending: Request?
     private var lastApplied = ContinuousClock.now - .seconds(1)
     private var flushTask: Task<Void, Never>?
@@ -201,8 +203,10 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     private weak var source: LogsModel?
     /// Bumped when the source changes or goes: an observation armed for an earlier source is ignored when it fires.
     private var sourceGeneration = 0
-    /// The model's lines as last read (the source's `visible`).
-    private(set) var sourceLines: [LogLine] = []
+    /// The generation whose lines the table last took. The first lines of a new source are applied as a full reload: line ids count
+    /// per stream, so two models' ids overlap and an incremental match across them would keep the other pod's rows.
+    private var appliedGeneration = -1
+    private var forceReload = false
     /// What SwiftUI passed last, re-used when only the lines change.
     private var lastSettings = LogsDisplaySettings()
     private var lastMatcher: LogMatcher?
@@ -219,25 +223,27 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         Task { @MainActor [weak self] in self?.sourceChanged(generation) }
     }
 
-    /// Reads the lines and re-arms the observation (it fires once, before the change; the read happens on the next main-actor turn).
+    /// Re-arms the observation of the lines (it fires once, before the change; the update runs on the next main-actor turn). Only the
+    /// count is touched here: the lines themselves are read when the update is applied.
     private func readSource(_ generation: Int) {
         guard let model = source else { return }
-        sourceLines = withObservationTracking { model.visible } onChange: { [weak self] in
+        withObservationTracking { _ = model.visible.count } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.sourceChanged(generation) }
         }
     }
 
     private func sourceChanged(_ generation: Int) {
         guard let model = source, generation == sourceGeneration else { return }
+        if generation != appliedGeneration { appliedGeneration = generation; forceReload = true }
         readSource(generation)
         // Follow and the scroll target come from the model, not from the last SwiftUI update: a user scroll sets `model.follow` to false
         // before SwiftUI passes it on, and new lines applied with the old value would snap the table back to the bottom.
-        apply(lines: sourceLines, settings: lastSettings, matcher: lastMatcher, follow: model.follow, scrollTarget: model.scrollTarget)
+        apply(lines: nil, settings: lastSettings, matcher: lastMatcher, follow: model.follow, scrollTarget: model.scrollTarget)
     }
 
     // MARK: Apply (coalesced)
 
-    func apply(lines new: [LogLine], settings newSettings: LogsDisplaySettings, matcher newMatcher: LogMatcher?, follow newFollow: Bool, scrollTarget: LogsModel.ScrollTarget?) {
+    func apply(lines new: [LogLine]?, settings newSettings: LogsDisplaySettings, matcher newMatcher: LogMatcher?, follow newFollow: Bool, scrollTarget: LogsModel.ScrollTarget?) {
         lastSettings = newSettings; lastMatcher = newMatcher; lastFollow = newFollow; lastScrollTarget = scrollTarget
         pending = Request(lines: new, settings: newSettings, matcher: newMatcher, follow: newFollow)
         let urgent = (scrollTarget?.token ?? 0) != lastToken || newSettings != settings || newFollow != follow
@@ -279,20 +285,23 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         let anchor = captureAnchor()
         let fontChanged = r.settings.fontSize != settings.fontSize
         let layoutChanged = settingsChanged && (r.settings.wrap != settings.wrap || r.settings.timestamps != settings.timestamps || fontChanged)
-        let old = lines
-        lines = r.lines
+        var old = lines
+        let new = r.lines ?? source?.visible ?? []
+        lines = new
         settings = r.settings
         matcher = r.matcher
         follow = r.follow
         if fontChanged || charWidth <= 0 { remeasureFont() }
         if layoutChanged { rowCounts = [:] }
-        let new = r.lines
 
-        let appendOnly = !settingsChanged && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0
+        let forced = forceReload
+        forceReload = false
+        let incremental = !settingsChanged && !forced
+        let appendOnly = incremental && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0
         // A full ring drops lines at the front while new ones arrive at the back. `k` counts the table's rows whose lines the model
         // no longer holds (the rows kept as slack, see below, plus this update's drops).
         var frontDrop: Int?
-        if !appendOnly, !settingsChanged, oldCount > 0, let first = new.first?.id, first != oldFirst,
+        if !appendOnly, incremental, oldCount > 0, let first = new.first?.id, first != oldFirst,
            let k = old.firstIndex(where: { $0.id == first }), k > 0, oldCount - k <= new.count,
            old[oldCount - 1].id == new[oldCount - k - 1].id {
             frontDrop = k
@@ -310,8 +319,14 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
         if appendOnly {
             applyCounts.append += 1
-            if new.count > oldCount { table.insertRows(at: IndexSet(oldCount..<new.count), withAnimation: []) }
-            else if new.count == oldCount, settings.query != "" || matcher != nil { reloadVisible() }
+            if new.count > oldCount {
+                // Grow the table's own array instead of keeping the model's: a shared buffer makes the model copy all its lines on
+                // its next sync, and that grows with the lines (performance pass P1).
+                lines = []
+                old.append(contentsOf: new[oldCount...])
+                lines = old
+                table.insertRows(at: IndexSet(oldCount..<new.count), withAnimation: [])
+            } else if new.count == oldCount, settings.query != "" || matcher != nil { reloadVisible() }
         } else if let k = frontDrop {
             applyCounts.frontDrop += 1
             let appended = new.count - (oldCount - k)
@@ -320,7 +335,9 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
                 // rows at the front on every update moved every row view and rebuilt their layers: about 8 % CPU for a follow at
                 // 10 lines/s once the ring was full (performance pass P1). The table shows up to `frontSlack` more old lines than
                 // the ring holds, and a reader's scroll position does not move.
-                lines = old + new.suffix(appended)
+                lines = []
+                old.append(contentsOf: new.suffix(appended))
+                lines = old
                 if appended > 0 { table.insertRows(at: IndexSet(oldCount..<(oldCount + appended)), withAnimation: []) }
             } else {
                 applyCounts.frontTrim += 1
@@ -334,7 +351,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         } else {
             applyCounts.reload += 1
             reloadAll()
-            if !r.follow, !wasFollowing, let anchor { restore(anchor) }
+            if !forced, !r.follow, !wasFollowing, let anchor { restore(anchor) }   // a new source's ids mean other lines
         }
         if settingsChanged && (appendOnly || frontDrop != nil) { reloadVisible() }
         if r.follow { scrollToBottom() }
@@ -497,6 +514,15 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     }
 
     private func restore(_ anchor: Anchor) {
+        // The anchor line was among the rows just removed (the slack): keep the reader at the oldest line instead of letting the
+        // clip view stay put while the rows above it vanish.
+        if let first = lines.first?.id, anchor.lineID < first {
+            programmatic = true
+            defer { programmatic = false }
+            contentView.scroll(to: NSPoint(x: contentView.bounds.origin.x, y: 0))
+            reflectScrolledClipView(contentView)
+            return
+        }
         guard let i = index(ofLineID: anchor.lineID) else { return }
         programmatic = true
         defer { programmatic = false }
@@ -511,7 +537,8 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
     private func evaluateUserScroll() {
         guard !programmatic, !applying, !lines.isEmpty else { return }
-        if distanceFromBottom <= 24 { onReachedBottom() } else { onUserScrolledAway() }
+        // The waiting update must not undo the user's scroll before SwiftUI passes the new follow state on.
+        if distanceFromBottom <= 24 { pending?.follow = true; onReachedBottom() } else { pending?.follow = false; onUserScrolledAway() }
     }
 
     // MARK: Selection, copy, menu

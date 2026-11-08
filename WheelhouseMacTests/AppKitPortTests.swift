@@ -456,6 +456,25 @@ struct AppKitPortTests {
         a.stopStreamSync(); b.stopStreamSync()
     }
 
+    @Test func aNewModelWithOverlappingLineIDsReplacesTheRows() async throws {
+        let a = try logsModel(), b = try logsModel()
+        a.startStreamSync(); b.startStreamSync()
+        for i in 0..<1_000 { a.stream.appendMarker("a\(i)") }
+        for i in 0..<300 { b.stream.appendMarker("old b\(i)") }
+        #expect(try await eventually { a.visible.count == 1_000 && b.visible.count == 300 })
+        b.clear()                                                             // ids go on counting: b now holds ids 300..<1300
+        for i in 0..<1_000 { b.stream.appendMarker("b\(i)") }
+        #expect(try await eventually { b.visible.count == 1_000 })
+        let v = logs()
+        v.track(a)
+        #expect(try await eventually { v.displayedLineCount == 1_000 })
+        let reloads = v.applyCounts.reload
+        v.track(b)
+        #expect(try await eventually { v.applyCounts.reload == reloads + 1 })
+        #expect(v.displayedLineCount == 1_000)                                // b's lines only, not a's rows plus b's tail
+        a.stopStreamSync(); b.stopStreamSync()
+    }
+
     @Test func theStreamSyncLastsWhileAnyScreenHoldsIt() async throws {
         let model = try logsModel()
         model.startStreamSync()                                               // the new screen appears ...
