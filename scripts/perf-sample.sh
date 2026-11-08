@@ -20,7 +20,7 @@
 #   - visible: a scenario that keeps its window must have it visible in every minute sample, and a hidden scenario must not. The
 #     app publishes its own verdict (the energy coordinator's, occlusion included) as the state of the Darwin notification
 #     `com.ahmadrezaei.wheelhouse.perf.windows-visible` (development builds only), read with `notifyutil -g`. Visible scenarios start
-#     with `-WHPerfKeepVisible` (the window floats on every Space, so a full-screen app elsewhere cannot cover it); `--no-keep-visible`
+#     with `-WHPerfKeepVisible YES` (the window floats on every Space, so a full-screen app elsewhere cannot cover it); `--no-keep-visible`
 #     turns that off. The sampler holds `caffeinate -dis -w <pid>` so the display does not sleep during the run.
 #
 # Caveats: `energyImpact` is top's POWER column and tracks CPU% (informational, see perf/budgets.json); IDLEW undercounts
@@ -116,7 +116,8 @@ KEEPS=0
 [ "$KEEP_VISIBLE" = 1 ] && [ "$HIDES" = 0 ] && KEEPS=1
 ARGS=(-ApplePersistenceIgnoreState YES -WHPerfScenario "$SCENARIO" -WHKubeconfigPath "$KUBECONFIG_FILE")
 [ -n "$HIDE_AFTER" ] && ARGS+=(-WHPerfHideAfter "$HIDE_AFTER")
-[ "$KEEPS" = 1 ] && ARGS+=(-WHPerfKeepVisible)
+# Passed as a pair: a bare flag would take the next argument as its value, and a stray value is opened as a file (no window).
+[ "$KEEPS" = 1 ] && ARGS+=(-WHPerfKeepVisible YES)
 ARGS+=("${APP_ARGS[@]+"${APP_ARGS[@]}"}")
 open -n -a "$APP" --args "${ARGS[@]}"
 

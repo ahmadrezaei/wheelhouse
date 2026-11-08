@@ -24,7 +24,7 @@ struct PerfScenario: Codable, Equatable {
     /// Soak runs: seconds between navigation cycles (default 300). `scripts/perf-sample.sh` reads the same field to measure growth
     /// over whole cycles.
     var cycleSeconds: Double?
-    /// `-WHPerfKeepVisible`: the workspace window floats on every Space, so a visible scenario measures a window that is really on
+    /// `-WHPerfKeepVisible YES`: the workspace window floats on every Space, so a visible scenario measures a window that is really on
     /// screen even while another app is full screen or in front (the sampler checks it). Not part of the fixture file.
     var keepsWindowVisible = false
 
@@ -50,7 +50,9 @@ struct PerfScenario: Codable, Equatable {
         if let i = arguments.firstIndex(of: "-WHPerfHideAfter"), arguments.indices.contains(i + 1), let s = Double(arguments[i + 1]) {
             scenario.hideWindowsAfterSeconds = s
         }
-        scenario.keepsWindowVisible = arguments.contains("-WHPerfKeepVisible") && scenario.hideWindowsAfterSeconds == nil
+        // A pair, like every launch default: AppKit's argument domain would read the next argument as the value of a bare flag.
+        let keep = arguments.firstIndex(of: "-WHPerfKeepVisible").map { arguments.indices.contains($0 + 1) && arguments[$0 + 1] == "YES" } ?? false
+        scenario.keepsWindowVisible = keep && scenario.hideWindowsAfterSeconds == nil
         return scenario
     }
 }
