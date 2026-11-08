@@ -72,6 +72,38 @@ struct AppKitPortTests {
         #expect(v.tableRowCount == 20_000 && v.displayedLineCount == 20_000 && v.isAtBottom)
     }
 
+    @Test func showingAllLinesAfterMatchingOnlyIsNotAnAppend() async throws {
+        let v = logs()
+        let all = lines(0..<10)
+        apply(v, [all[0], all[5], all[9]])                                    // "matching lines only": the first line matched
+        try await Task.sleep(for: .milliseconds(300))
+        apply(v, all)                                                         // turned off: same first line, more lines
+        #expect(try await eventually { v.displayedLineCount == 10 })
+        #expect(v.displayedLineIDs == Array(0..<10))                          // not [0, 5, 9, 3, 4, ...]
+        #expect(v.applyCounts.reload == 2)
+    }
+
+    @Test func applyingTheModelsLinesDoesNotMakeThemASwiftUIDependency() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        model.stream.appendMarker("first")
+        #expect(try await eventually { model.visible.count == 1 })
+        let v = logs()
+        v.track(model)
+        try await Task.sleep(for: .milliseconds(100))
+        let fired = Fired()
+        var s = LogsDisplaySettings()
+        s.timestamps = true                                                   // urgent: applied at once, inside the tracking
+        withObservationTracking {
+            v.apply(lines: nil, settings: s, matcher: nil, follow: true, scrollTarget: nil)
+        } onChange: { fired.hit() }
+        #expect(v.displayedLineCount == 1)
+        model.stream.appendMarker("second")
+        #expect(try await eventually { model.visible.count == 2 })
+        #expect(fired.count == 0)
+        model.stopStreamSync()
+    }
+
     @Test func aReaderScrolledAwayKeepsTheirPlaceWhileTheRingDrops() async throws {
         let v = logs(height: 300)
         apply(v, lines(0..<5_000))
@@ -470,8 +502,11 @@ struct AppKitPortTests {
         #expect(try await eventually { v.displayedLineCount == 1_000 })
         let reloads = v.applyCounts.reload
         v.track(b)
-        #expect(try await eventually { v.applyCounts.reload == reloads + 1 })
+        // As updateNSView does: the apply right after `track` reads the new model already.
+        v.apply(lines: nil, settings: LogsDisplaySettings(), matcher: nil, follow: true, scrollTarget: nil)
+        #expect(try await eventually { v.applyCounts.reload > reloads })
         #expect(v.displayedLineCount == 1_000)                                // b's lines only, not a's rows plus b's tail
+        #expect(v.displayedLineIDs.first == b.visible.first?.id)
         a.stopStreamSync(); b.stopStreamSync()
     }
 

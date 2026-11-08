@@ -105,6 +105,9 @@ final class LogsModel: Identifiable {
     /// The lines the list shows. Only the list reads it: a screen part that only needs "any lines?" or the count reads ``hasLines``
     /// or the status values below, so a flush of new lines re-renders the list and nothing else.
     private(set) var visible: [LogLine] = []
+    /// `visible` without registering an observation: the Mac table reads it while SwiftUI may be tracking (`updateNSView`), and a
+    /// tracked read there would put every flush back on SwiftUI's path. It observes `visible.count` itself instead.
+    var untrackedVisible: [LogLine] { _visible }
     /// `!visible.isEmpty`, written only when it changes.
     private(set) var hasLines = false
     /// The footer's line and dropped counts. Where the stream enforces the desktop limits they change at most once a second

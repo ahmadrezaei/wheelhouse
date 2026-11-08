@@ -172,6 +172,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     /// How updates reached the table, for tests (`append`, `frontDrop`, `frontTrim` (the slack removed), `reload`).
     private(set) var applyCounts = (append: 0, frontDrop: 0, frontTrim: 0, reload: 0)
     var displayedLineCount: Int { lines.count }
+    var displayedLineIDs: [Int] { lines.map(\.id) }
     var tableRowCount: Int { table.numberOfRows }
     var isAtBottom: Bool { distanceFromBottom <= 24 }
 
@@ -220,6 +221,9 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         source = model
         sourceGeneration += 1
         let generation = sourceGeneration
+        // The apply that follows in the same `updateNSView` already carries the new model's lines: never match them against the old rows.
+        appliedGeneration = generation
+        forceReload = true
         Task { @MainActor [weak self] in self?.sourceChanged(generation) }
     }
 
@@ -286,7 +290,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         let fontChanged = r.settings.fontSize != settings.fontSize
         let layoutChanged = settingsChanged && (r.settings.wrap != settings.wrap || r.settings.timestamps != settings.timestamps || fontChanged)
         var old = lines
-        let new = r.lines ?? source?.visible ?? []
+        let new = r.lines ?? source?.untrackedVisible ?? old
         lines = new
         settings = r.settings
         matcher = r.matcher
@@ -297,7 +301,9 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         let forced = forceReload
         forceReload = false
         let incremental = !settingsChanged && !forced
-        let appendOnly = incremental && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0
+        // Same first and last line over the old rows: both are increasing-id subsequences of one buffer, so the old rows are a prefix
+        // (turning "matching lines only" off keeps the first line but is not an append).
+        let appendOnly = incremental && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0 && old[oldCount - 1].id == new[oldCount - 1].id
         // A full ring drops lines at the front while new ones arrive at the back. `k` counts the table's rows whose lines the model
         // no longer holds (the rows kept as slack, see below, plus this update's drops).
         var frontDrop: Int?
@@ -319,14 +325,12 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
         if appendOnly {
             applyCounts.append += 1
-            if new.count > oldCount {
-                // Grow the table's own array instead of keeping the model's: a shared buffer makes the model copy all its lines on
-                // its next sync, and that grows with the lines (performance pass P1).
-                lines = []
-                old.append(contentsOf: new[oldCount...])
-                lines = old
-                table.insertRows(at: IndexSet(oldCount..<new.count), withAnimation: [])
-            } else if new.count == oldCount, settings.query != "" || matcher != nil { reloadVisible() }
+            // Grow the table's own array instead of keeping the model's: a shared buffer makes the model copy all its lines on its
+            // next sync, and that grows with the lines (performance pass P1).
+            old.append(contentsOf: new[oldCount...])
+            lines = old
+            if new.count > oldCount { table.insertRows(at: IndexSet(oldCount..<new.count), withAnimation: []) }
+            else if settings.query != "" || matcher != nil { reloadVisible() }
         } else if let k = frontDrop {
             applyCounts.frontDrop += 1
             let appended = new.count - (oldCount - k)
@@ -335,7 +339,6 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
                 // rows at the front on every update moved every row view and rebuilt their layers: about 8 % CPU for a follow at
                 // 10 lines/s once the ring was full (performance pass P1). The table shows up to `frontSlack` more old lines than
                 // the ring holds, and a reader's scroll position does not move.
-                lines = []
                 old.append(contentsOf: new.suffix(appended))
                 lines = old
                 if appended > 0 { table.insertRows(at: IndexSet(oldCount..<(oldCount + appended)), withAnimation: []) }
