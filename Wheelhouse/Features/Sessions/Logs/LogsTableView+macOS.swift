@@ -12,8 +12,15 @@ import WheelhouseUI
 ///   state is applied when the view becomes visible again.
 /// - Fixed row height with wrapping off; with wrapping on, the height comes from a character count per row (monospaced), cached per
 ///   line for the current width.
+/// - Off the SwiftUI path: built with `source:`, the view follows `LogsModel.visible` itself (Observation), so a flush of new lines
+///   updates the table without re-rendering any SwiftUI view. Every SwiftUI update of the window re-measures the whole window's minimum
+///   size (`NSHostingView.minSize`), which was most of the cost of a followed log (performance pass P1). SwiftUI only passes the
+///   display settings, which change when the user changes them.
 struct LogsTableView: NSViewRepresentable {
-    let lines: [LogLine]
+    /// The lines, when given by value (tests); ignored when `source` is set.
+    var lines: [LogLine] = []
+    /// The model whose `visible` lines the table follows.
+    var source: LogsModel?
     let settings: LogsDisplaySettings
     let matcher: LogMatcher?
     let follow: Bool
@@ -34,7 +41,9 @@ struct LogsTableView: NSViewRepresentable {
         v.onUserScrolledAway = onUserScrolledAway
         v.onReachedBottom = onReachedBottom
         v.onSelect = onSelect
-        v.apply(lines: lines, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
+        // Never read `source.visible` here: SwiftUI tracks what `updateNSView` reads, and that would put every flush back on its path.
+        if let source { v.track(source) }
+        v.apply(lines: source == nil ? lines : v.sourceLines, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
     }
 
     static func dismantleNSView(_ v: LogsScrollView, coordinator: ()) { v.teardown() }
@@ -140,6 +149,8 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func teardown() {
+        source = nil
+        sourceGeneration += 1
         flushTask?.cancel(); flushTask = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
@@ -179,9 +190,49 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         if isShown, pending != nil { flushPending(force: true) }
     }
 
+    // MARK: Following the model
+
+    private weak var source: LogsModel?
+    /// Bumped when the source changes or goes: an observation armed for an earlier source is ignored when it fires.
+    private var sourceGeneration = 0
+    /// The model's lines as last read (the source's `visible`).
+    private(set) var sourceLines: [LogLine] = []
+    /// What SwiftUI passed last, re-used when only the lines change.
+    private var lastSettings = LogsDisplaySettings()
+    private var lastMatcher: LogMatcher?
+    private var lastFollow = true
+    private var lastScrollTarget: LogsModel.ScrollTarget?
+
+    /// Follows `model.visible` until `teardown()` or another model. The first read happens on the next main-actor turn: `track` runs
+    /// inside `updateNSView`, and a read there would become a SwiftUI dependency. Later changes arrive through Observation.
+    func track(_ model: LogsModel) {
+        guard source !== model else { return }
+        source = model
+        sourceGeneration += 1
+        let generation = sourceGeneration
+        Task { @MainActor [weak self] in self?.sourceChanged(generation) }
+    }
+
+    /// Reads the lines and re-arms the observation (it fires once, before the change; the read happens on the next main-actor turn).
+    private func readSource(_ generation: Int) {
+        guard let model = source else { return }
+        sourceLines = withObservationTracking { model.visible } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.sourceChanged(generation) }
+        }
+    }
+
+    private func sourceChanged(_ generation: Int) {
+        guard let model = source, generation == sourceGeneration else { return }
+        readSource(generation)
+        // Follow and the scroll target come from the model, not from the last SwiftUI update: a user scroll sets `model.follow` to false
+        // before SwiftUI passes it on, and new lines applied with the old value would snap the table back to the bottom.
+        apply(lines: sourceLines, settings: lastSettings, matcher: lastMatcher, follow: model.follow, scrollTarget: model.scrollTarget)
+    }
+
     // MARK: Apply (coalesced)
 
     func apply(lines new: [LogLine], settings newSettings: LogsDisplaySettings, matcher newMatcher: LogMatcher?, follow newFollow: Bool, scrollTarget: LogsModel.ScrollTarget?) {
+        lastSettings = newSettings; lastMatcher = newMatcher; lastFollow = newFollow; lastScrollTarget = scrollTarget
         pending = Request(lines: new, settings: newSettings, matcher: newMatcher, follow: newFollow)
         let urgent = (scrollTarget?.token ?? 0) != lastToken || newSettings != settings || newFollow != follow
         if urgent { flushPending(force: true) } else { flushPending(force: false) }

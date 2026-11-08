@@ -484,7 +484,7 @@ public final class LogStream {
         lastBatchCount = batch.count
         lastFlushDropped = buffer.append(contentsOf: batch)
         appendedTotal += batch.count
-        droppedCount = buffer.droppedCount
+        if droppedCount != buffer.droppedCount { droppedCount = buffer.droppedCount }   // observed: write only on change
         revision += 1
         if limits.maxTotalBytes > 0 { LogMemoryBudget.shared.rebalance() }
     }
