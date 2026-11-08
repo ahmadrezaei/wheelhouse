@@ -27,7 +27,8 @@ struct MacCommands: Commands {
         CommandGroup(after: .appInfo) {
             CheckForUpdatesCommand()
         }
-        CommandGroup(after: .appSettings) {
+        CommandGroup(replacing: .appSettings) {
+            SettingsLink { Text("Settings…") }.keyboardShortcut(",").disabled(locked)
             Button("Lock Wheelhouse") { env.lock.lockNow() }.disabled(!env.lock.canLock)
         }
 

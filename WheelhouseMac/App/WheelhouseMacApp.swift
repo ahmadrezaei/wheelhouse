@@ -31,9 +31,31 @@ struct WheelhouseMacApp: App {
         .defaultSize(width: 1_280, height: 780)
         .commands { MacCommands(env: env) }
         Settings {
-            MacSettingsView().environment(env).environment(env.registry).environment(env.preferences)
-                .environment(\.clusterClientFactory, MacAppEnvironment.guardedClientFactory())
+            LockableSettings(env: env)
         }
+    }
+}
+
+/// The Settings window's content. While App Lock is on it is disabled, hidden from accessibility and covered by the lock screen,
+/// like the workspace window, so ⌘, cannot reach cluster settings or Test Connection.
+private struct LockableSettings: View {
+    let env: MacAppEnvironment
+
+    var body: some View {
+        let locked = env.lock.isLocked
+        ZStack {
+            MacSettingsView()
+                .environment(\.clusterClientFactory, MacAppEnvironment.guardedClientFactory())
+                .disabled(locked)
+                .accessibilityHidden(locked)
+            if locked {
+                LockScreenView().transition(.identity)
+            }
+        }
+        .environment(env)
+        .environment(env.registry)
+        .environment(env.preferences)
+        .environment(env.lock.controller)
     }
 }
 
