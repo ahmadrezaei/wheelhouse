@@ -71,8 +71,9 @@ enum PerfScenarioRunner {
     static func prepare(_ scenario: PerfScenario) {
         guard scenario.keepsWindowVisible else { return }
         NSApp.setActivationPolicy(.accessory)
-        // Registration happens inside `viewDidMoveToWindow`, while SwiftUI is still ordering the window in: float it afterwards.
-        WorkspaceWindows.observe { window in DispatchQueue.main.async { keepVisible(window) } }
+        // Synchronously, while the window registers (`viewDidMoveToWindow`), before SwiftUI first orders it in: a window first ordered
+        // in without the all-Spaces behaviour stays on the Space it was placed on, and a later change does not bring it here.
+        WorkspaceWindows.observe(keepVisible)
     }
 
     static func start(_ scenario: PerfScenario, environment env: MacAppEnvironment?) {
