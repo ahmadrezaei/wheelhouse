@@ -32,7 +32,7 @@ final class MooringsHarness: @unchecked Sendable {
     var service: MooringsService!
 
     init(files: [URL], user: [MooringsSource] = [], gate: DevSafetyPolicy? = nil, firstRunCompleted: Bool = false,
-         authorizer: any ChangeAuthorizing = AllowAuthorizer(), registry: PeriodicTaskRegistry = PeriodicTaskRegistry(), scratch: Scratch) throws {
+         authorizer: any ChangeAuthorizing = AllowAuthorizer(), registry: PeriodicTaskRegistry = PeriodicTaskRegistry(), now: @escaping @Sendable () -> Date = { Date() }, scratch: Scratch) throws {
         self.scratch = scratch
         home = try scratch.home()
         let gate = gate ?? openGate(home: home)
@@ -41,7 +41,7 @@ final class MooringsHarness: @unchecked Sendable {
         try state.preferences.update { $0.userSources = user; $0.firstRunCompleted = firstRunCompleted }
         let list = files.map(\.path).joined(separator: ":")
         service = MooringsService(config: MooringsConfiguration(gate: gate, home: home, explicitTestKubeconfig: nil, shellKubeconfig: { list }, registry: registry),
-                                  state: state, clients: clients, authorizer: authorizer,
+                                  state: state, clients: clients, authorizer: authorizer, now: now,
                                   onChange: { [changes] c in changes.append(c) })
     }
 }

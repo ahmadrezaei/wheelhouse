@@ -296,6 +296,33 @@ struct CompositeStoreTests {
         #expect(second.state.overrides.override(for: id)?.readOnly == false)
     }
 
+    @Test func aSaveWhileTheSourceIsRemovedLeavesTheOverrideAloneAndIsRealAgainWhenItReturns() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", kubeconfigText(context: "disc", server: "https://disc.example.test:6443"))
+        let st = try Stack(files: [file], scratch: s)
+        await st.service.rescan()
+        let id = try #require(st.state.contexts.first).id
+        try await st.service.completeFirstRun(choices: [id: FirstRunChoice(selected: true, environment: .development, environmentPicked: true, allowChanges: true)])
+        try st.state.overrides.update(id) { $0.color = .pink; $0.allowExecInReadOnly = true; $0.defaultNamespace = "shop" }
+        let original = try #require(st.state.overrides.override(for: id))
+        // The context disappears from its file: the cluster is a Source removed placeholder (read-only, grey).
+        try (kubeconfigText(context: "other", server: "https://other.example.test:6443") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        await st.service.rescan()
+        let placeholder = try #require(st.composite.load().first { $0.id == id })
+        #expect(placeholder.readOnly && placeholder.allowExecInReadOnly == false)
+        try st.composite.save(st.composite.load())                          // any registry save
+        let kept = try #require(st.state.overrides.override(for: id))
+        #expect(kept.readOnly == false && kept.color == original.color && kept.allowExecInReadOnly && kept.defaultNamespace == "shop")
+        // The source returns: saving is real again.
+        try (kubeconfigText(context: "disc", server: "https://disc.example.test:6443") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        await st.service.rescan()
+        var back = try #require(st.composite.load().first { $0.id == id })
+        #expect(back.readOnly == false && back.color == .pink)
+        back.color = .indigo
+        try st.composite.save(st.composite.load().map { $0.id == id ? back : $0 })
+        #expect(st.state.overrides.override(for: id)?.color == .indigo)
+    }
+
     @MainActor @Test func editingADiscoveredClusterWithACASavesAndLeavesReadOnlyThroughMoorings() async throws {
         let s = try Scratch(); defer { s.cleanup() }
         let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"                  // the file's CA ends with a newline

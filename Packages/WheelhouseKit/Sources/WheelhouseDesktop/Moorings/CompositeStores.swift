@@ -121,15 +121,15 @@ public final class CompositeMetadataStore: ClusterMetadataStoring {
         }
         for config in configs {
             guard var o = state.overrides.override(for: config.id) else { continue }
-            // Before the first scan an added cluster is a stand-in (read-only, grey, last-known values): saving it would write those
-            // over what the user chose.
-            guard state.hasScanned else { continue }
             let computed = state.context(for: config.id).flatMap { ctx -> ClusterConfig? in
                 var probe = o; probe.environment = nil
                 return state.makeConfig(for: ctx, override: probe)
             }
             let defaultName = state.context(for: config.id)?.displayName ?? o.lastKnown?.displayName
             o.name = config.name == defaultName ? nil : config.name
+            // Without a context (before the first scan, or while its source is removed) the config is a placeholder built from
+            // last-known values (read-only, no exec flag, grey): saving it would write those over what the user chose.
+            guard state.context(for: config.id) != nil else { changes[config.id] = o; continue }
             if let computed, config.environment != (o.environment ?? computed.environment) {
                 // Production is never lowered here: that needs `MooringsService.allowChanges` (authentication). Raising is fine.
                 let current = o.environment ?? computed.environment

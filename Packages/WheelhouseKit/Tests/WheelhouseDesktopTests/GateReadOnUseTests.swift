@@ -151,5 +151,58 @@ struct GateReadOnUseTests {
             }
         }
     }
+
+    /// A prompt that answers according to a switch, and counts.
+    final class SwitchAuthorizer: ChangeAuthorizing, @unchecked Sendable {
+        private let state = Mutex((answer: true, asked: 0))
+        var answer: Bool { get { state.withLock { $0.answer } } set { state.withLock { $0.answer = newValue } } }
+        var asked: Int { state.withLock { $0.asked } }
+        func authorize(reason: String) async -> Bool { state.withLock { $0.asked += 1; return $0.answer } }
+    }
+
+    @Test func aGrantIssuedWithoutAPromptIsRefusedOnceTheClusterBecomesProduction() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let prompts = SwitchAuthorizer()
+        let h = try MooringsHarness(files: [try MooringsServiceTests.threeContexts(s)], authorizer: prompts, scratch: s)
+        await h.service.rescan()
+        let stg = try #require(h.state.contexts.first { $0.context.name == "stg-1" })
+        try await h.service.completeFirstRun(choices: [stg.id: FirstRunChoice(selected: true, environment: .staging)])
+        let grant = try await h.service.authorizeLeavingReadOnly(id: stg.id, currentEnvironment: .staging, environment: .staging)
+        #expect(prompts.asked == 0)                                      // nothing was Production: no prompt
+        prompts.answer = false
+        try h.state.overrides.update(stg.id) { $0.environment = .production }          // raised with a plain save
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: stg.id, environment: .staging, grant: grant) }
+        #expect(try #require(h.state.overrides.override(for: stg.id)).readOnly)
+    }
+
+    @Test func aGrantExpiresAfterAMinuteAndAPromptedOneKeepsWorkingUntilThen() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let clock = Mutex(Date(timeIntervalSince1970: 1_000_000))
+        let h = try MooringsHarness(files: [try MooringsServiceTests.threeContexts(s)], now: { clock.withLock { $0 } }, scratch: s)
+        await h.service.rescan()
+        let stg = try #require(h.state.contexts.first { $0.context.name == "stg-1" })
+        try await h.service.completeFirstRun(choices: [stg.id: FirstRunChoice(selected: true, environment: .staging)])
+        let stale = try await h.service.authorizeLeavingReadOnly(id: stg.id, currentEnvironment: .staging, environment: .staging)
+        clock.withLock { $0 = $0.addingTimeInterval(61) }
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: stg.id, environment: .staging, grant: stale) }
+        let fresh = try await h.service.authorizeLeavingReadOnly(id: stg.id, currentEnvironment: .staging, environment: .staging)
+        clock.withLock { $0 = $0.addingTimeInterval(59) }
+        try await h.service.allowChanges(id: stg.id, environment: .staging, grant: fresh)
+        #expect(try #require(h.state.overrides.override(for: stg.id)).readOnly == false)
+    }
+
+    @Test func aPromptedGrantForProductionStaysValidWithinItsLifetime() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let prompts = SwitchAuthorizer()
+        let h = try MooringsHarness(files: [try MooringsServiceTests.threeContexts(s)], authorizer: prompts, scratch: s)
+        await h.service.rescan()
+        let prod = try #require(h.state.contexts.first { $0.context.name == "prod-eu" })
+        try await h.service.completeFirstRun(choices: [prod.id: FirstRunChoice(selected: true, environment: .production)])
+        let grant = try await h.service.authorizeLeavingReadOnly(id: prod.id, currentEnvironment: .production, environment: .production)
+        #expect(prompts.asked == 1)
+        prompts.answer = false                                           // the owner's answer was given; the commit does not ask again
+        try await h.service.allowChanges(id: prod.id, environment: .production, grant: grant)
+        #expect(prompts.asked == 1)
+    }
 }
 #endif
