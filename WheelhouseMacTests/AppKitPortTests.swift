@@ -54,16 +54,34 @@ struct AppKitPortTests {
         #expect(v.isAtBottom)
     }
 
-    @Test func aFullRingDroppingAtTheFrontRemovesAndInsertsRows() async throws {
+    @Test func aFullRingDroppingAtTheFrontOnlyAddsRowsUntilTheSlackIsUsed() async throws {
         let v = logs()
         apply(v, lines(0..<20_000))
-        try await Task.sleep(for: .milliseconds(300))
-        // The ring is full: 100 lines fall off the front while 100 arrive at the back.
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        // The ring is full: 100 lines fall off the front while 100 arrive at the back. P1: the dropped lines' rows stay for now
+        // (front slack), so only rows at the end are added (removing front rows on every update rebuilt every row view).
         apply(v, lines(100..<20_100))
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(v.applyCounts.frontDrop == 1)
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        #expect(v.applyCounts.frontDrop == 1 && v.applyCounts.frontTrim == 0)
         #expect(v.applyCounts.reload == 1)               // never a second full reload
-        #expect(v.tableRowCount == 20_000 && v.isAtBottom)
+        #expect(v.tableRowCount == 20_100 && v.isAtBottom)
+        // Past the slack (a tenth of the lines) the old rows go in one removal.
+        apply(v, lines(2_500..<22_500))
+        try await Task.sleep(for: .milliseconds(600))   // a following table updates twice a second
+        #expect(v.applyCounts.frontTrim == 1 && v.applyCounts.reload == 1)
+        #expect(v.tableRowCount == 20_000 && v.displayedLineCount == 20_000 && v.isAtBottom)
+    }
+
+    @Test func aReaderScrolledAwayKeepsTheirPlaceWhileTheRingDrops() async throws {
+        let v = logs(height: 300)
+        apply(v, lines(0..<5_000))
+        try await Task.sleep(for: .milliseconds(300))
+        apply(v, lines(0..<5_000), follow: false)                             // the reader scrolled away (follow off) ...
+        try await Task.sleep(for: .milliseconds(300))
+        apply(v, lines(50..<5_050), follow: false)                            // ... and the full ring moves on
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(v.applyCounts.reload == 1 && v.applyCounts.frontDrop == 1)    // no full reload under the reader
+        #expect(v.tableRowCount == 5_050)
     }
 
     @Test func updatesInsideAQuarterSecondAreCoalesced() async throws {
@@ -519,7 +537,8 @@ struct AppKitPortTests {
         try Data(#"{"name":"soak-5","clusters":5,"windows":2,"tabs":2,"cycleSeconds":120}"#.utf8).write(to: dir.appending(path: "soak-5.json"))
         let info: [String: Any] = ["WHPerfScenarioDirectory": dir.path]
         let gate = DevSafetyPolicy(isActive: true)
-        let keep = ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible"]
+        let keep = ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible", "YES"]
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible"], gate: gate, info: info)?.keepsWindowVisible == false)
         #expect(PerfScenario.requested(arguments: keep, gate: gate, info: info)?.keepsWindowVisible == true)
         #expect(PerfScenario.requested(arguments: keep + ["-WHPerfHideAfter", "5"], gate: gate, info: info)?.keepsWindowVisible == false)
         #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1"], gate: gate, info: info)?.keepsWindowVisible == false)

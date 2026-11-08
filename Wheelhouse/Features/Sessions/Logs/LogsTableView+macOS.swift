@@ -6,10 +6,13 @@ import WheelhouseUI
 /// View-based `NSTableView` log list for the Mac (ARCHITECTURE-MAC section 1.6 row 12, section 12.3.4).
 ///
 /// - Virtualised: only visible rows have views; cells are reused; 20,000 lines cost the same as 20.
-/// - Incremental: appends insert rows, a full ring dropping at the front removes and inserts rows; `reloadData()` is only used for the
-///   first load and for changes that touch everything (settings, a different stream).
-/// - Coalesced: at most 4 table updates per second (250 ms), and none while the window is hidden, minimised or occluded: the latest
-///   state is applied when the view becomes visible again.
+/// - Incremental: appends insert rows; a full ring dropping at the front only adds rows until a slack of old rows is used up, then
+///   removes them in one go; `reloadData()` is only used for the first load and for changes that touch everything (settings, a
+///   different stream).
+/// - Coalesced: at most 4 table updates per second (250 ms), 2 while following a live tail (500 ms: each update of a following table
+///   inserts rows, scrolls, re-tiles and re-tracks the visible rows, about 1 % CPU per update per second at 10 lines/s; performance
+///   pass P1), and none while the window is hidden, minimised or occluded: the latest state is applied when the view becomes visible
+///   again. A change the user makes (settings, follow, a scroll target) applies at once.
 /// - Fixed row height with wrapping off; with wrapping on, the height comes from a character count per row (monospaced), cached per
 ///   line for the current width.
 /// - Off the SwiftUI path: built with `source:`, the view follows `LogsModel.visible` itself (Observation), so a flush of new lines
@@ -101,6 +104,9 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     private var flushTask: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
     private static let minInterval: Duration = .milliseconds(250)
+    /// While following: new lines at the bottom twice a second are enough to read a live tail.
+    private static let followInterval: Duration = .milliseconds(500)
+    private var interval: Duration { follow && (pending?.follow ?? true) ? Self.followInterval : Self.minInterval }
 
     private let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("log"))
 
@@ -161,8 +167,8 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
     /// Tests drive the view without a window: when set, the view counts as visible.
     var assumeVisible = false
-    /// How updates reached the table, for tests (`append`, `frontDrop`, `reload`).
-    private(set) var applyCounts = (append: 0, frontDrop: 0, reload: 0)
+    /// How updates reached the table, for tests (`append`, `frontDrop`, `frontTrim` (the slack removed), `reload`).
+    private(set) var applyCounts = (append: 0, frontDrop: 0, frontTrim: 0, reload: 0)
     var displayedLineCount: Int { lines.count }
     var tableRowCount: Int { table.numberOfRows }
     var isAtBottom: Bool { distanceFromBottom <= 24 }
@@ -246,10 +252,11 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         guard pending != nil else { return }
         guard isShown else { return }                         // nothing is drawn while hidden: the next visible moment applies it
         let elapsed = ContinuousClock.now - lastApplied
-        if !force, elapsed < Self.minInterval {
+        let interval = self.interval
+        if !force, elapsed < interval {
             guard flushTask == nil else { return }
             flushTask = Task { [weak self] in
-                try? await Task.sleep(for: Self.minInterval - elapsed)
+                try? await Task.sleep(for: interval - elapsed)
                 guard !Task.isCancelled else { return }
                 self?.flushTask = nil
                 self?.flushPending(force: true)
@@ -282,8 +289,10 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         let new = r.lines
 
         let appendOnly = !settingsChanged && oldFirst == new.first?.id && new.count >= oldCount && oldCount > 0
+        // A full ring drops lines at the front while new ones arrive at the back. `k` counts the table's rows whose lines the model
+        // no longer holds (the rows kept as slack, see below, plus this update's drops).
         var frontDrop: Int?
-        if !appendOnly, !settingsChanged, wasFollowing, r.follow, oldCount > 0, let first = new.first?.id, first != oldFirst,
+        if !appendOnly, !settingsChanged, oldCount > 0, let first = new.first?.id, first != oldFirst,
            let k = old.firstIndex(where: { $0.id == first }), k > 0, oldCount - k <= new.count,
            old[oldCount - 1].id == new[oldCount - k - 1].id {
             frontDrop = k
@@ -305,10 +314,22 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
             else if new.count == oldCount, settings.query != "" || matcher != nil { reloadVisible() }
         } else if let k = frontDrop {
             applyCounts.frontDrop += 1
-            table.beginUpdates()
-            table.removeRows(at: IndexSet(0..<k), withAnimation: [])
-            table.insertRows(at: IndexSet(oldCount - k..<new.count), withAnimation: [])
-            table.endUpdates()
+            let appended = new.count - (oldCount - k)
+            if k <= Self.frontSlack(rows: new.count) {
+                // Keep the dropped lines' rows for now and only add rows at the end, as for a ring that is not full yet. Removing
+                // rows at the front on every update moved every row view and rebuilt their layers: about 8 % CPU for a follow at
+                // 10 lines/s once the ring was full (performance pass P1). The table shows up to `frontSlack` more old lines than
+                // the ring holds, and a reader's scroll position does not move.
+                lines = old + new.suffix(appended)
+                if appended > 0 { table.insertRows(at: IndexSet(oldCount..<(oldCount + appended)), withAnimation: []) }
+            } else {
+                applyCounts.frontTrim += 1
+                table.beginUpdates()
+                table.removeRows(at: IndexSet(0..<k), withAnimation: [])
+                table.insertRows(at: IndexSet((oldCount - k)..<new.count), withAnimation: [])
+                table.endUpdates()
+                if !r.follow, let anchor { restore(anchor) }
+            }
             pruneRowCounts()
         } else {
             applyCounts.reload += 1
@@ -318,6 +339,10 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
         if settingsChanged && (appendOnly || frontDrop != nil) { reloadVisible() }
         if r.follow { scrollToBottom() }
     }
+
+    /// Rows of lines the ring already dropped that the table may keep at its top before it removes them in one go: a tenth of the
+    /// lines, at least 500 (at 10 lines/s and 20,000 lines, one removal every 200 s instead of four a second).
+    static func frontSlack(rows: Int) -> Int { max(500, rows / 10) }
 
     private func reloadAll() { table.reloadData() }
 
