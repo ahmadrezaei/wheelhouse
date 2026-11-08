@@ -61,6 +61,8 @@ struct ClustersPane: View {
         NavigationStack { content() }
             .environment(registry).environment(preferences).environment(router).environment(network)
             .environment(\.kubeconfigImportPolicy, env.importer.policy)
+            .environment(\.clusterClientFactory, env.clientFactory)
+            .environment(\.clusterChangeAllowing, env.moorings.service)
             .frame(minWidth: 520, minHeight: 480)
     }
 }

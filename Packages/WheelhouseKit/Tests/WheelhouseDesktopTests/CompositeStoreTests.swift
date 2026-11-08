@@ -272,6 +272,46 @@ struct CompositeStoreTests {
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(text.contains("firstMateAccess") && text.contains("terminalMode") && text.contains("beaconExposure") && text.contains("execAdopted"))
     }
+
+    @MainActor @Test func editingADiscoveredClusterWithACASavesAndLeavesReadOnlyThroughMoorings() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"                  // the file's CA ends with a newline
+        let yaml = """
+        clusters:
+        - name: c
+          cluster: {server: "https://ca.example.test:6443", certificate-authority-data: \(Data(pem.utf8).base64EncodedString())}
+        users:
+        - {name: u, user: {token: tok}}
+        contexts:
+        - {name: with-ca, context: {cluster: c, user: u}}
+        """
+        let st = try Stack(files: [try s.write("kc.yaml", yaml)], scratch: s)
+        await st.service.rescan()
+        let ctx = try #require(st.state.contexts.first)
+        try await st.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .staging, environmentPicked: true)])
+        let registry = ClusterRegistry(credentials: st.creds, metadata: st.composite, defaults: try #require(UserDefaults(suiteName: "wh.m3.\(UUID().uuidString)")))
+        let current = try #require(registry.clusters.first)
+        #expect(current.readOnly)
+        let existing = registry.secrets(for: current.id)
+        #expect(existing.caPEM == pem)
+        var draft = ClusterDraft(editing: current, secrets: existing)
+        draft.name = "renamed"
+        draft.readOnly = false
+        let edited = draft.makeSecrets(existing: existing)
+        #expect(edited != existing)                                       // the draft trims the CA: a plain update would try to save it
+        let target = try #require(draft.makeConfig())
+        let outcome = try await ClusterChangeSaver.save(allowing: st.service, current: current, target: target, environmentConfirmed: false) { config, managed in
+            try registry.update(config, secrets: ClusterChangeSaver.secretsToWrite(managed: managed, existing: existing, edited: edited))
+        }
+        #expect(outcome == .saved)
+        registry.reloadFromStore(invalidating: [current.id])              // what Moorings' change notification does
+        let after = try #require(registry.clusters.first)
+        #expect(after.name == "renamed")
+        #expect(after.readOnly == false)
+        #expect(st.service.environmentChosen(for: current.id))
+        // The plain update that failed before: the composite refuses secrets for a discovered cluster.
+        #expect(throws: CompositeStoreError.self) { try st.creds.save(edited, clusterID: current.id, synchronizable: false) }
+    }
 }
 
 extension CompositeMetadataStore {

@@ -116,6 +116,54 @@ struct LaunchPathTests {
         #expect(env.moorings.registry === env.registry)
     }
 
+    private func controller(home: URL, kubeconfig: URL) -> MooringsController {
+        let paths = AppPaths(gateActive: true, bundleID: "com.ahmadrezaei.wheelhouse.mac.debug", home: home, temporaryDirectory: home)
+        try? paths.prepare()
+        let gate: @Sendable () -> DevSafetyPolicy = { DevSafetyPolicy(isActive: true, allowedHosts: ["127.0.0.1"], home: home) }
+        return MooringsController(paths: paths, gate: gate, explicitTestKubeconfig: kubeconfig, keychainMetadata: InMemoryMetadataStore(),
+                                  keychainCredentials: InMemoryCredentialStore(),
+                                  shell: ShellEnvironment(gate: gate(), home: home, shell: "/usr/bin/true", explicitTestKubeconfig: kubeconfig))
+    }
+
+    @Test func clustersAddedInAnEarlierRunAreRealOnceMooringsHasScanned() async throws {
+        // The registry is built in App.init, before any scan: until the first scan every added cluster is a "Source removed" stand-in
+        // (read-only, grey, no secrets). Starting Moorings must replace them and rebuild their sessions.
+        let home = FileManager.default.temporaryDirectory.appending(path: "wh-moor-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let kubeconfig = try tempKubeconfig()
+        // Run 1: add the context and allow changes (a developer cluster needs no prompt).
+        let first = controller(home: home, kubeconfig: kubeconfig)
+        await first.service.rescan()
+        let ctx = try #require(first.state.contexts.first)
+        try await first.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .development, environmentPicked: true, allowChanges: true)])
+        #expect(first.state.listedConfigs().first?.readOnly == false)
+        // Run 2: the registry exists before start().
+        let second = controller(home: home, kubeconfig: kubeconfig)
+        let registry = ClusterRegistry(credentials: second.credentials, metadata: second.metadata,
+                                       defaults: try #require(UserDefaults(suiteName: "wh.moor.\(UUID().uuidString)")), clientFactory: second.clientFactory)
+        second.registry = registry
+        let stale = try #require(registry.clusters.first)
+        #expect(stale.readOnly && stale.color == .gray)                               // the stand-in
+        let staleSession = try #require(registry.session(for: stale.id))
+        #expect(registry.secrets(for: stale.id).token == nil)
+        await second.start()
+        let fresh = try #require(registry.clusters.first)
+        #expect(fresh.readOnly == false && fresh.color == .teal)
+        #expect(registry.secrets(for: fresh.id).token == "t")
+        #expect(try #require(registry.session(for: fresh.id)) !== staleSession)       // rebuilt with the real credentials
+    }
+
+    @Test func aDraftOfADiscoveredClusterWithACAIsSavedWithoutSecrets() {
+        let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"
+        let config = ClusterConfig(id: "kc-1", name: "d", server: URL(string: "https://d.example.com")!)
+        let existing = ClusterSecrets(token: "t", caPEM: pem)
+        let draft = ClusterDraft(editing: config, secrets: existing)
+        let edited = draft.makeSecrets(existing: existing)
+        #expect(edited != existing)
+        #expect(ClusterChangeSaver.secretsToWrite(managed: true, existing: existing, edited: edited) == nil)
+    }
+
     @Test func theGateIsTheSameOnEveryRead() {
         let first = DevSafety.isActive
         #expect(MacAppEnvironment.live(testKubeconfig: nil).gateActive == first)

@@ -92,6 +92,9 @@ final class MooringsController {
         snapshotBox.value = snapshot
         shellBanner = snapshot.failure
         await service.start()
+        // The registry was built in App.init, before any scan: every added cluster was listed as "Source removed" (read-only, grey,
+        // no secrets, no token source). Now that the contexts exist, reload so those clusters become real and their sessions are rebuilt.
+        registry?.reloadFromStore(invalidating: Set(state.listedConfigs().map(\.id)))
         await refresh()
     }
 

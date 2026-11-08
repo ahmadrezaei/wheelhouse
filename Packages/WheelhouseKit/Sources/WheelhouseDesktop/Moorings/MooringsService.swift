@@ -422,18 +422,33 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
 
     // MARK: Allow changes, opening, removal
 
-    /// Only an added (imported or adopted) context is managed here; a Keychain cluster saves directly.
+    /// Moorings owns the read-only flag of a context that was added (first run, import as source or adoption); a Keychain cluster is not managed.
     public nonisolated func managesChanges(for id: ClusterID) -> Bool { state.overrides.override(for: id)?.added == true }
 
-    /// Leaves read-only. Needs an explicitly chosen environment, and Touch ID or the password for Production and Production-suggested.
-    public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {
-        guard var o = state.overrides.override(for: id), o.added else { return }
-        let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o.lastKnown?.suggestedEnvironment == .production)
-        if environment == .production || o.environment == .production || suggestedProd {
-            guard await authorizer.authorize(reason: "Allow changes on \(o.name ?? o.lastKnown?.displayName ?? "this cluster")") else {
+    public nonisolated func environmentChosen(for id: ClusterID) -> Bool {
+        guard let o = state.overrides.override(for: id), o.added else { return true }
+        return o.environmentChosen
+    }
+
+    /// Touch ID or the password when the target or current environment is Production, or the context is Production-suggested. Changes nothing.
+    public func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws {
+        let o = state.overrides.override(for: id)
+        let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o?.lastKnown?.suggestedEnvironment == .production)
+        if environment == .production || currentEnvironment == .production || o?.environment == .production || suggestedProd {
+            guard await authorizer.authorize(reason: "Allow changes on \(o?.name ?? o?.lastKnown?.displayName ?? "this cluster")") else {
                 throw MooringsError.authorizationDenied
             }
         }
+    }
+
+    /// Leaves read-only. Needs an explicitly chosen environment, and Touch ID or the password for Production and Production-suggested.
+    public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {
+        try await allowChanges(id: id, environment: environment, authorized: false)
+    }
+
+    public func allowChanges(id: ClusterID, environment: ClusterEnvironment, authorized: Bool) async throws {
+        guard var o = state.overrides.override(for: id), o.added else { return }
+        if !authorized { try await authorizeLeavingReadOnly(id: id, currentEnvironment: o.environment ?? .development, environment: environment) }
         o.environment = environment
         o.environmentChosen = true
         o.readOnly = false

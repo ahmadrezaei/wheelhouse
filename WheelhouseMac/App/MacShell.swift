@@ -53,7 +53,7 @@ struct MacShell: View {
                 .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
                 .environment(\.kubeconfigImportPolicy, env.importer.policy)
                 .environment(\.clusterClientFactory, clientFactory)
-        .environment(\.clusterChangeAllowing, env.moorings.service)
+                .environment(\.clusterChangeAllowing, env.moorings.service)
                 .frame(minWidth: 520, minHeight: 480)
         }
         .sheet(item: $importer.presented) { request in
@@ -61,7 +61,7 @@ struct MacShell: View {
                 .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
                 .environment(\.kubeconfigImportPolicy, env.importer.policy)
                 .environment(\.clusterClientFactory, clientFactory)
-        .environment(\.clusterChangeAllowing, env.moorings.service)
+                .environment(\.clusterChangeAllowing, env.moorings.service)
                 .frame(minWidth: 560, minHeight: 520)
         }
         // A tap on a notification, a deep link or a Finder "Open With" lands here.

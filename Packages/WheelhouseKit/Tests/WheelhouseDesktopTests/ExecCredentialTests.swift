@@ -396,6 +396,21 @@ struct ExecCredentialProviderTests {
         #expect(try await p.authorization() == "tok-1")
     }
 
+    @Test func theStanzaCannotPointAPluginAtAnotherKubeconfigWhileTheGateIsActive() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let gated = try Rig(gate: activeGate(home: s.root)); defer { gated.scratch.cleanup() }
+        let spec = gated.spec(env: ["KUBECONFIG": "/Users/someone/.kube/config", "KEEP": "yes"])
+        let provider = gated.provider(spec)
+        let env = await gated.broker.makeProcessSpec(provider.request, executable: gated.plugin, interactive: false).environment
+        #expect(env["KUBECONFIG"] == nil)
+        #expect(env["KEEP"] == "yes")
+        #expect(env["KUBERNETES_EXEC_INFO"] != nil)
+        // With the gate off the stanza is honoured as before.
+        let open = try Rig(); defer { open.scratch.cleanup() }
+        let openEnv = await open.broker.makeProcessSpec(open.provider(open.spec(env: ["KUBECONFIG": "/x/kc"])).request, executable: open.plugin, interactive: false).environment
+        #expect(openEnv["KUBECONFIG"] == "/x/kc")
+    }
+
     @Test func nothingIsWrittenToDiskExceptThePluginsOwnFiles() async throws {
         let r = try Rig(); defer { r.scratch.cleanup() }
         _ = try await r.provider(r.spec()).authorization()

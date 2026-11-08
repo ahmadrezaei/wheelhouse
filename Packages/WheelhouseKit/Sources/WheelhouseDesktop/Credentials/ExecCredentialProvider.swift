@@ -183,7 +183,10 @@ public actor ExecCredentialBroker {
 
     func makeProcessSpec(_ request: ExecRequest, executable: URL, interactive: Bool) -> ProcessSpec {
         var additions: [String: String] = [:]
-        for e in request.spec.env { additions[e.name] = e.value }
+        // The stanza's env entries are the kubeconfig's own; while the gate is active none of them may point a plugin at another
+        // kubeconfig (~/.kube), so KUBECONFIG is dropped from them.
+        let gateActive = gate().isActive
+        for e in request.spec.env where !(gateActive && e.name == "KUBECONFIG") { additions[e.name] = e.value }
         additions["KUBERNETES_EXEC_INFO"] = request.execInfo(interactive: interactive)
         let env = environment().build(profile: .forPlugin(command: request.spec.command), additions: additions)
         let dir = request.spec.baseDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }

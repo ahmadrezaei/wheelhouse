@@ -106,7 +106,7 @@ public final class MooringsState: Sendable {
     }
 
     /// Every discovered cluster that should be listed: added, not hidden, and not a duplicate of a Keychain cluster.
-    func listedConfigs() -> [ClusterConfig] {
+    public func listedConfigs() -> [ClusterConfig] {
         let snapshot = state.withLock { $0 }
         var out: [ClusterConfig] = []
         var seen = Set<ClusterID>()
