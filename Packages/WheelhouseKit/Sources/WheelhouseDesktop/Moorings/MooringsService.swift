@@ -107,6 +107,8 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     private var previous: [ClusterID: DiscoveredContext] = [:]
     private var previousHashes: [String: String] = [:]
     private var hasScanned = false
+    /// The outstanding grant of an answered owner prompt, by cluster; consumed by `allowChanges(id:environment:grant:)`.
+    private var grants: [ClusterID: ChangeGrant] = [:]
     /// Files that could not be read or are refused, by path (shown in Settings → Moorings).
     public private(set) var issues: [String: String] = [:]
     public private(set) var scanCount = 0
@@ -354,6 +356,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         previous = newByID
         previousHashes = outcome.hashes
         hasScanned = true
+        state.markScanned()
 
         // A changed context: sessions, watches and the credential cache of its key are dropped and rebuilt.
         if !change.changed.isEmpty {
@@ -430,25 +433,35 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         return o.environmentChosen
     }
 
-    /// Touch ID or the password when the target or current environment is Production, or the context is Production-suggested. Changes nothing.
-    public func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws {
+    /// Touch ID or the password when the target or current environment is Production, or the context is Production-suggested. Changes
+    /// nothing. The grant it returns (for a managed cluster) is valid for one ``allowChanges(id:environment:grant:)``.
+    public func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws -> ChangeGrant {
         let o = state.overrides.override(for: id)
         let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o?.lastKnown?.suggestedEnvironment == .production)
         if environment == .production || currentEnvironment == .production || o?.environment == .production || suggestedProd {
-            guard await authorizer.authorize(reason: "Allow changes on \(o?.name ?? o?.lastKnown?.displayName ?? "this cluster")") else {
-                throw MooringsError.authorizationDenied
-            }
+            let name = o?.name ?? o?.lastKnown?.displayName ?? "this cluster"
+            let reason = currentEnvironment == .production && environment != .production
+                ? "Change \(name) from Production to \(environment.title), which lowers its safety" : "Allow changes on \(name)"
+            guard await authorizer.authorize(reason: reason) else { throw MooringsError.authorizationDenied }
         }
+        let grant = ChangeGrant(id: id, environment: environment)
+        // Only a managed cluster can use a grant; one outstanding grant per cluster keeps this bounded.
+        if o?.added == true { grants[id] = grant }
+        return grant
     }
 
     /// Leaves read-only. Needs an explicitly chosen environment, and Touch ID or the password for Production and Production-suggested.
     public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {
-        try await allowChanges(id: id, environment: environment, authorized: false)
+        let grant = try await authorizeLeavingReadOnly(id: id, currentEnvironment: state.overrides.override(for: id)?.environment ?? .development,
+                                                       environment: environment)
+        try await allowChanges(id: id, environment: environment, grant: grant)
     }
 
-    public func allowChanges(id: ClusterID, environment: ClusterEnvironment, authorized: Bool) async throws {
-        guard var o = state.overrides.override(for: id), o.added else { return }
-        if !authorized { try await authorizeLeavingReadOnly(id: id, currentEnvironment: o.environment ?? .development, environment: environment) }
+    /// Commits with the grant of an answered prompt: it must be for this cluster and environment and is used up by this call.
+    public func allowChanges(id: ClusterID, environment: ClusterEnvironment, grant: ChangeGrant) async throws {
+        guard grant.id == id, grant.environment == environment, let issued = grants[id], issued == grant else { throw MooringsError.authorizationDenied }
+        grants[id] = nil
+        guard var o = state.overrides.override(for: id), o.added else { throw MooringsError.notAvailable }
         o.environment = environment
         o.environmentChosen = true
         o.readOnly = false

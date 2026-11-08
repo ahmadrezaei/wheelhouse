@@ -121,6 +121,9 @@ public final class CompositeMetadataStore: ClusterMetadataStoring {
         }
         for config in configs {
             guard var o = state.overrides.override(for: config.id) else { continue }
+            // Before the first scan an added cluster is a stand-in (read-only, grey, last-known values): saving it would write those
+            // over what the user chose.
+            guard state.hasScanned else { continue }
             let computed = state.context(for: config.id).flatMap { ctx -> ClusterConfig? in
                 var probe = o; probe.environment = nil
                 return state.makeConfig(for: ctx, override: probe)

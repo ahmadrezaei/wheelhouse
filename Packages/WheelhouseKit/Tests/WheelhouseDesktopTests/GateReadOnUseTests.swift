@@ -71,7 +71,7 @@ struct GateReadOnUseTests {
         #expect(h.service.managesChanges(for: ctx.id))
         #expect(try #require(h.state.listedConfigs().first { $0.id == ctx.id }).readOnly)     // starts read-only
         let allowing: any ClusterChangeAllowing = h.service
-        try await allowing.allowChanges(id: ctx.id, environment: .staging, authorized: false)
+        try await allowing.allowChanges(id: ctx.id, environment: .staging, grant: try await allowing.authorizeLeavingReadOnly(id: ctx.id, currentEnvironment: .staging, environment: .staging))
         #expect(try #require(h.state.listedConfigs().first { $0.id == ctx.id }).readOnly == false)
     }
 
@@ -86,13 +86,13 @@ struct GateReadOnUseTests {
         let h = try MooringsHarness(files: [], authorizer: counting, scratch: s)
         // Not a Moorings cluster at all: the target or current environment being Production is enough.
         await #expect(throws: MooringsError.authorizationDenied) {
-            try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .staging, environment: .production)
+            _ = try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .staging, environment: .production)
         }
         await #expect(throws: MooringsError.authorizationDenied) {
-            try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .production, environment: .staging)
+            _ = try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .production, environment: .staging)
         }
         #expect(counting.asked == 2)
-        try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .staging, environment: .development)
+        _ = try await h.service.authorizeLeavingReadOnly(id: "keychain-1", currentEnvironment: .staging, environment: .development)
         #expect(counting.asked == 2)                                   // no prompt below Production
     }
 
@@ -102,11 +102,54 @@ struct GateReadOnUseTests {
         await h.service.rescan()
         let prod = try #require(h.state.contexts.first { $0.context.name == "prod-eu" })
         try await h.service.completeFirstRun(choices: [prod.id: FirstRunChoice(selected: true, environment: .production)])
-        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: prod.id, environment: .production, authorized: false) }
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: prod.id, environment: .production) }
         #expect(try #require(h.state.listedConfigs().first).readOnly)
-        // Already authorized by the caller: committed without a second prompt.
-        try await h.service.allowChanges(id: prod.id, environment: .production, authorized: true)
-        #expect(try #require(h.state.listedConfigs().first).readOnly == false)
+        // Without an answered prompt there is no grant to use, whatever the caller claims.
+        await #expect(throws: MooringsError.authorizationDenied) {
+            try await h.service.allowChanges(id: prod.id, environment: .production, grant: ChangeGrant(id: prod.id, environment: .production))
+        }
+        #expect(try #require(h.state.listedConfigs().first).readOnly)
+    }
+
+    @Test func aGrantIsForOneClusterAndEnvironmentAndWorksOnce() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try MooringsHarness(files: [try MooringsServiceTests.threeContexts(s)], scratch: s)
+        await h.service.rescan()
+        let stg = try #require(h.state.contexts.first { $0.context.name == "stg-1" })
+        let other = try #require(h.state.contexts.first { $0.context.name == "sandbox" })
+        try await h.service.completeFirstRun(choices: [stg.id: FirstRunChoice(selected: true, environment: .staging),
+                                                       other.id: FirstRunChoice(selected: true, environment: .development)])
+        let grant = try await h.service.authorizeLeavingReadOnly(id: stg.id, currentEnvironment: .staging, environment: .staging)
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: other.id, environment: .staging, grant: grant) }       // other cluster
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: stg.id, environment: .development, grant: grant) }     // other environment
+        try await h.service.allowChanges(id: stg.id, environment: .staging, grant: grant)
+        await #expect(throws: MooringsError.authorizationDenied) { try await h.service.allowChanges(id: stg.id, environment: .staging, grant: grant) }          // reuse
+    }
+
+    @Test func aClusterThatVanishedBeforeTheCommitIsReportedNotSilentlyIgnored() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try MooringsHarness(files: [try MooringsServiceTests.threeContexts(s)], scratch: s)
+        await h.service.rescan()
+        let stg = try #require(h.state.contexts.first { $0.context.name == "stg-1" })
+        try await h.service.completeFirstRun(choices: [stg.id: FirstRunChoice(selected: true, environment: .staging)])
+        let grant = try await h.service.authorizeLeavingReadOnly(id: stg.id, currentEnvironment: .staging, environment: .staging)
+        try h.state.overrides.apply([stg.id: nil])
+        await #expect(throws: MooringsError.notAvailable) { try await h.service.allowChanges(id: stg.id, environment: .staging, grant: grant) }
+    }
+
+    @Test func twoSavesCannotLowerProductionAndThenLeaveReadOnlyWithoutAPrompt() async throws {
+        // Against the real service with an owner who always declines: step 1 (Production -> Development, read-only on) is refused,
+        // so step 2 never sees a non-Production cluster.
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try MooringsHarness(files: [], authorizer: AllowAuthorizer(answer: false), scratch: s)
+        let prod = ClusterConfig(id: "keychain-prod", name: "p", server: URL(string: "https://p.example.com")!, environment: .production, readOnly: true)
+        var lowered = prod
+        lowered.environment = .development
+        await #expect(throws: MooringsError.authorizationDenied) {
+            _ = try await ClusterChangeSaver.save(allowing: h.service, current: prod, target: lowered, environmentConfirmed: false) { _, _ in
+                Issue.record("nothing may be saved")
+            }
+        }
     }
 }
 #endif

@@ -20,12 +20,13 @@ struct ClusterChangeSaverTests {
 
         func managesChanges(for id: ClusterID) -> Bool { managed }
         func environmentChosen(for id: ClusterID) -> Bool { chosen }
-        func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws {
+        func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws -> ChangeGrant {
             record("authorize:\(currentEnvironment.rawValue)->\(environment.rawValue)")
             if denyAuthorization { throw Failure() }
+            return ChangeGrant(id: id, environment: environment)
         }
-        func allowChanges(id: ClusterID, environment: ClusterEnvironment, authorized: Bool) async throws {
-            record("allow:\(environment.rawValue):authorized=\(authorized)")
+        func allowChanges(id: ClusterID, environment: ClusterEnvironment, grant: ChangeGrant) async throws {
+            record("allow:\(environment.rawValue)")
             if failCommit { throw Failure() }
         }
     }
@@ -62,7 +63,7 @@ struct ClusterChangeSaverTests {
         let fake = Fake(managed: true)
         let (outcome, persisted) = try await run(fake, current: config(readOnly: true), target: config(readOnly: false))
         #expect(outcome == .saved)
-        #expect(fake.log == ["authorize:staging->staging", "persist", "allow:staging:authorized=true"])
+        #expect(fake.log == ["authorize:staging->staging", "persist", "allow:staging"])
         #expect(persisted == ["true/true"])                 // read-only kept on and no secrets while saving
     }
 
@@ -84,8 +85,8 @@ struct ClusterChangeSaverTests {
     @Test func aFailingCommitAfterTheSaveIsReported() async throws {
         let fake = Fake(managed: true)
         fake.failCommit = true
-        await #expect(throws: Failure.self) { _ = try await run(fake, current: config(readOnly: true), target: config(readOnly: false)) }
-        #expect(fake.log == ["authorize:staging->staging", "persist", "allow:staging:authorized=true"])
+        await #expect(throws: ClusterChangeSaver.ChangesStillOff.self) { _ = try await run(fake, current: config(readOnly: true), target: config(readOnly: false)) }
+        #expect(fake.log == ["authorize:staging->staging", "persist", "allow:staging"])
     }
 
     @Test func aSuggestedEnvironmentMustBeConfirmedBeforeChangesAreAllowed() async throws {
@@ -95,7 +96,7 @@ struct ClusterChangeSaverTests {
         #expect(fake.log.isEmpty && persisted.isEmpty)       // nothing asked, nothing saved
         let (second, _) = try await run(fake, current: config(readOnly: true), target: config(readOnly: false), confirmed: true)
         #expect(second == .saved)
-        #expect(fake.log.last == "allow:staging:authorized=true")
+        #expect(fake.log.last == "allow:staging")
     }
 
     @Test func otherEditsOfAManagedClusterNeverTouchSecretsOrMooringsState() async throws {
@@ -123,5 +124,37 @@ struct ClusterChangeSaverTests {
         #expect(ClusterChangeSaver.secretsToWrite(managed: true, existing: existing, edited: edited) == nil)
         #expect(ClusterChangeSaver.secretsToWrite(managed: false, existing: existing, edited: edited) == edited)       // unchanged iOS rule
         #expect(ClusterChangeSaver.secretsToWrite(managed: false, existing: existing, edited: existing) == nil)
+    }
+
+    @Test func lowerProductionAsksTheOwnerEvenWhenReadOnlyStaysOn() async throws {
+        // Two saves must not get around the prompt: lower Production first (read-only on), then leave read-only.
+        let fake = Fake(managed: false)
+        let (_, first) = try await run(fake, current: config(readOnly: true, environment: .production), target: config(readOnly: true, environment: .development))
+        #expect(fake.log == ["authorize:production->development", "persist"])
+        #expect(first == ["true/false"])
+        let denied = Fake(managed: false)
+        denied.denyAuthorization = true
+        await #expect(throws: Failure.self) { _ = try await run(denied, current: config(readOnly: false, environment: .production), target: config(readOnly: false, environment: .staging)) }
+        #expect(denied.log == ["authorize:production->staging"])                      // nothing persisted
+        // A Production cluster that stays Production, and raising to Production, need no prompt while read-only stays as it is.
+        let quiet = Fake(managed: false)
+        _ = try await run(quiet, current: config(readOnly: true, environment: .production), target: config(readOnly: true, environment: .production))
+        _ = try await run(quiet, current: config(readOnly: true, environment: .staging), target: config(readOnly: true, environment: .production))
+        #expect(quiet.log == ["persist", "persist"])
+    }
+
+    @Test func aManagedClustersEnvironmentIsNeverLoweredBySavingAlone() async throws {
+        let fake = Fake(managed: true)
+        _ = try await run(fake, current: config(readOnly: true, environment: .production), target: config(readOnly: true, environment: .development))
+        #expect(fake.log == ["persist"])                    // the store keeps Production; only allowChanges lowers it
+    }
+
+    @Test func aFailedCommitSaysTheOtherEditsWereSaved() async throws {
+        let fake = Fake(managed: true)
+        fake.failCommit = true
+        do { _ = try await run(fake, current: config(readOnly: true), target: config(readOnly: false)); Issue.record("expected an error") } catch {
+            #expect(error is ClusterChangeSaver.ChangesStillOff)
+            #expect(error.localizedDescription.contains("other edits were saved"))
+        }
     }
 }

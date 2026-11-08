@@ -273,6 +273,29 @@ struct CompositeStoreTests {
         #expect(text.contains("firstMateAccess") && text.contains("terminalMode") && text.contains("beaconExposure") && text.contains("execAdopted"))
     }
 
+    @Test func aSaveBeforeTheFirstScanLeavesTheStoredOverridesAlone() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", kubeconfigText(context: "disc", server: "https://disc.example.test:6443"))
+        let first = try Stack(files: [file], scratch: s)
+        await first.service.rescan()
+        let id = try #require(first.state.contexts.first).id
+        try await first.service.completeFirstRun(choices: [id: FirstRunChoice(selected: true, environment: .development, environmentPicked: true, allowChanges: true)])
+        let before = try #require(first.state.overrides.override(for: id))
+        #expect(before.readOnly == false)
+        // A new launch: the stores exist, nothing has been scanned yet, so the cluster is only a read-only grey stand-in.
+        let second = try Stack(files: [file], scratch: s)
+        #expect(!second.state.hasScanned)
+        let loaded = second.state.overrides.override(for: id)             // as read back from disk
+        let standIn = second.composite.load()
+        #expect(standIn.first?.readOnly == true && standIn.first?.color == .gray)
+        try second.composite.save(standIn)                                // e.g. a reorder or an iCloud toggle in that window
+        #expect(second.state.overrides.override(for: id) == loaded)
+        await second.service.rescan()
+        #expect(second.state.hasScanned)
+        try second.composite.save(second.composite.load())                // after the scan a save is real again
+        #expect(second.state.overrides.override(for: id)?.readOnly == false)
+    }
+
     @MainActor @Test func editingADiscoveredClusterWithACASavesAndLeavesReadOnlyThroughMoorings() async throws {
         let s = try Scratch(); defer { s.cleanup() }
         let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"                  // the file's CA ends with a newline
