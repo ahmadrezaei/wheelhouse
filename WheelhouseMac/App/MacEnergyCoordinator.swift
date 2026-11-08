@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import notify
 import Observation
 import WheelhouseDesktop
 import WheelhouseKit
@@ -30,7 +31,8 @@ final class MacEnergyCoordinator {
     private(set) var memoryCriticals = 0
 
     @ObservationIgnored private let registry: ClusterRegistry
-    @ObservationIgnored private let occlusion: OcclusionMonitor
+    @ObservationIgnored private let periodicTasks: PeriodicTaskRegistry
+    @ObservationIgnored private let reportsVisibility: Bool
     @ObservationIgnored private let memory: MemoryPressureMonitor
     @ObservationIgnored private let releaseGrace: TimeInterval
     @ObservationIgnored private let visibility: @MainActor () -> Bool
@@ -38,12 +40,17 @@ final class MacEnergyCoordinator {
     @ObservationIgnored private var graceTask: Task<Void, Never>?
     @ObservationIgnored private var tokens: [NSObjectProtocol] = []
 
-    /// `memorySource`, `releaseGrace` and `visibility` are test seams; the app uses the defaults.
+    /// `memorySource`, `releaseGrace`, `visibility` and `periodicTasks` are test seams; the app uses the defaults. Only WORKSPACE
+    /// windows count (``WorkspaceWindows``): an open Settings window, a sheet or a panel never keeps the app out of its hidden mode.
+    /// This coordinator is the one source of "a window is visible": it also switches the `PeriodicTaskRegistry` cadence.
+    /// `reportsVisibility` (development builds) publishes each evaluation for the performance sampler (``VisibilityReport``).
     init(registry: ClusterRegistry, memorySource: any MemoryPressureSource = SystemMemoryPressureSource(),
          releaseGrace: TimeInterval = MacEnergyCoordinator.defaultReleaseGrace,
-         visibility: @escaping @MainActor () -> Bool = { MacEnergyCoordinator.anyWindowVisible(NSApp.windows) }) {
+         visibility: @escaping @MainActor () -> Bool = { MacEnergyCoordinator.anyWindowVisible(WorkspaceWindows.all) },
+         periodicTasks: PeriodicTaskRegistry = .shared, reportsVisibility: Bool = false) {
         self.registry = registry
-        self.occlusion = OcclusionMonitor()
+        self.periodicTasks = periodicTasks
+        self.reportsVisibility = reportsVisibility
         self.memory = MemoryPressureMonitor(source: memorySource)
         self.releaseGrace = releaseGrace
         self.visibility = visibility
@@ -51,7 +58,6 @@ final class MacEnergyCoordinator {
 
     func start() {
         guard tokens.isEmpty else { return }
-        occlusion.start()
         let center = NotificationCenter.default
         let names: [Notification.Name] = [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
                                           NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification, NSWindow.didBecomeMainNotification]
@@ -61,6 +67,10 @@ final class MacEnergyCoordinator {
                 Task { @MainActor in self?.evaluateVisibility() }
             })
         }
+        // A workspace window registers when its content moves into it, which can be after `start()`.
+        tokens.append(center.addObserver(forName: WorkspaceWindows.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluateVisibility() }
+        })
         tokens.append(center.addObserver(forName: EnergyPolicy.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.registry.applyEnergyPolicy() }
         })
@@ -74,7 +84,6 @@ final class MacEnergyCoordinator {
     }
 
     func stop() {
-        occlusion.stop()
         memory.stop()
         power.stop()
         graceTask?.cancel(); graceTask = nil
@@ -84,7 +93,7 @@ final class MacEnergyCoordinator {
 
     // MARK: Visibility
 
-    /// True when at least one real content window can be seen.
+    /// True when at least one of `windows` (the workspace windows) can be seen.
     static func anyWindowVisible(_ windows: [NSWindow]) -> Bool {
         windows.contains { w in
             w.canBecomeMain && OcclusionMonitor.isVisible(visible: w.isVisible, miniaturized: w.isMiniaturized, occlusionVisible: w.occlusionState.contains(.visible))
@@ -93,7 +102,8 @@ final class MacEnergyCoordinator {
 
     func evaluateVisibility() {
         let visible = visibility()
-        occlusion.refresh()
+        periodicTasks.setWindowsVisible(visible)
+        if reportsVisibility { VisibilityReport.publish(visible) }
         guard visible != windowsVisible else { return }
         windowsVisible = visible
         graceTask?.cancel(); graceTask = nil
@@ -139,5 +149,51 @@ final class MacEnergyCoordinator {
 
     private func trimLogBuffers() {
         for stream in LogMemoryBudget.shared.streams where !stream.isVisible { stream.trim(keepingLast: Self.trimmedLogLines) }
+    }
+}
+
+/// Development builds publish whether a workspace window is visible as the state of a Darwin notification, so
+/// `scripts/perf-sample.sh` can check (`notifyutil -g`) that a "visible" scenario really measured a visible window: a Space switch, a
+/// covering window, display sleep or the lock screen all make it invisible, and then nothing is drawn. State 1 = visible, 2 = hidden
+/// (0, the state of a name nobody set, means the app never published).
+@MainActor
+enum VisibilityReport {
+    static let name = "com.ahmadrezaei.wheelhouse.perf.windows-visible"
+    private static var token: Int32 = -1
+
+    static func publish(_ visible: Bool) {
+        if token < 0, notify_register_check(name, &token) != 0 { token = -1; return }
+        notify_set_state(token, visible ? 1 : 2)          // 0 is "never published"
+        notify_post(name)
+    }
+}
+
+/// The workspace windows: the only windows whose visibility drives the energy rules (ARCHITECTURE-MAC section 12.3.3). A window
+/// registers itself when the workspace content moves into it (`WorkspaceWindowMarker` in `MacShell`); Settings, sheets, panels and
+/// alerts never register, so an open Settings window does not count as a visible workspace. Held weakly: a closed and released window
+/// drops out by itself, and a closed window that AppKit keeps alive is not visible.
+@MainActor
+enum WorkspaceWindows {
+    /// Posted (main thread) when a window registers.
+    static let didChange = Notification.Name("WheelhouseWorkspaceWindowsDidChange")
+    private static let table = NSHashTable<NSWindow>.weakObjects()
+    private static var observers: [(NSWindow) -> Void] = []
+
+    static var all: [NSWindow] { table.allObjects }
+
+    static func contains(_ window: NSWindow) -> Bool { table.contains(window) }
+
+    /// Idempotent: a window SwiftUI reuses keeps its registration (occlusion and main-window notifications re-evaluate it).
+    static func register(_ window: NSWindow) {
+        guard !table.contains(window) else { return }
+        table.add(window)
+        observers.forEach { $0(window) }
+        NotificationCenter.default.post(name: didChange, object: window)
+    }
+
+    /// Calls `body` for every workspace window already registered and for each one that registers later.
+    static func observe(_ body: @escaping (NSWindow) -> Void) {
+        all.forEach(body)
+        observers.append(body)
     }
 }
