@@ -65,6 +65,10 @@ private struct LockableSettings: View {
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var environment: MacAppEnvironment?
 
+    @MainActor func applicationWillFinishLaunching(_ notification: Notification) {
+        if let scenario = PerfScenario.requested() { PerfScenarioRunner.prepare(scenario) }
+    }
+
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
         MacUpdater.shared.start()   // starts Sparkle only when the feed is set and the safety gate is off
         // Performance scenarios (`-WHPerfScenario <name>`) are honoured only while the safety gate is active.

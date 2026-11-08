@@ -321,4 +321,209 @@ struct AppKitPortTests {
         m.start { _ in }
         m.stop()
     }
+
+    @Test func theCoordinatorAloneSwitchesThePeriodicCadence() {
+        let periodic = PeriodicTaskRegistry()
+        var visible = true
+        let coordinator = MacEnergyCoordinator(registry: ClusterRegistry.preview(), memorySource: FakeMemorySource(), releaseGrace: 30,
+                                               visibility: { visible }, periodicTasks: periodic)
+        coordinator.evaluateVisibility()
+        #expect(periodic.windowsVisible)
+        visible = false
+        coordinator.evaluateVisibility()
+        #expect(!periodic.windowsVisible)                                    // one source of "visible": no second window scan
+    }
+
+    // MARK: Workspace windows (P1: an open Settings window is not a visible workspace)
+
+    @Test func onlyRegisteredWorkspaceWindowsCount() {
+        let workspace = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        workspace.isReleasedWhenClosed = false; settings.isReleasedWhenClosed = false
+        var seen: [NSWindow] = []
+        WorkspaceWindows.observe { if $0 === workspace { seen.append($0) } }
+        WorkspaceWindows.register(workspace)
+        WorkspaceWindows.register(workspace)                                   // idempotent
+        #expect(WorkspaceWindows.contains(workspace) && !WorkspaceWindows.contains(settings))
+        #expect(WorkspaceWindows.all.filter { $0 === workspace }.count == 1)
+        #expect(seen.count == 1)
+        var replayed = 0
+        WorkspaceWindows.observe { if $0 === workspace { replayed += 1 } }   // a late observer sees the windows already registered
+        #expect(replayed == 1)
+        // The visibility rule only ever sees registered windows: Settings is not among them, whatever its state.
+        #expect(!WorkspaceWindows.all.contains { $0 === settings })
+    }
+
+    @Test func aReleasedWorkspaceWindowDropsOut() {
+        weak var gone: NSWindow?
+        autoreleasepool {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+            w.isReleasedWhenClosed = false
+            WorkspaceWindows.register(w)
+            gone = w
+        }
+        // Held weakly: once AppKit lets the window go, it is no longer listed (AppKit may keep it alive a little longer).
+        if gone == nil { #expect(!WorkspaceWindows.all.contains { $0 === gone }) }
+    }
+
+    // MARK: Log follow off the SwiftUI path (P1)
+
+    private func logsModel() throws -> LogsModel {
+        let registry = ClusterRegistry.preview()
+        let cluster = try #require(registry.clusters.first)
+        let session = try #require(registry.session(for: cluster.id))
+        return LogsModel(pod: ResourceRef(clusterID: cluster.id, kind: .pod, namespace: "shop", name: "chatter"), container: nil,
+                         previous: false, session: session)
+    }
+
+    /// Polls `condition` on the main actor until it holds or `timeout` passes (the stream flush and the table coalescing are timers,
+    /// slower under Low Power Mode or thermal pressure).
+    private func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now >= deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
+    @Test func theMacTableFollowsTheModelWithoutSwiftUI() async throws {
+        let model = try logsModel()
+        let v = logs()
+        v.track(model)
+        model.startStreamSync()
+        for i in 0..<50 { model.stream.appendMarker("line \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 50 })
+        #expect(model.visible.count == 50 && v.isAtBottom)
+        v.teardown()
+        model.stream.appendMarker("after teardown")
+        #expect(try await eventually { model.visible.count == 51 })
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(v.displayedLineCount == 50)                                   // no longer following
+        model.stopStreamSync()
+        model.stream.appendMarker("after stop")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(model.visible.count == 51)                                    // the model stopped syncing itself
+    }
+
+    @Test func newLinesDoNotSnapBackAfterTheUserScrolledAway() async throws {
+        let model = try logsModel()
+        let v = logs(height: 300)
+        v.track(model)
+        model.startStreamSync()
+        for i in 0..<100 { model.stream.appendMarker("line \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 100 && v.isAtBottom })
+        // A user scroll sets the model's follow to false before SwiftUI passes it on: the next lines must not scroll to the end.
+        model.userScrolledAway()
+        for i in 0..<200 { model.stream.appendMarker("more \(i)") }
+        #expect(try await eventually { v.displayedLineCount == 300 })
+        #expect(!v.isAtBottom)
+        model.stopStreamSync()
+    }
+
+    @Test func theTableFollowsOnlyTheModelItWasLastGiven() async throws {
+        let a = try logsModel(), b = try logsModel()
+        let v = logs()
+        a.startStreamSync(); b.startStreamSync()
+        v.track(a)
+        a.stream.appendMarker("a0")
+        #expect(try await eventually { v.displayedLineCount == 1 })
+        v.track(b)
+        for i in 0..<3 { b.stream.appendMarker("b\(i)") }
+        #expect(try await eventually { v.displayedLineCount == 3 })
+        for i in 0..<5 { a.stream.appendMarker("a\(i + 1)") }
+        #expect(try await eventually { a.visible.count == 6 })
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(v.displayedLineCount == 3)                                    // the old model's lines never reach the table
+        a.stopStreamSync(); b.stopStreamSync()
+    }
+
+    @Test func theStreamSyncLastsWhileAnyScreenHoldsIt() async throws {
+        let model = try logsModel()
+        model.startStreamSync()                                               // the new screen appears ...
+        model.startStreamSync()
+        model.stopStreamSync()                                                // ... before the old one goes
+        model.stream.appendMarker("still synced")
+        #expect(try await eventually { model.visible.count == 1 })
+        model.stopStreamSync()
+        model.stopStreamSync()                                                // an extra stop is harmless
+        model.stream.appendMarker("not synced")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(model.visible.count == 1)
+    }
+
+    @Test func hasLinesChangesOnlyBetweenEmptyAndNotEmpty() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        model.stream.appendMarker("first")
+        #expect(try await eventually { model.hasLines })
+        let fired = Fired()
+        withObservationTracking { _ = model.hasLines; _ = model.statusDroppedCount } onChange: { fired.hit() }
+        for i in 0..<10 { model.stream.appendMarker("more \(i)") }
+        #expect(try await eventually { model.visible.count == 11 })
+        #expect(fired.count == 0)                                             // a flush of new lines does not touch them
+        model.clear()
+        #expect(!model.hasLines && model.statusLineCount == 0)                 // a reset shows at once
+        #expect(fired.count == 1)
+        model.stopStreamSync()
+    }
+
+    @Test func statusCountsFollowAtMostOncePerSecondWithATrailingUpdate() async throws {
+        let model = try logsModel()
+        model.startStreamSync()
+        for i in 0..<10 { model.stream.appendMarker("a \(i)") }
+        #expect(try await eventually { model.statusLineCount == 10 })        // the first change shows at once
+        for i in 0..<5 { model.stream.appendMarker("b \(i)") }
+        #expect(try await eventually { model.visible.count == 15 })
+        let shownAt = ContinuousClock.now
+        if model.statusLineCount == 10 {
+            // Held back inside the second, then the trailing update lands.
+            #expect(try await eventually { model.statusLineCount == 15 })
+            #expect(ContinuousClock.now - shownAt <= .milliseconds(1_300))
+        }
+        #expect(model.statusLineCount == 15)
+        model.stopStreamSync()
+    }
+
+    private final class Fired: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var count: Int { lock.withLock { n } }
+        func hit() { lock.withLock { n += 1 } }
+    }
+
+    // MARK: Performance scenarios (P1)
+
+    @Test func aSavedPerfClusterIsRefreshedOnlyWhenTheContextChanged() throws {
+        let saved = ClusterConfig(name: "wh-perf-01", server: try #require(URL(string: "https://127.0.0.1:60561")), authKind: .clientCertificate,
+                                  environment: .development, defaultNamespace: "wh-perf")
+        let secrets = ClusterSecrets(clientCertificatePEM: "cert", clientKeyPEM: "key", caPEM: "ca")
+        var same = saved
+        same.id = UUID().uuidString                                            // a freshly made config has its own id and dates
+        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, secrets)) == nil)
+        var moved = same
+        moved.server = try #require(URL(string: "https://127.0.0.1:52192"))
+        let refresh = try #require(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (moved, secrets)))
+        #expect(refresh.config.id == saved.id && refresh.config.server == moved.server)
+        let newCA = ClusterSecrets(clientCertificatePEM: "cert", clientKeyPEM: "key", caPEM: "other-ca")
+        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newCA))?.secrets == newCA)
+        let newUser = ClusterSecrets(clientCertificatePEM: "other-cert", clientKeyPEM: "other-key", caPEM: "ca")
+        #expect(PerfScenarioRunner.refreshed(saved, secrets: secrets, from: (same, newUser)) != nil)
+    }
+
+    @Test func keepVisibleIsOnlyForScenariosThatKeepTheirWindow() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "perf-scenarios-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(#"{"name":"idle-1","clusters":3,"windows":1,"tabs":1}"#.utf8).write(to: dir.appending(path: "idle-1.json"))
+        try Data(#"{"name":"soak-5","clusters":5,"windows":2,"tabs":2,"cycleSeconds":120}"#.utf8).write(to: dir.appending(path: "soak-5.json"))
+        let info: [String: Any] = ["WHPerfScenarioDirectory": dir.path]
+        let gate = DevSafetyPolicy(isActive: true)
+        let keep = ["app", "-WHPerfScenario", "idle-1", "-WHPerfKeepVisible"]
+        #expect(PerfScenario.requested(arguments: keep, gate: gate, info: info)?.keepsWindowVisible == true)
+        #expect(PerfScenario.requested(arguments: keep + ["-WHPerfHideAfter", "5"], gate: gate, info: info)?.keepsWindowVisible == false)
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1"], gate: gate, info: info)?.keepsWindowVisible == false)
+        #expect(PerfScenario.requested(arguments: keep, gate: DevSafetyPolicy(isActive: false), info: info) == nil)
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "soak-5"], gate: gate, info: info)?.cycleSeconds == 120)
+    }
 }

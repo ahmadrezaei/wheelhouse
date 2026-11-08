@@ -21,6 +21,16 @@ struct PerfScenario: Codable, Equatable {
     var hideWindowsAfterSeconds: Double?
     /// `close` (default) or `minimise`.
     var windowAction: String?
+    /// Soak runs: seconds between navigation cycles (default 300). `scripts/perf-sample.sh` reads the same field to measure growth
+    /// over whole cycles.
+    var cycleSeconds: Double?
+    /// `-WHPerfKeepVisible`: the workspace window floats on every Space, so a visible scenario measures a window that is really on
+    /// screen even while another app is full screen or in front (the sampler checks it). Not part of the fixture file.
+    var keepsWindowVisible = false
+
+    private enum CodingKeys: String, CodingKey {
+        case name, description, clusters, windows, tabs, panes, hideWindowsAfterSeconds, windowAction, cycleSeconds
+    }
 
     var minimises: Bool { windowAction == "minimise" }
 
@@ -40,6 +50,7 @@ struct PerfScenario: Codable, Equatable {
         if let i = arguments.firstIndex(of: "-WHPerfHideAfter"), arguments.indices.contains(i + 1), let s = Double(arguments[i + 1]) {
             scenario.hideWindowsAfterSeconds = s
         }
+        scenario.keepsWindowVisible = arguments.contains("-WHPerfKeepVisible") && scenario.hideWindowsAfterSeconds == nil
         return scenario
     }
 }
@@ -54,6 +65,15 @@ struct PerfScenario: Codable, Equatable {
 enum PerfScenarioRunner {
     private(set) static var keepsRunningWithoutWindows = false
     private static var cycle: PeriodicTask?
+
+    /// Before the first window exists (`applicationWillFinishLaunching`): a run that keeps its window visible starts as an accessory
+    /// app (only an accessory app's window may join another app's full-screen Space) and floats each workspace window as it appears.
+    static func prepare(_ scenario: PerfScenario) {
+        guard scenario.keepsWindowVisible else { return }
+        NSApp.setActivationPolicy(.accessory)
+        // Registration happens inside `viewDidMoveToWindow`, while SwiftUI is still ordering the window in: float it afterwards.
+        WorkspaceWindows.observe { window in DispatchQueue.main.async { keepVisible(window) } }
+    }
 
     static func start(_ scenario: PerfScenario, environment env: MacAppEnvironment?) {
         if let env { applyLayout(scenario, env: env) }
@@ -70,6 +90,18 @@ enum PerfScenarioRunner {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
+    }
+
+    /// Floats a workspace window above other apps on every Space (performance runs only, `-WHPerfKeepVisible`), without activating
+    /// the app or taking the keyboard. Ordered out and in again, so the window server re-homes it with the new behaviour.
+    static func keepVisible(_ window: NSWindow) {
+        var behavior = window.collectionBehavior
+        behavior.remove([.moveToActiveSpace, .fullScreenPrimary, .fullScreenNone])
+        behavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
+        window.collectionBehavior = behavior
+        window.level = .floating
+        window.orderOut(nil)
+        window.orderFrontRegardless()
     }
 
     // MARK: Layout
@@ -92,8 +124,17 @@ enum PerfScenarioRunner {
         let wanted = kc.contexts.filter { $0.name.hasPrefix("wh-perf-") }.sorted { $0.name < $1.name }.prefix(scenario.clusters)
         var ids: [String: ClusterID] = [:]
         for ctx in wanted where policy.blockedReason(for: ctx) == nil {
-            if let existing = registry.clusters.first(where: { $0.name == ctx.name }) { ids[ctx.name] = existing.id; continue }
             guard var made = ctx.makeClusterConfig() else { continue }
+            // Reuse a cluster of the same name. A Moorings cluster (read from the same explicit file) follows the file by itself. A Keychain
+            // cluster saved by an earlier run is first brought in line with the file: a test cluster restarted on a new port, CA or user
+            // would otherwise leave every run measuring dead connections.
+            if let existing = registry.clusters.first(where: { $0.name == ctx.name }) {
+                ids[ctx.name] = existing.id
+                if existing.origin == nil, let refresh = refreshed(existing, secrets: registry.secrets(for: existing.id), from: made) {
+                    try? registry.update(refresh.config, secrets: refresh.secrets)
+                }
+                continue
+            }
             made.config.environment = .development
             made.config.readOnly = true
             made.config.iCloudSync = false
@@ -104,7 +145,22 @@ enum PerfScenarioRunner {
         registry.select(first)
         env.sidebar.focus(cluster: first)
         for pane in scenario.panes ?? [] { apply(pane: pane, ids: ids, env: env) }
-        if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env) }
+        if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
+    }
+
+    /// The saved cluster updated to the context's server, TLS settings and credentials, or nil when it already matches them.
+    static func refreshed(_ existing: ClusterConfig, secrets: ClusterSecrets, from made: (config: ClusterConfig, secrets: ClusterSecrets))
+        -> (config: ClusterConfig, secrets: ClusterSecrets)? {
+        var config = existing
+        config.server = made.config.server
+        config.authKind = made.config.authKind
+        config.skipTLSVerify = made.config.skipTLSVerify
+        config.tlsServerName = made.config.tlsServerName
+        // Compare the credential fields only (unknown keys a newer build wrote are not part of the context).
+        let current = ClusterSecrets(token: secrets.token, clientCertificatePEM: secrets.clientCertificatePEM,
+                                     clientKeyPEM: secrets.clientKeyPEM, caPEM: secrets.caPEM)
+        guard config != existing || current != made.secrets else { return nil }
+        return (config, made.secrets)
     }
 
     /// One pane description of a scenario, as far as M1b can show it. Later panes replace earlier ones (one window, one screen).
@@ -129,9 +185,9 @@ enum PerfScenarioRunner {
 
     /// Soak runs: every 5 minutes the content column visits the ConfigMaps (2,000 rows), Deployments and Pods lists and returns,
     /// so stores are released and re-acquired and the tables rebuilt, exactly the churn the soak budgets are about.
-    private static func startCycle(ids: [String: ClusterID], env: MacAppEnvironment) {
+    private static func startCycle(ids: [String: ClusterID], env: MacAppEnvironment, cycleSeconds: TimeInterval) {
         guard cycle == nil, let id = ids.sorted(by: { $0.key < $1.key }).first?.value else { return }
-        let t = PeriodicTask(name: "perf.cycle", interval: 300, hiddenInterval: nil) {
+        let t = PeriodicTask(name: "perf.cycle", interval: cycleSeconds, hiddenInterval: nil, tolerance: 1) {
             await MainActor.run {
                 let start = env.navigation.selection
                 Task { @MainActor in
