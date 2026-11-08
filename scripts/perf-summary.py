@@ -13,7 +13,9 @@ footprint is a sawtooth of 15-20 MB; "last minute minus minute 10" landed on a h
 same build in M1b). Instead: the LOW of the window that starts at minute 10 and the low of the window that ends at the last sample,
 each window spanning `1.1 x cycleSeconds + one sample interval` (the cycle runs on a timer with up to 1 s tolerance and the minute
 samples drift by a second or two), so each window contains at least one sample from the released phase of a cycle. Steady state is
-the same low at both ends; a leak raises the later lows. Informational next to it: the least-squares slope of every sample from minute
+the same low at both ends; a leak raises the later lows. The two lows lie closer together than minute 10 and the last sample (about
+42 of 50 minutes), so the difference is scaled to the whole span: growth = (last low - first low) x span / (time between the lows).
+Without that, a steady leak of 17 MB per 50 minutes measured under the 15 MB budget. Informational next to it: the least-squares slope of every sample from minute
 10 on (MB per hour, `footprintSlopeMBPerHour`), and the old definition (`footprintLastMinusMin10MB`) for comparison with older
 baselines.
 """
@@ -31,7 +33,8 @@ def window_seconds(cycle_seconds, interval_seconds=60.0):
 
 
 def soak_growth(samples, cycle_seconds):
-    """samples: [(t_seconds, footprint_mb)] in time order. Returns (growth, first_low, last_low) or None when too short."""
+    """samples: [(t_seconds, footprint_mb)] in time order. Returns (growth over the span from minute 10 to the last sample, first_low,
+    last_low) or None when too short."""
     if not samples:
         return None
     start = next((i for i, (t, _) in enumerate(samples) if t >= samples[0][0] + SOAK_START_MINUTE * 60 - 1), None)
@@ -42,9 +45,12 @@ def soak_growth(samples, cycle_seconds):
     t_end = samples[-1][0]
     if t_end - t0 < 2 * w:                       # the two windows must not overlap
         return None
-    first = [mb for t, mb in samples[start:] if t <= t0 + w]
-    last = [mb for t, mb in samples if t >= t_end - w]
-    return round(min(last) - min(first), 1), min(first), min(last)
+    first = [(mb, t) for t, mb in samples[start:] if t <= t0 + w]
+    last = [(mb, t) for t, mb in samples if t >= t_end - w]
+    (low1, t1), (low2, t2) = min(first), min(last)          # lowest footprint, earliest sample on a tie
+    if t2 <= t1:
+        return None
+    return round((low2 - low1) * (t_end - t0) / (t2 - t1), 1), low1, low2
 
 
 def slope_mb_per_hour(samples):
@@ -155,8 +161,16 @@ def self_test():
         worst_flat = max(worst_flat, abs(g[0]))
     assert worst_flat <= 1.0, f"a flat sawtooth measured {worst_flat} MB"
     for phase in range(0, 300, 20):
-        g = soak_growth(run(phase, 30.0), 300)[0]          # 30 MB/h over the ~45 min between the windows
-        assert 15.0 <= g <= 30.0, f"a 30 MB/h leak measured {g} MB at phase {phase}"
+        g = soak_growth(run(phase, 30.0), 300)[0]          # 30 MB/h over the 50 measured minutes: 25 MB
+        assert 23.0 <= g <= 27.5, f"a 30 MB/h leak measured {g} MB at phase {phase}"
+    # A pure linear leak of 15 MB between minute 10 and minute 60 measures 15 MB (no sawtooth, no drift).
+    linear = [(m * 60.0, 120.0 + 15.0 * (m - 10) / 50.0) for m in range(61)]
+    g = soak_growth(linear, 300)[0]
+    assert abs(g - 15.0) <= 0.5, f"a linear 15 MB leak measured {g} MB"
+    # The same leak under the sawtooth, at every phase: within the 15 MB budget's resolution.
+    for phase in range(0, 300, 20):
+        g = soak_growth(run(phase, 18.0, drift_s=0.0, minutes=61), 300)[0]
+        assert 13.0 <= g <= 17.0, f"an 18 MB/h leak under the sawtooth measured {g} MB at phase {phase}"
     assert soak_growth(run(0, 0.0, minutes=15), 300) is None, "a 15-minute run is too short for two whole-cycle windows"
     s = slope_mb_per_hour(run(0, 30.0))
     assert s is not None and 20 <= s <= 40, f"slope {s}"

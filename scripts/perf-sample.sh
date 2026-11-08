@@ -136,7 +136,9 @@ cleanup() {
 trap cleanup EXIT
 caffeinate -dis -w "$PID" & CAF_PID=$!
 
-# ESTABLISHED TCP connections from the app to any server of the perf kubeconfig.
+# ESTABLISHED TCP connections from the app to any server of the perf kubeconfig. lsof -nP prints numeric addresses, so this matches
+# only servers given as an IP address (the minikube test cluster is https://127.0.0.1:<port>); a host name would never match and
+# the run would be reported as not connected.
 established() {
   local n=0 s
   local out; out="$(lsof -nP -a -p "$PID" -iTCP -sTCP:ESTABLISHED 2>/dev/null || true)"

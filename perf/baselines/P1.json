@@ -79,7 +79,7 @@
     "idleWakeupsPerSec": 2.282,
     "energyImpact": 4.517,
     "threads": 8,
-    "footprintGrowthMB": 2.0,
+    "footprintGrowthMB": 2.6,
     "footprintFirstLowMB": 115.0,
     "footprintLastLowMB": 117.0,
     "footprintSlopeMBPerHour": 10.57,
@@ -110,7 +110,8 @@
       "threadsOverBaseline": 1,
       "fdsOverBaseline": 2
     },
-    "buildNote": "Recorded on f8c34c3. The later fixes (appendOnly prefix check, untracked read of the model's lines, reload on a source switch) touch only the matching-lines toggle, settings changes and a screen switching pods, none of which the soak exercises."
+    "buildNote": "Recorded on f8c34c3. The later changes (appendOnly prefix check, untracked read of the model lines, reload on a source switch, dead state removed, the jump to the oldest line limited to front trims, constant minimums limited to resource lists and the log screen) do not change what a followed log does per update: the soak follows one pod with follow on, never switches source, toggles matching lines or trims while scrolled away, and its screens (Pods list, log screen) keep the constant minimum.",
+    "growthNote": "footprintGrowthMB re-summarised from the same CSV with the final metric (lows 115 -> 117 MB scaled from the time between the lows to the 50 minutes from minute 10: +2.6 MB; +2.0 unscaled). The first run measures -1.0 MB either way."
   },
   "date": "2026-11-08",
   "environment": {
