@@ -16,6 +16,8 @@ final class MacAppEnvironment {
     let macPreferences: MacPreferences
     let lock: MacLockCoordinator
     let importer: MacImportCoordinator
+    /// Kubeconfig discovery, exec credentials and the client factory (M3).
+    let moorings: MooringsController
     let energy: MacEnergyCoordinator
     let alerts: MacAlertMonitor
     let sidebar: SidebarModel
@@ -36,13 +38,14 @@ final class MacAppEnvironment {
     /// Routes to open once the window exists (performance scenarios, launch hooks).
     var launchRoutes: [Route] = []
 
-    init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator,
+    init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
          paths: AppPaths, safetySummary: String, gateActive: Bool) {
         self.registry = registry
         self.preferences = preferences
         self.macPreferences = macPreferences
         self.lock = lock
         self.importer = importer
+        self.moorings = moorings
         self.paths = paths
         self.safetySummary = safetySummary
         self.gateActive = gateActive
@@ -51,23 +54,11 @@ final class MacAppEnvironment {
         self.sidebar = SidebarModel(provider: RegistrySidebarProvider(registry: registry))
     }
 
-    /// Every client is built through this: while the gate is active a server that is not an allowed test host is pointed at a
-    /// reserved name that never resolves (`*.invalid`), so it can only fail. M3's `DesktopClientFactory` replaces it.
-    /// `gate` is evaluated on EVERY call, not captured: the allowed hosts are configured after launch, and a factory that captured the
-    /// gate during `App.init` would rewrite every server to the blocked name for good.
-    nonisolated static func guardedClientFactory(gate: @escaping @Sendable () -> DevSafetyPolicy = { .current },
-                                                 base: @escaping ClusterRegistry.ClientFactory = ClusterRegistry.defaultClientFactory) -> ClusterRegistry.ClientFactory {
-        return { config, secrets in base(gatedConfig(config, gate: gate()), secrets) }
-    }
-
-    /// The config a client is built from: unchanged for Demo clusters, allowed hosts and an inactive gate; otherwise the server is
-    /// replaced by a name that can never resolve.
-    nonisolated static func gatedConfig(_ config: ClusterConfig, gate: DevSafetyPolicy) -> ClusterConfig {
-        guard gate.isActive, !config.isDemo, !gate.isAllowed(server: config.server) else { return config }
-        var blocked = config
-        blocked.server = URL(string: "https://blocked-in-development.invalid")!
-        return blocked
-    }
+    /// Every client is built through this: `DesktopClientFactory`. While the gate is active a server that is not an allowed test host
+    /// gets a client that refuses every call (no request is made); exec and token-file clusters get their token from their provider.
+    /// The factory reads the gate on EVERY call, never a copy: the allowed hosts are configured after launch, and a factory that kept the
+    /// gate it saw during `App.init` would block the test cluster for good.
+    var clientFactory: ClusterRegistry.ClientFactory { moorings.clientFactory }
 
     /// Builds the environment. This runs in `App.init` on the main thread: it does NO file read of the test kubeconfig and NO Security
     /// call (the code-signature check and the kubeconfig read happen in `start(reader:)` on a utility queue after launch).
@@ -98,9 +89,18 @@ final class MacAppEnvironment {
 
         // Real clusters live in the Debug keychain group (credentials) and a JSON file under the isolated app-support folder
         // (list). The iCloud mirror is used only when the gate is off (Distribution).
-        let metadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: !gateActive)
-        let registry = ClusterRegistry(credentials: KeychainCredentialStore(), metadata: metadata, defaults: defaults,
-                                       clientFactory: guardedClientFactory())
+        let keychainMetadata = ClusterMetadataStore(directory: paths.root, useKeychainMirror: !gateActive)
+        // Moorings sits on top of the Keychain stores: discovered contexts are listed next to the Keychain clusters and never written to
+        // the Keychain or the iCloud mirror. While the gate is active the shell sees only the test kubeconfig (never ~/.kube) and a
+        // private kubectl cache; exec plugins get an environment without KUBECONFIG at all.
+        let shell = ShellEnvironment(gate: .current, explicitTestKubeconfig: testFile,
+                                     kubeCacheDir: paths.root.appending(path: "kubectl-cache", directoryHint: .isDirectory))
+        let moorings = MooringsController(paths: paths, explicitTestKubeconfig: testFile, keychainMetadata: keychainMetadata,
+                                          keychainCredentials: KeychainCredentialStore(), shell: shell)
+        let registry = ClusterRegistry(credentials: moorings.credentials, metadata: moorings.metadata, defaults: defaults,
+                                       clientFactory: moorings.clientFactory)
+        moorings.registry = registry
+        MooringsController.shared = moorings
         // `-WHResetState` (development builds only): start from an empty cluster list, as UI tests need.
         if gateActive, ProcessInfo.processInfo.arguments.contains("-WHResetState") {
             for c in registry.clusters where !c.isDemo { try? registry.remove(id: c.id) }
@@ -111,7 +111,7 @@ final class MacAppEnvironment {
 
         let lock = MacLockCoordinator(locked: preferences.appLockEnabled)
         let env = MacAppEnvironment(registry: registry, preferences: preferences, macPreferences: macPreferences, lock: lock,
-                                    importer: MacImportCoordinator(), paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive)
+                                    importer: MacImportCoordinator(moorings: moorings.service), moorings: moorings, paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive)
         env.testKubeconfig = testFile
         env.reader = reader
         env.hostsState = testFile == nil ? .notConfigured : .pending
@@ -169,6 +169,8 @@ final class MacAppEnvironment {
         lock.start(preferences: preferences, macPreferences: macPreferences)
         energy.start()
         alerts.start()
+        // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
+        whenReady { [moorings] in Task { await moorings.start() } }
         // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
         if badgeTask == nil {
             let sidebar = sidebar

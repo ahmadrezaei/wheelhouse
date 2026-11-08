@@ -45,7 +45,8 @@ private struct LockableSettings: View {
         let locked = env.lock.isLocked
         ZStack {
             MacSettingsView()
-                .environment(\.clusterClientFactory, MacAppEnvironment.guardedClientFactory())
+                .environment(\.clusterClientFactory, env.clientFactory)
+                .environment(\.clusterChangeAllowing, env.moorings.service)
                 .disabled(locked)
                 .accessibilityHidden(locked)
             if locked {

@@ -56,15 +56,22 @@ struct MacAppSafetyTests {
         env.registry.exitDemoMode()
     }
 
-    @Test func aClientForAHostThatIsNotAllowedIsPointedAtAnUnresolvableName() {
+    @MainActor @Test func aClientForAHostThatIsNotAllowedIsRefusedAndNeverMakesARequest() async {
         let gate = DevSafetyPolicy(isActive: true, allowedHosts: ["127.0.0.1"])
+        let factory = LaunchPathTests.desktopFactory(gate: { gate })
         let real = ClusterConfig(name: "prod", server: URL(string: "https://api.prod.corp.example.com")!, environment: .production)
-        #expect(MacAppEnvironment.gatedConfig(real, gate: gate).server.host() == "blocked-in-development.invalid")
+        let blocked = factory.make(config: real, secrets: ClusterSecrets(token: "x"))
+        #expect(blocked is RefusedKubeClient)
+        await #expect(throws: KubeError.self) { _ = try await blocked.version() }
         let allowed = ClusterConfig(name: "test", server: URL(string: "https://127.0.0.1:6443")!, environment: .development)
-        #expect(MacAppEnvironment.gatedConfig(allowed, gate: gate) == allowed)
+        #expect(factory.make(config: allowed, secrets: ClusterSecrets(token: "x")) is LiveKubeClient)
         let demo = ClusterConfig(name: "demo", server: URL(string: "https://demo.example.com")!, isDemo: true)
-        #expect(MacAppEnvironment.gatedConfig(demo, gate: gate) == demo)
-        // An inactive gate (Distribution) leaves everything alone.
-        #expect(MacAppEnvironment.gatedConfig(real, gate: DevSafetyPolicy(isActive: false)) == real)
+        #expect(!(factory.make(config: demo, secrets: ClusterSecrets()) is RefusedKubeClient))
+    }
+
+    @MainActor @Test func anInactiveGateLeavesEverythingAlone() {
+        let factory = LaunchPathTests.desktopFactory(gate: { DevSafetyPolicy(isActive: false) })
+        let real = ClusterConfig(name: "prod", server: URL(string: "https://api.prod.corp.example.com")!, environment: .production)
+        #expect(factory.make(config: real, secrets: ClusterSecrets(token: "x")) is LiveKubeClient)
     }
 }

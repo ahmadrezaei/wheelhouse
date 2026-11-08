@@ -14,13 +14,16 @@ private struct Rig {
     let clock: Clock
     let activity = InMemoryActivityLog()
 
+    static let rerunPause = ExecCredentialBroker.reRunInterval + 1
+
     final class Clock: @unchecked Sendable {
         private let t = Mutex(Date())
         var now: Date { t.withLock { $0 } }
         func advance(_ seconds: TimeInterval) { t.withLock { $0 = $0.addingTimeInterval(seconds) } }
     }
 
-    init(limiter: ExecConcurrencyLimiter = ExecConcurrencyLimiter(limit: 3), timeout: Duration = .seconds(20), gate: DevSafetyPolicy? = nil) throws {
+    init(limiter: ExecConcurrencyLimiter = ExecConcurrencyLimiter(limit: 3), timeout: Duration = .seconds(20), gate: DevSafetyPolicy? = nil,
+         gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil) throws {
         let s = try Scratch()
         scratch = s
         plugin = try s.installPlugin()
@@ -32,7 +35,7 @@ private struct Rig {
         let locator = ExecutableLocator(searchPath: ["/usr/bin", "/bin"])
         let builder = EnvironmentBuilder(snapshot: snapshot, paths: AppPaths(gateActive: true, bundleID: "x.debug", home: s.root), home: s.root)
         broker = ExecCredentialBroker(locator: { locator }, environment: { builder }, limiter: limiter, activity: activity,
-                                      gate: gate ?? openGate(home: s.root), timeout: timeout, now: { clock.now })
+                                      gate: gateProvider == nil ? (gate ?? openGate(home: s.root)) : nil, gateProvider: gateProvider, timeout: timeout, now: { clock.now })
     }
 
     func spec(mode: String = "token", env: [String: String] = [:], version: String? = "client.authentication.k8s.io/v1", provideClusterInfo: Bool = false,
@@ -377,6 +380,20 @@ struct ExecCredentialProviderTests {
         #expect(r.runs == 0)
         #expect(try await r.provider(r.spec(), server: "https://allowed.example.test:6443").authorization() == "tok-1")
         #expect(try await r.provider(r.spec(), server: "https://fixture.test:6443").authorization() != nil)   // reserved fixture names are allowed
+    }
+
+    @Test func thePluginGateIsReadOnEveryRunNotWhenTheBrokerIsBuilt() async throws {
+        // The broker is built at launch, before the allowed hosts exist; a plugin for the test cluster must run once they are known.
+        let s = try Scratch(); defer { s.cleanup() }
+        let hosts = Mutex<Set<String>>([])
+        let home = s.root
+        let r = try Rig(gateProvider: { activeGate(home: home, hosts: hosts.withLock { $0 }) }); defer { r.scratch.cleanup() }
+        let p = r.provider(r.spec(), server: "https://allowed.example.com:6443")
+        await #expect(throws: ExecCredentialError.self) { _ = try await p.authorization() }
+        #expect(r.runs == 0)
+        hosts.withLock { $0 = ["allowed.example.com"] }
+        r.clock.advance(Rig.rerunPause)                       // a failed run is not repeated within the re-run interval
+        #expect(try await p.authorization() == "tok-1")
     }
 
     @Test func nothingIsWrittenToDiskExceptThePluginsOwnFiles() async throws {

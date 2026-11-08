@@ -59,7 +59,12 @@ public struct FirstRunChoice: Sendable, Equatable {
 }
 
 public struct MooringsConfiguration: Sendable {
-    public var gate: DevSafetyPolicy
+    /// Read on every use (the allowed hosts are configured after launch).
+    public var gateProvider: @Sendable () -> DevSafetyPolicy
+    public var gate: DevSafetyPolicy {
+        get { gateProvider() }
+        set { gateProvider = { newValue } }
+    }
     public var home: URL
     public var explicitTestKubeconfig: URL?
     /// `KUBECONFIG` from the shell snapshot (already sanitised by the gate in `ShellEnvironment`).
@@ -69,11 +74,11 @@ public struct MooringsConfiguration: Sendable {
     /// Where the safety rescan registers (tests use their own).
     public var registry: PeriodicTaskRegistry
 
-    public init(gate: DevSafetyPolicy = .current, home: URL = DevSafetyPolicy.accountHome,
+    public init(gate fixedGate: DevSafetyPolicy? = nil, gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil, home: URL = DevSafetyPolicy.accountHome,
                 explicitTestKubeconfig: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
                 shellKubeconfig: @escaping @Sendable () async -> String? = { nil }, safetyRescanInterval: TimeInterval = 600,
                 registry: PeriodicTaskRegistry = .shared) {
-        self.gate = gate
+        self.gateProvider = DevSafetyPolicy.provider(fixed: fixedGate, provider: gateProvider)
         self.home = home
         self.explicitTestKubeconfig = explicitTestKubeconfig
         self.shellKubeconfig = shellKubeconfig
@@ -87,7 +92,7 @@ public struct MooringsConfiguration: Sendable {
 /// - Sources: while the gate is active the ONLY source is the explicit test file (plus user files that are not under `~/.kube`).
 /// - Watching is FSEvents only; the 10-minute safety rescan is a `PeriodicTask` that stops while no window is visible.
 /// - A context found later that is suggested as Production is NOT probed until the user clicks Check.
-public actor MooringsService: MooringsSourceAdding {
+public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public nonisolated let state: MooringsState
     private let config: MooringsConfiguration
     private let loader: KubeconfigLoader
@@ -416,6 +421,9 @@ public actor MooringsService: MooringsSourceAdding {
     public func deferFirstRun() {}
 
     // MARK: Allow changes, opening, removal
+
+    /// Only an added (imported or adopted) context is managed here; a Keychain cluster saves directly.
+    public nonisolated func managesChanges(for id: ClusterID) -> Bool { state.overrides.override(for: id)?.added == true }
 
     /// Leaves read-only. Needs an explicitly chosen environment, and Touch ID or the password for Production and Production-suggested.
     public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {

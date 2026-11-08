@@ -9,6 +9,7 @@ struct AddClusterView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
     @Environment(\.clusterClientFactory) private var clientFactory
+    @Environment(\.clusterChangeAllowing) private var changeAllowing
     @Environment(\.dismiss) private var dismiss
 
     private let editingID: ClusterID?
@@ -250,6 +251,23 @@ struct AddClusterView: View {
     private func save() {
         guard let config = draft.makeConfig() else { return }
         if config.violatesHTTPProductionRule { saveError = ClusterDraft.Problem.httpNotAllowedForProduction.message; return }
+        // A discovered or imported cluster leaves read-only only through Moorings (explicit environment, owner check for Production).
+        if let allowing = changeAllowing, let id = editingID, allowing.managesChanges(for: id), !config.readOnly,
+           registry.clusters.first(where: { $0.id == id })?.readOnly == true {
+            Task {
+                do {
+                    try await allowing.allowChanges(id: id, environment: config.environment)
+                    persist(config)
+                } catch {
+                    saveError = error.localizedDescription
+                }
+            }
+            return
+        }
+        persist(config)
+    }
+
+    private func persist(_ config: ClusterConfig) {
         let isFirstRealCluster = !isEditing && (registry.isDemoMode || registry.clusters.isEmpty)
         do {
             let existing = existingSecrets()

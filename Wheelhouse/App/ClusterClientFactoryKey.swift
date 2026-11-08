@@ -14,3 +14,15 @@ extension EnvironmentValues {
         set { self[ClusterClientFactoryKey.self] = newValue }
     }
 }
+
+/// The seam through which Cluster Settings turns read-only off for a cluster that Moorings manages. nil (iOS) saves directly.
+private struct ClusterChangeAllowingKey: EnvironmentKey {
+    static let defaultValue: (any ClusterChangeAllowing)? = nil
+}
+
+extension EnvironmentValues {
+    var clusterChangeAllowing: (any ClusterChangeAllowing)? {
+        get { self[ClusterChangeAllowingKey.self] }
+        set { self[ClusterChangeAllowingKey.self] = newValue }
+    }
+}

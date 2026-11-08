@@ -43,17 +43,19 @@ public final class DesktopClientFactory: Sendable {
     private let state: MooringsState
     private let settings: MacClusterSettingsStore
     private let broker: ExecCredentialBroker
-    private let gate: DevSafetyPolicy
+    /// Read on every use, never copied: the registry builds its factory in `App.init`, before the allowed test hosts exist.
+    private let gate: @Sendable () -> DevSafetyPolicy
     private let onCertificateRotation: @Sendable (ClusterID) -> Void
 
     /// `onCertificateRotation` runs when an exec plugin rotates a client certificate; the app then rebuilds the client
     /// (`ClusterEvents.postInvalidated`).
-    public init(state: MooringsState, settings: MacClusterSettingsStore, broker: ExecCredentialBroker, gate: DevSafetyPolicy = .current,
+    public init(state: MooringsState, settings: MacClusterSettingsStore, broker: ExecCredentialBroker, gate fixedGate: DevSafetyPolicy? = nil,
+                gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil,
                 onCertificateRotation: @escaping @Sendable (ClusterID) -> Void = { _ in }) {
         self.state = state
         self.settings = settings
         self.broker = broker
-        self.gate = gate
+        self.gate = DevSafetyPolicy.provider(fixed: fixedGate, provider: gateProvider)
         self.onCertificateRotation = onCertificateRotation
     }
 
@@ -63,14 +65,14 @@ public final class DesktopClientFactory: Sendable {
 
     public func make(config: ClusterConfig, secrets: ClusterSecrets) -> any KubeClientProtocol {
         if config.isDemo { return DemoFleet.client(for: config) }
-        do { try gate.validate(server: config.server) } catch {
+        do { try gate().validate(server: config.server) } catch {
             return RefusedKubeClient(error: .unreachable(cause: error.localizedDescription))
         }
         if state.isContactHeld(config.id) {
             return RefusedKubeClient(error: .unreachable(cause: "Not checked yet. Click Check to connect to this cluster."))
         }
         return LiveKubeClient(config: config, secrets: secrets, tlsServerName: config.tlsServerName, tokenSource: resolveTokenSource(for: config, secrets: secrets),
-                              hostAllowed: { [gate] in gate.isAllowed(server: $0) })
+                              hostAllowed: { [gate] in gate().isAllowed(server: $0) })
     }
 
     /// nil keeps the stored token (`.static`).
@@ -82,7 +84,7 @@ public final class DesktopClientFactory: Sendable {
         if let adoption = settings.execAdoption(for: config.id) {
             return .dynamic(makeProvider(spec: adoption.spec, kubeconfigPath: adoption.kubeconfigPath, config: config, secrets: secrets))
         }
-        if let path = discovered?.context.files?.tokenFile { return .dynamic(TokenFileProvider(path: path, gate: gate)) }
+        if let path = discovered?.context.files?.tokenFile { return .dynamic(TokenFileProvider(path: path, gate: gate())) }
         return nil
     }
 
