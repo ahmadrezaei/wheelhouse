@@ -14,6 +14,7 @@ public final class MooringsState: Sendable {
         var checks: [ClusterID: ClusterCheckState] = [:]
         /// Clusters whose contact the user approved by clicking Check (also for undecided rows that have no override yet).
         var approved: Set<ClusterID> = []
+        var scanned = false
     }
     private let state = Mutex(Snapshot())
     public let overrides: DiscoveredClusterStore
@@ -39,6 +40,9 @@ public final class MooringsState: Sendable {
             s.order = list.map(\.id)
         }
     }
+    /// False until the first scan finished: until then every added cluster is only a stand-in built from its last-known values.
+    public var hasScanned: Bool { state.withLock { $0.scanned } }
+    func markScanned() { state.withLock { $0.scanned = true } }
     func approveContact(_ id: ClusterID) { state.withLock { _ = $0.approved.insert(id) } }
     func setDuplicates(_ d: [ClusterID: ClusterID]) { state.withLock { $0.duplicates = d } }
     func setCheck(_ c: ClusterCheckState, for id: ClusterID) { state.withLock { $0.checks[id] = c } }
@@ -106,7 +110,7 @@ public final class MooringsState: Sendable {
     }
 
     /// Every discovered cluster that should be listed: added, not hidden, and not a duplicate of a Keychain cluster.
-    func listedConfigs() -> [ClusterConfig] {
+    public func listedConfigs() -> [ClusterConfig] {
         let snapshot = state.withLock { $0 }
         var out: [ClusterConfig] = []
         var seen = Set<ClusterID>()

@@ -38,33 +38,38 @@ final class MooringsController {
 
     var clientFactory: ClusterRegistry.ClientFactory { factory.clientFactory }
 
-    init(paths: AppPaths, gate: DevSafetyPolicy, keychainMetadata: any ClusterMetadataStoring, keychainCredentials: any CredentialStoring,
+    /// `gate` is read on every use, never copied: the allowed test hosts are configured after launch, while the registry (and with it the
+    /// client factory) is built in `App.init`. `explicitTestKubeconfig` is the only kubeconfig discovery uses while the gate is active.
+    init(paths: AppPaths, gate: @escaping @Sendable () -> DevSafetyPolicy = { .current }, explicitTestKubeconfig: URL?,
+         keychainMetadata: any ClusterMetadataStoring, keychainCredentials: any CredentialStoring,
          shell: ShellEnvironment, activity: any ActivityLogging = NoopActivityLog()) {
+        // Stores only use `isActive` and the home folder of the gate, which never change; only the allowed hosts do.
+        let fixedGate = gate()
         let snapshotBox = SnapshotBox()
         self.snapshotBox = snapshotBox
         let overrides = DiscoveredClusterStore(fileURL: paths.discoveredClustersFile)
         let prefs = MooringsPreferencesStore(fileURL: paths.mooringsPreferencesFile)
-        let state = MooringsState(overrides: overrides, preferences: prefs, gate: gate)
+        let state = MooringsState(overrides: overrides, preferences: prefs, gate: fixedGate)
         let settings = MacClusterSettingsStore(fileURL: paths.clusterSettingsFile)
         let home = paths.home
         let box = snapshotBox
         let broker = ExecCredentialBroker(
             locator: { ExecutableLocator(snapshot: box.value, home: home) },
             environment: { EnvironmentBuilder(snapshot: box.value, paths: paths, home: home) },
-            activity: activity, gate: gate)
+            activity: activity, gateProvider: gate)
         self.state = state
         self.settings = settings
         self.broker = broker
         self.shellEnvironment = shell
-        self.metadata = CompositeMetadataStore(keychain: keychainMetadata, credentials: keychainCredentials, state: state, settings: settings, gate: gate)
-        self.credentials = CompositeCredentialStore(keychain: keychainCredentials, state: state, gate: gate, settings: settings,
+        self.metadata = CompositeMetadataStore(keychain: keychainMetadata, credentials: keychainCredentials, state: state, settings: settings, gate: fixedGate)
+        self.credentials = CompositeCredentialStore(keychain: keychainCredentials, state: state, gate: fixedGate, settings: settings,
                                                     index: metadata.servers)
-        self.factory = DesktopClientFactory(state: state, settings: settings, broker: broker, gate: gate) { id in
+        self.factory = DesktopClientFactory(state: state, settings: settings, broker: broker, gateProvider: gate) { id in
             Task { @MainActor in ClusterEvents.postInvalidated(id, removed: false) }
         }
         let weakBox = WeakBox()
         self.service = MooringsService(
-            config: MooringsConfiguration(gate: gate, home: home, explicitTestKubeconfig: KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
+            config: MooringsConfiguration(gateProvider: gate, home: home, explicitTestKubeconfig: explicitTestKubeconfig,
                                           shellKubeconfig: { await shell.current().kubeconfig }),
             state: state, clients: factory, broker: broker, authorizer: DeviceOwnerAuthorizer(),
             onChange: { change in Task { @MainActor in weakBox.controller?.apply(change) } })
@@ -87,6 +92,9 @@ final class MooringsController {
         snapshotBox.value = snapshot
         shellBanner = snapshot.failure
         await service.start()
+        // The registry was built in App.init, before any scan: every added cluster was listed as "Source removed" (read-only, grey,
+        // no secrets, no token source). Now that the contexts exist, reload so those clusters become real and their sessions are rebuilt.
+        registry?.reloadFromStore(invalidating: Set(state.listedConfigs().map(\.id)))
         await refresh()
     }
 

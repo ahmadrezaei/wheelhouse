@@ -58,7 +58,8 @@ public actor ExecCredentialBroker {
     private let runner: any ExecPluginRunning
     private let limiter: ExecConcurrencyLimiter
     private let activity: any ActivityLogging
-    private let gate: DevSafetyPolicy
+    /// Read on every use: the allowed hosts are configured after launch, so a copy taken at init would freeze an empty list.
+    private let gate: @Sendable () -> DevSafetyPolicy
     private let now: @Sendable () -> Date
     /// Non-interactive timeout (Settings range 10 to 120 s).
     public var timeout: Duration
@@ -80,14 +81,14 @@ public actor ExecCredentialBroker {
 
     public init(locator: @escaping @Sendable () -> ExecutableLocator, environment: @escaping @Sendable () -> EnvironmentBuilder,
                 runner: any ExecPluginRunning = SubprocessPluginRunner(), limiter: ExecConcurrencyLimiter = .shared,
-                activity: any ActivityLogging = NoopActivityLog(), gate: DevSafetyPolicy = .current,
-                timeout: Duration = .seconds(30), now: @escaping @Sendable () -> Date = { Date() }) {
+                activity: any ActivityLogging = NoopActivityLog(), gate fixedGate: DevSafetyPolicy? = nil,
+                gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil, timeout: Duration = .seconds(30), now: @escaping @Sendable () -> Date = { Date() }) {
         self.locator = locator
         self.environment = environment
         self.runner = runner
         self.limiter = limiter
         self.activity = activity
-        self.gate = gate
+        self.gate = DevSafetyPolicy.provider(fixed: fixedGate, provider: gateProvider)
         self.timeout = timeout
         self.now = now
     }
@@ -128,7 +129,7 @@ public actor ExecCredentialBroker {
     }
 
     private func fetch(_ request: ExecRequest, key: String) async throws -> ExecCredential {
-        try gate.requirePluginAllowed(cluster: request.cluster)
+        try gate().requirePluginAllowed(cluster: request.cluster)
         guard let executable = locator().resolve(command: request.spec.command, baseDirectory: request.spec.baseDirectory) else {
             throw ExecCredentialError.pluginMissing(command: request.spec.command, installHint: request.spec.installHint,
                                                     suggestion: ExecPluginAdvice.installCommand(for: request.spec.command))
@@ -182,7 +183,10 @@ public actor ExecCredentialBroker {
 
     func makeProcessSpec(_ request: ExecRequest, executable: URL, interactive: Bool) -> ProcessSpec {
         var additions: [String: String] = [:]
-        for e in request.spec.env { additions[e.name] = e.value }
+        // The stanza's env entries are the kubeconfig's own; while the gate is active none of them may point a plugin at another
+        // kubeconfig (~/.kube), so KUBECONFIG is dropped from them.
+        let gateActive = gate().isActive
+        for e in request.spec.env where !(gateActive && e.name == "KUBECONFIG") { additions[e.name] = e.value }
         additions["KUBERNETES_EXEC_INFO"] = request.execInfo(interactive: interactive)
         let env = environment().build(profile: .forPlugin(command: request.spec.command), additions: additions)
         let dir = request.spec.baseDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -192,7 +196,7 @@ public actor ExecCredentialBroker {
 
     /// The process the Sign-in sheet runs on a pseudo-terminal.
     func interactiveSpec(for request: ExecRequest) throws -> ProcessSpec {
-        try gate.requirePluginAllowed(cluster: request.cluster)
+        try gate().requirePluginAllowed(cluster: request.cluster)
         guard let executable = locator().resolve(command: request.spec.command, baseDirectory: request.spec.baseDirectory) else {
             throw ExecCredentialError.pluginMissing(command: request.spec.command, installHint: request.spec.installHint,
                                                     suggestion: ExecPluginAdvice.installCommand(for: request.spec.command))

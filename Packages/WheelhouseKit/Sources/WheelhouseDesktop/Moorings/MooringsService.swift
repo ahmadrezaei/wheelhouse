@@ -59,7 +59,12 @@ public struct FirstRunChoice: Sendable, Equatable {
 }
 
 public struct MooringsConfiguration: Sendable {
-    public var gate: DevSafetyPolicy
+    /// Read on every use (the allowed hosts are configured after launch).
+    public var gateProvider: @Sendable () -> DevSafetyPolicy
+    public var gate: DevSafetyPolicy {
+        get { gateProvider() }
+        set { gateProvider = { newValue } }
+    }
     public var home: URL
     public var explicitTestKubeconfig: URL?
     /// `KUBECONFIG` from the shell snapshot (already sanitised by the gate in `ShellEnvironment`).
@@ -69,11 +74,11 @@ public struct MooringsConfiguration: Sendable {
     /// Where the safety rescan registers (tests use their own).
     public var registry: PeriodicTaskRegistry
 
-    public init(gate: DevSafetyPolicy = .current, home: URL = DevSafetyPolicy.accountHome,
+    public init(gate fixedGate: DevSafetyPolicy? = nil, gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil, home: URL = DevSafetyPolicy.accountHome,
                 explicitTestKubeconfig: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
                 shellKubeconfig: @escaping @Sendable () async -> String? = { nil }, safetyRescanInterval: TimeInterval = 600,
                 registry: PeriodicTaskRegistry = .shared) {
-        self.gate = gate
+        self.gateProvider = DevSafetyPolicy.provider(fixed: fixedGate, provider: gateProvider)
         self.home = home
         self.explicitTestKubeconfig = explicitTestKubeconfig
         self.shellKubeconfig = shellKubeconfig
@@ -87,7 +92,7 @@ public struct MooringsConfiguration: Sendable {
 /// - Sources: while the gate is active the ONLY source is the explicit test file (plus user files that are not under `~/.kube`).
 /// - Watching is FSEvents only; the 10-minute safety rescan is a `PeriodicTask` that stops while no window is visible.
 /// - A context found later that is suggested as Production is NOT probed until the user clicks Check.
-public actor MooringsService: MooringsSourceAdding {
+public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public nonisolated let state: MooringsState
     private let config: MooringsConfiguration
     private let loader: KubeconfigLoader
@@ -102,6 +107,12 @@ public actor MooringsService: MooringsSourceAdding {
     private var previous: [ClusterID: DiscoveredContext] = [:]
     private var previousHashes: [String: String] = [:]
     private var hasScanned = false
+    /// The outstanding grant of an answered owner prompt, by cluster; consumed by `allowChanges(id:environment:grant:)`.
+    private var grants: [ClusterID: IssuedGrant] = [:]
+    /// What a grant was issued under: whether the owner was actually asked, the environment the cluster had, and when.
+    private struct IssuedGrant { let grant: ChangeGrant; let prompted: Bool; let currentEnvironment: ClusterEnvironment; let issuedAt: Date }
+    /// A grant older than this is refused: the owner's answer is for the moment of the prompt.
+    static let grantLifetime: TimeInterval = 60
     /// Files that could not be read or are refused, by path (shown in Settings → Moorings).
     public private(set) var issues: [String: String] = [:]
     public private(set) var scanCount = 0
@@ -349,6 +360,7 @@ public actor MooringsService: MooringsSourceAdding {
         previous = newByID
         previousHashes = outcome.hashes
         hasScanned = true
+        state.markScanned()
 
         // A changed context: sessions, watches and the credential cache of its key are dropped and rebuilt.
         if !change.changed.isEmpty {
@@ -417,15 +429,58 @@ public actor MooringsService: MooringsSourceAdding {
 
     // MARK: Allow changes, opening, removal
 
+    /// Moorings owns the read-only flag of a context that was added (first run, import as source or adoption); a Keychain cluster is not managed.
+    public nonisolated func managesChanges(for id: ClusterID) -> Bool { state.overrides.override(for: id)?.added == true }
+
+    public nonisolated func environmentChosen(for id: ClusterID) -> Bool {
+        guard let o = state.overrides.override(for: id), o.added else { return true }
+        return o.environmentChosen
+    }
+
+    /// True when leaving read-only on `id` with `environment` needs the owner: the target, the stored or the current environment is
+    /// Production, or the context is Production-suggested. Evaluated again at commit time, not only at issue time.
+    private func needsOwner(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) -> Bool {
+        let o = state.overrides.override(for: id)
+        let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o?.lastKnown?.suggestedEnvironment == .production)
+        return environment == .production || currentEnvironment == .production || o?.environment == .production || suggestedProd
+    }
+
+    /// Touch ID or the password when the target or current environment is Production, or the context is Production-suggested. Changes
+    /// nothing. The grant it returns (for a managed cluster) is valid for one ``allowChanges(id:environment:grant:)`` within a minute, and
+    /// only while no prompt is needed that was not asked for.
+    public func authorizeLeavingReadOnly(id: ClusterID, currentEnvironment: ClusterEnvironment, environment: ClusterEnvironment) async throws -> ChangeGrant {
+        let o = state.overrides.override(for: id)
+        let prompted = needsOwner(id: id, currentEnvironment: currentEnvironment, environment: environment)
+        if prompted {
+            let name = o?.name ?? o?.lastKnown?.displayName ?? "this cluster"
+            let reason = currentEnvironment == .production && environment != .production
+                ? "Change \(name) from Production to \(environment.title), which lowers its safety" : "Allow changes on \(name)"
+            guard await authorizer.authorize(reason: reason) else { throw MooringsError.authorizationDenied }
+        }
+        let grant = ChangeGrant(id: id, environment: environment)
+        // Only a managed cluster can use a grant; one outstanding grant per cluster keeps this bounded.
+        if o?.added == true { grants[id] = IssuedGrant(grant: grant, prompted: prompted, currentEnvironment: currentEnvironment, issuedAt: now()) }
+        return grant
+    }
+
     /// Leaves read-only. Needs an explicitly chosen environment, and Touch ID or the password for Production and Production-suggested.
     public func allowChanges(id: ClusterID, environment: ClusterEnvironment) async throws {
-        guard var o = state.overrides.override(for: id), o.added else { return }
-        let suggestedProd = state.context(for: id)?.isSuggestedProduction ?? (o.lastKnown?.suggestedEnvironment == .production)
-        if environment == .production || o.environment == .production || suggestedProd {
-            guard await authorizer.authorize(reason: "Allow changes on \(o.name ?? o.lastKnown?.displayName ?? "this cluster")") else {
-                throw MooringsError.authorizationDenied
-            }
+        let grant = try await authorizeLeavingReadOnly(id: id, currentEnvironment: state.overrides.override(for: id)?.environment ?? .development,
+                                                       environment: environment)
+        try await allowChanges(id: id, environment: environment, grant: grant)
+    }
+
+    /// Commits with the grant of an answered prompt: it must be for this cluster and environment and is used up by this call.
+    public func allowChanges(id: ClusterID, environment: ClusterEnvironment, grant: ChangeGrant) async throws {
+        guard grant.id == id, grant.environment == environment, let issued = grants[id], issued.grant == grant else { throw MooringsError.authorizationDenied }
+        grants[id] = nil
+        // The grant proves the prompt of that moment only: refuse it when it is stale, or when the cluster became Production (or
+        // Production-suggested) since a grant was issued without a prompt.
+        let fresh = now().timeIntervalSince(issued.issuedAt) <= Self.grantLifetime
+        guard fresh, issued.prompted || !needsOwner(id: id, currentEnvironment: issued.currentEnvironment, environment: environment) else {
+            throw MooringsError.authorizationDenied
         }
+        guard var o = state.overrides.override(for: id), o.added else { throw MooringsError.notAvailable }
         o.environment = environment
         o.environmentChosen = true
         o.readOnly = false

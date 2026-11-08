@@ -129,6 +129,14 @@ public struct DevSafetyPolicy: Sendable {
         self.home = home
     }
 
+    /// Resolves the gate a component reads: an explicit provider wins, then a fixed policy (tests), else the running app's gate read
+    /// on every call. Never captures `current` once: the allowed hosts are configured after launch.
+    public static func provider(fixed: DevSafetyPolicy?, provider: (@Sendable () -> DevSafetyPolicy)?) -> @Sendable () -> DevSafetyPolicy {
+        if let provider { return provider }
+        if let fixed { return { fixed } }
+        return { .current }
+    }
+
     public static var current: DevSafetyPolicy { DevSafetyPolicy(isActive: DevSafety.isActive, allowedHosts: DevSafety.allowedHosts) }
 
     /// Reserved names that never resolve, always allowed as fixtures.

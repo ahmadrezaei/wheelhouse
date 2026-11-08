@@ -272,6 +272,96 @@ struct CompositeStoreTests {
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(text.contains("firstMateAccess") && text.contains("terminalMode") && text.contains("beaconExposure") && text.contains("execAdopted"))
     }
+
+    @Test func aSaveBeforeTheFirstScanLeavesTheStoredOverridesAlone() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", kubeconfigText(context: "disc", server: "https://disc.example.test:6443"))
+        let first = try Stack(files: [file], scratch: s)
+        await first.service.rescan()
+        let id = try #require(first.state.contexts.first).id
+        try await first.service.completeFirstRun(choices: [id: FirstRunChoice(selected: true, environment: .development, environmentPicked: true, allowChanges: true)])
+        let before = try #require(first.state.overrides.override(for: id))
+        #expect(before.readOnly == false)
+        // A new launch: the stores exist, nothing has been scanned yet, so the cluster is only a read-only grey stand-in.
+        let second = try Stack(files: [file], scratch: s)
+        #expect(!second.state.hasScanned)
+        let loaded = second.state.overrides.override(for: id)             // as read back from disk
+        let standIn = second.composite.load()
+        #expect(standIn.first?.readOnly == true && standIn.first?.color == .gray)
+        try second.composite.save(standIn)                                // e.g. a reorder or an iCloud toggle in that window
+        #expect(second.state.overrides.override(for: id) == loaded)
+        await second.service.rescan()
+        #expect(second.state.hasScanned)
+        try second.composite.save(second.composite.load())                // after the scan a save is real again
+        #expect(second.state.overrides.override(for: id)?.readOnly == false)
+    }
+
+    @Test func aSaveWhileTheSourceIsRemovedLeavesTheOverrideAloneAndIsRealAgainWhenItReturns() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", kubeconfigText(context: "disc", server: "https://disc.example.test:6443"))
+        let st = try Stack(files: [file], scratch: s)
+        await st.service.rescan()
+        let id = try #require(st.state.contexts.first).id
+        try await st.service.completeFirstRun(choices: [id: FirstRunChoice(selected: true, environment: .development, environmentPicked: true, allowChanges: true)])
+        try st.state.overrides.update(id) { $0.color = .pink; $0.allowExecInReadOnly = true; $0.defaultNamespace = "shop" }
+        let original = try #require(st.state.overrides.override(for: id))
+        // The context disappears from its file: the cluster is a Source removed placeholder (read-only, grey).
+        try (kubeconfigText(context: "other", server: "https://other.example.test:6443") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        await st.service.rescan()
+        let placeholder = try #require(st.composite.load().first { $0.id == id })
+        #expect(placeholder.readOnly && placeholder.allowExecInReadOnly == false)
+        try st.composite.save(st.composite.load())                          // any registry save
+        let kept = try #require(st.state.overrides.override(for: id))
+        #expect(kept.readOnly == false && kept.color == original.color && kept.allowExecInReadOnly && kept.defaultNamespace == "shop")
+        // The source returns: saving is real again.
+        try (kubeconfigText(context: "disc", server: "https://disc.example.test:6443") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        await st.service.rescan()
+        var back = try #require(st.composite.load().first { $0.id == id })
+        #expect(back.readOnly == false && back.color == .pink)
+        back.color = .indigo
+        try st.composite.save(st.composite.load().map { $0.id == id ? back : $0 })
+        #expect(st.state.overrides.override(for: id)?.color == .indigo)
+    }
+
+    @MainActor @Test func editingADiscoveredClusterWithACASavesAndLeavesReadOnlyThroughMoorings() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"                  // the file's CA ends with a newline
+        let yaml = """
+        clusters:
+        - name: c
+          cluster: {server: "https://ca.example.test:6443", certificate-authority-data: \(Data(pem.utf8).base64EncodedString())}
+        users:
+        - {name: u, user: {token: tok}}
+        contexts:
+        - {name: with-ca, context: {cluster: c, user: u}}
+        """
+        let st = try Stack(files: [try s.write("kc.yaml", yaml)], scratch: s)
+        await st.service.rescan()
+        let ctx = try #require(st.state.contexts.first)
+        try await st.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .staging, environmentPicked: true)])
+        let registry = ClusterRegistry(credentials: st.creds, metadata: st.composite, defaults: try #require(UserDefaults(suiteName: "wh.m3.\(UUID().uuidString)")))
+        let current = try #require(registry.clusters.first)
+        #expect(current.readOnly)
+        let existing = registry.secrets(for: current.id)
+        #expect(existing.caPEM == pem)
+        var draft = ClusterDraft(editing: current, secrets: existing)
+        draft.name = "renamed"
+        draft.readOnly = false
+        let edited = draft.makeSecrets(existing: existing)
+        #expect(edited != existing)                                       // the draft trims the CA: a plain update would try to save it
+        let target = try #require(draft.makeConfig())
+        let outcome = try await ClusterChangeSaver.save(allowing: st.service, current: current, target: target, environmentConfirmed: false) { config, managed in
+            try registry.update(config, secrets: ClusterChangeSaver.secretsToWrite(managed: managed, existing: existing, edited: edited))
+        }
+        #expect(outcome == .saved)
+        registry.reloadFromStore(invalidating: [current.id])              // what Moorings' change notification does
+        let after = try #require(registry.clusters.first)
+        #expect(after.name == "renamed")
+        #expect(after.readOnly == false)
+        #expect(st.service.environmentChosen(for: current.id))
+        // The plain update that failed before: the composite refuses secrets for a discovered cluster.
+        #expect(throws: CompositeStoreError.self) { try st.creds.save(edited, clusterID: current.id, synchronizable: false) }
+    }
 }
 
 extension CompositeMetadataStore {

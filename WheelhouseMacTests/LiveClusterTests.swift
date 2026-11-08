@@ -38,7 +38,7 @@ struct LiveClusterTests {
         made.config.environment = environment
         made.config.readOnly = readOnly
         let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: UserDefaults(suiteName: "wh.live.tests")!,
-                                       clientFactory: MacAppEnvironment.guardedClientFactory())
+                                       clientFactory: LaunchPathTests.desktopFactory(gate: { .current }).clientFactory)
         try registry.add(made.config, secrets: made.secrets)
         let session = try #require(registry.session(for: made.config.id))
         return Live(registry: registry, session: session, config: made.config)
@@ -54,7 +54,7 @@ struct LiveClusterTests {
 
     @Test func aClusterWhoseHostIsNotAllowedIsNeverReached() async throws {
         let blocked = ClusterConfig(name: "elsewhere", server: URL(string: "https://203.0.113.9:6443")!, environment: .production)
-        let client = ClusterRegistry.defaultClientFactory(MacAppEnvironment.gatedConfig(blocked, gate: .current), ClusterSecrets(token: "x"))
+        let client = LaunchPathTests.desktopFactory(gate: { .current }).clientFactory(blocked, ClusterSecrets(token: "x"))
         await #expect(throws: (any Error).self) { _ = try await client.version() }
     }
 

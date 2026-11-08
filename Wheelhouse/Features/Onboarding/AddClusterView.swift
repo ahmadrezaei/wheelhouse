@@ -9,6 +9,7 @@ struct AddClusterView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
     @Environment(\.clusterClientFactory) private var clientFactory
+    @Environment(\.clusterChangeAllowing) private var changeAllowing
     @Environment(\.dismiss) private var dismiss
 
     private let editingID: ClusterID?
@@ -22,6 +23,10 @@ struct AddClusterView: View {
     @State private var showProblems = false
     /// Set once the cluster is persisted; until then any client-certificate key created by Test Connection is an orphan.
     @State private var saved = false
+    /// True while the owner prompt of a Save is up: a second Save must not start a second prompt.
+    @State private var savingChanges = false
+    @State private var confirmEnvironment = false
+    @State private var initialEnvironment: ClusterEnvironment = .development
 
     init(editing: ClusterConfig? = nil, registry: ClusterRegistry? = nil, prefill: ClusterDraft? = nil) {
         editingID = editing?.id
@@ -29,6 +34,7 @@ struct AddClusterView: View {
             let d = ClusterDraft(editing: editing, secrets: registry?.secrets(for: editing.id) ?? ClusterSecrets())
             _draft = State(initialValue: d)
             _initialFingerprint = State(initialValue: d.testFingerprint)
+            _initialEnvironment = State(initialValue: editing.environment)
             _prometheusToken = State(initialValue: PrometheusTokenStore.load(clusterID: editing.id) ?? "")
         } else {
             _draft = State(initialValue: prefill ?? ClusterDraft())
@@ -80,6 +86,10 @@ struct AddClusterView: View {
         .confirmationDialog("Remove \(draft.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove Cluster", role: .destructive) { deleteCluster() }
         } message: { Text("Deletes this cluster and its credentials from this device\(draft.iCloudSync ? " and from iCloud Keychain" : ""). The cluster itself is not touched.") }
+        .confirmationDialog("Use \(draft.environment.title) for \(draft.name)?", isPresented: $confirmEnvironment, titleVisibility: .visible) {
+            Button("Use \(draft.environment.title) and Allow Changes") { save(environmentConfirmed: true) }
+            Button("Keep editing", role: .cancel) {}
+        } message: { Text("Allowing changes needs an environment you have chosen, and Wheelhouse only suggested this one. Pick a different one above, or confirm it.") }
         .alert("Couldn’t save", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(saveError ?? "") }
@@ -247,33 +257,64 @@ struct AddClusterView: View {
         if case .done(let r) = test, r.succeeded { save() } else if isEditing { save() } else { confirmAddAnyway = true }
     }
 
-    private func save() {
+    private func save(environmentConfirmed: Bool = false) {
         guard let config = draft.makeConfig() else { return }
         if config.violatesHTTPProductionRule { saveError = ClusterDraft.Problem.httpNotAllowedForProduction.message; return }
-        let isFirstRealCluster = !isEditing && (registry.isDemoMode || registry.clusters.isEmpty)
+        // iOS (no seam) and every add: saved directly, exactly as before. On the Mac an edit goes through the change rules: leaving
+        // read-only asks the device owner, and a Moorings-managed cluster is saved without secrets and leaves read-only through Moorings.
+        guard let allowing = changeAllowing, let id = editingID else { persist(config, managed: false); return }
+        guard !savingChanges else { return }
+        savingChanges = true
+        Task {
+            defer { savingChanges = false }
+            do {
+                let outcome = try await ClusterChangeSaver.save(
+                    allowing: allowing, current: registry.clusters.first { $0.id == id }, target: config,
+                    environmentConfirmed: environmentConfirmed || draft.environment != initialEnvironment) { stored, managed in
+                    _ = try write(stored, managed: managed)
+                }
+                if outcome == .needsEnvironmentConfirmation { confirmEnvironment = true } else { finish(config, isFirstRealCluster: false) }
+            } catch {
+                saveError = error.localizedDescription
+            }
+        }
+    }
+
+    private func persist(_ config: ClusterConfig, managed: Bool) {
         do {
-            let existing = existingSecrets()
-            let secrets = draft.makeSecrets(existing: existing)
-            if isEditing {
-                // Unchanged secrets are not re-saved: a cluster whose credentials this build cannot read stays editable
-                // (rename, safety flags) and its stored credentials are never touched.
-                try registry.update(config, secrets: secrets == existing ? nil : secrets)
-            } else {
-                if registry.isDemoMode { preferences.demoMode = false; registry.exitDemoMode() }
-                try registry.add(config, secrets: secrets)
-                registry.select(config.id)
-            }
-            saved = true
-            // Re-saved with the cluster's current sync flag (add the new variant first, then drop the old one).
-            if !PrometheusTokenStore.save(draft.prometheusURL == nil ? nil : prometheusToken, clusterID: config.id, synchronizable: config.iCloudSync) {
-                saveError = "The cluster was saved, but its Prometheus token could not be stored in the Keychain."
-                return
-            }
-            if isFirstRealCluster { Task { await FirstClusterNotifications.requestIfNeeded(preferences: preferences) } }
-            if isEditing { dismiss() } else if router.sheet != nil { router.dismissSheet() } else { dismiss() }
+            let isFirstRealCluster = try write(config, managed: managed)
+            finish(config, isFirstRealCluster: isFirstRealCluster)
         } catch {
             saveError = error.localizedDescription
         }
+    }
+
+    /// Writes the cluster. A Moorings-managed cluster is saved without secrets: they come from its kubeconfig file, never from the draft.
+    private func write(_ config: ClusterConfig, managed: Bool) throws -> Bool {
+        let isFirstRealCluster = !isEditing && (registry.isDemoMode || registry.clusters.isEmpty)
+        let existing = existingSecrets()
+        let secrets = draft.makeSecrets(existing: existing)
+        if isEditing {
+            // Unchanged secrets are not re-saved: a cluster whose credentials this build cannot read stays editable
+            // (rename, safety flags) and its stored credentials are never touched.
+            try registry.update(config, secrets: ClusterChangeSaver.secretsToWrite(managed: managed, existing: existing, edited: secrets))
+        } else {
+            if registry.isDemoMode { preferences.demoMode = false; registry.exitDemoMode() }
+            try registry.add(config, secrets: secrets)
+            registry.select(config.id)
+        }
+        return isFirstRealCluster
+    }
+
+    private func finish(_ config: ClusterConfig, isFirstRealCluster: Bool) {
+        saved = true
+        // Re-saved with the cluster's current sync flag (add the new variant first, then drop the old one).
+        if !PrometheusTokenStore.save(draft.prometheusURL == nil ? nil : prometheusToken, clusterID: config.id, synchronizable: config.iCloudSync) {
+            saveError = "The cluster was saved, but its Prometheus token could not be stored in the Keychain."
+            return
+        }
+        if isFirstRealCluster { Task { await FirstClusterNotifications.requestIfNeeded(preferences: preferences) } }
+        if isEditing { dismiss() } else if router.sheet != nil { router.dismissSheet() } else { dismiss() }
     }
 
     private func deleteCluster() {
