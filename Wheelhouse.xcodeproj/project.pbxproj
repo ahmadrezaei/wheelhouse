@@ -21,6 +21,7 @@
 		0E8B44253A6E523A8791F5FB /* LogsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6588A384B938BCFED31E6199 /* LogsModel.swift */; };
 		0E9798E99F52A6E0D977B820 /* PortForwardBrowserView+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */; };
 		0EA5FEF8EFCC5BD0F1D9573A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 938E86E9E6678A5A33F1ED62 /* Assets.xcassets */; };
+		0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */; };
 		0F948012B847D1953EE639DC /* ScreenKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEE6C98949A283A36151700 /* ScreenKey.swift */; };
 		12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E91C2545EF80D165FF0F0CF /* MooringsPane.swift */; };
 		135EEA83467B2C888E623E1B /* WorkspaceSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984AE090449BC20EA211793D /* WorkspaceSamples.swift */; };
@@ -107,6 +108,7 @@
 		5D259A4E0D40A6DDCE965476 /* WorkspaceCodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C373B5CE26FC8F9E11A136EA /* WorkspaceCodingTests.swift */; };
 		5E38EBBBC2A0F28C2A53EBE2 /* AlertSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D374FB1F6A5821D5381EB8 /* AlertSettingsView.swift */; };
 		5EB01764C4820E1FF0AD750C /* AlertSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D374FB1F6A5821D5381EB8 /* AlertSettingsView.swift */; };
+		5F9F5F2A184C04768FC57CA8 /* ManifestEditorModel+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDEA2A1EB5F7A15E6FB3E30 /* ManifestEditorModel+macOS.swift */; };
 		61680923FBB5B2FA34EA5ECC /* ResourceSectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */; };
 		62484535320095FD0116E076 /* LandfallFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */; };
 		62ED3B1A369DD106D88E1F7A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */; };
@@ -266,6 +268,7 @@
 		FAF9AF7990875D0251942890 /* MacPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEABE6E49FB30DECFF641A7 /* MacPreferences.swift */; };
 		FCDF468EF565A98970A8CE47 /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555250EC97224ADB83551896 /* PlaceholderView.swift */; };
 		FD5ED4330563F154F45DF81A /* ObjectRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F495E201E0610A974851C166 /* ObjectRow.swift */; };
+		FE154FC5A0DFFD0CDABC4ED4 /* ManifestEditorView+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5A2060B46AB6012246D1A1 /* ManifestEditorView+macOS.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -411,6 +414,7 @@
 		3A46A647721E3C56CE978924 /* MooringsFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsFeature.swift; sourceTree = "<group>"; };
 		3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		3AD102426EA9E7E598EAE10C /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
+		3CDEA2A1EB5F7A15E6FB3E30 /* ManifestEditorModel+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManifestEditorModel+macOS.swift"; sourceTree = "<group>"; };
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
 		3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesDetailView.swift; sourceTree = "<group>"; };
 		3FB8C8FF29952189955D7D92 /* SignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInSheet.swift; sourceTree = "<group>"; };
@@ -420,6 +424,7 @@
 		49AC7DE33B55565935B6DB40 /* ActivityFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeature.swift; sourceTree = "<group>"; };
 		4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistryTests.swift; sourceTree = "<group>"; };
 		4AC9112AFDD43844779E752D /* MooringsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsViews.swift; sourceTree = "<group>"; };
+		4B5A2060B46AB6012246D1A1 /* ManifestEditorView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManifestEditorView+macOS.swift"; sourceTree = "<group>"; };
 		4FAA412529D59CBC7707DC77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
 		5059A2198553AB06D391E97A /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
@@ -542,6 +547,7 @@
 		DF3DCCD630640E32390016E7 /* SidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPane.swift; sourceTree = "<group>"; };
 		DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditorView.swift; sourceTree = "<group>"; };
 		E049D4508D051D4AE57ED1C0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestEditorTests.swift; sourceTree = "<group>"; };
 		E67EC3F0EC76D6F1ED176190 /* ChartRoomPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomPane.swift; sourceTree = "<group>"; };
 		E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSectionsView.swift; sourceTree = "<group>"; };
 		E807AD74708CC25D66B2E59A /* WheelhouseWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseWidgets.swift; sourceTree = "<group>"; };
@@ -655,6 +661,7 @@
 				63C86BF66B2F9F6B71625516 /* LiveClusterTests.swift */,
 				EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */,
 				DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */,
+				E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */,
 				595E05758EBAA172D428E075 /* ShellRegressionTests.swift */,
 				FEDC89EAF411887826A97205 /* SidebarModelTests.swift */,
 				B6D6CEB1D55B12F7AE3BD204 /* SurveyModelTests.swift */,
@@ -1210,6 +1217,8 @@
 				9F7FD7A255DE280B727A491A /* CodeEditor+macOS.swift */,
 				0FA58D0E5FF11737B4BAEB7A /* CodeEditor+Shared.swift */,
 				81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */,
+				3CDEA2A1EB5F7A15E6FB3E30 /* ManifestEditorModel+macOS.swift */,
+				4B5A2060B46AB6012246D1A1 /* ManifestEditorView+macOS.swift */,
 				83D1FE4CCBC939EE48C1B4A0 /* ReviewChangesView.swift */,
 				EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */,
 				DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */,
@@ -1697,6 +1706,8 @@
 				9737905FE277852DD18FEB8C /* MacSettingsView.swift in Sources */,
 				2AA5E2345D820CF89FD01A1B /* MacShell.swift in Sources */,
 				1FC49CA566DE305854950704 /* MacUpdater.swift in Sources */,
+				5F9F5F2A184C04768FC57CA8 /* ManifestEditorModel+macOS.swift in Sources */,
+				FE154FC5A0DFFD0CDABC4ED4 /* ManifestEditorView+macOS.swift in Sources */,
 				9DAF2740E790BB6FD70FF124 /* MooringsController.swift in Sources */,
 				E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */,
 				12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */,
@@ -1886,6 +1897,7 @@
 				7A98F9D04C58726C6F21C3ED /* LiveClusterTests.swift in Sources */,
 				564E3EF8F74CC68C53388CBC /* LockCoordinatorTests.swift in Sources */,
 				C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */,
+				0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */,
 				25E3B4F3A5FC26CA22425B46 /* ShellRegressionTests.swift in Sources */,
 				77824CA2FFC209355E210A53 /* SidebarModelTests.swift in Sources */,
 				FABFE485E37679C753C93A88 /* SurveyModelTests.swift in Sources */,
