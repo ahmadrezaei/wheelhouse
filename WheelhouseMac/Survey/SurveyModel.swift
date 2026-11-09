@@ -182,6 +182,10 @@ final class SurveyHub {
     private(set) var risks: AcceptedRiskBook
     private(set) var fleet: [FleetSurveyEntry] = []
     private(set) var isLoadingFleet = false
+    private(set) var riskStoreError: String?
+    @ObservationIgnored private var riskStore: SurveyStore?
+    @ObservationIgnored private var pendingRiskChanges: [RiskChange] = []
+    @ObservationIgnored private var saveChain: Task<Void, Never>?
     @ObservationIgnored private var models: [ClusterID: SurveyModel] = [:]
     @ObservationIgnored private let riskFile: URL?
     /// Creates the app's folder (mode 0700) before the first save.
@@ -207,22 +211,79 @@ final class SurveyHub {
 
     // MARK: Accepted risks
 
+    /// A change made while `survey.sqlite` was not open yet. The file M8a wrote is stale once the database exists, so a snapshot of the
+    /// in-memory book must never be written over the database: the changes are replayed on top of what the database holds.
+    enum RiskChange {
+        case add(AcceptedRisk)
+        case remove(UUID)
+        case removeExpired(Date)
+    }
+
     func accept(_ finding: SecurityFinding, scope: AcceptanceScope, reason: String, days: Int) {
         risks.accept(finding, scope: scope, reason: reason, days: days)
-        persist()
+        if let added = risks.risks.last { record(.add(added)) }
     }
 
     func removeRisk(_ id: UUID) {
         risks.remove(id)
-        persist()
+        record(.remove(id))
     }
 
     func removeExpiredRisks() {
-        risks.removeExpired()
+        let now = Date()
+        risks.removeExpired(now: now)
+        record(.removeExpired(now))
+    }
+
+    func acceptCVE(_ cveID: String, clusterID: ClusterID, reason: String, days: Int) {
+        risks.acceptCVE(cveID, clusterID: clusterID, reason: reason, days: days)
+        if let added = risks.risks.last { record(.add(added)) }
+    }
+
+    private func record(_ change: RiskChange) {
+        if riskStore == nil { pendingRiskChanges.append(change) }
         persist()
     }
 
+    private static func apply(_ change: RiskChange, to book: inout AcceptedRiskBook) {
+        switch change {
+        case .add(let risk): if !book.risks.contains(where: { $0.id == risk.id }) { book.risks.append(risk) }
+        case .remove(let id): book.remove(id)
+        case .removeExpired(let now): book.removeExpired(now: now)
+        }
+    }
+
+    /// Moves the accepted risks into `survey.sqlite` (M8b). The first time, the M8a JSON file is imported (and stays in place); every
+    /// later time the database alone is the truth. Changes made before this finished are replayed on the database's book. If the
+    /// database cannot be opened the JSON file keeps being used, the error is shown, and nothing is overwritten.
+    func attach(store: SurveyStore?) async {
+        guard let store, riskStore == nil else { return }
+        do {
+            if let riskFile { try await store.importLegacyRisksOnce(from: riskFile) }
+            var book = try await store.acceptedRisks()
+            // No suspension from here to `riskStore = store`: a change cannot slip in between.
+            let replay = pendingRiskChanges
+            for change in replay { Self.apply(change, to: &book) }
+            pendingRiskChanges = []
+            risks = book
+            riskStore = store
+            if !replay.isEmpty { persist() }
+        } catch {
+            riskStoreError = error.localizedDescription
+        }
+    }
+
     private func persist() {
+        if let riskStore {
+            // One serial chain: saves run in order, each writing the newest book; a failure is shown, never swallowed.
+            let book = risks
+            let previous = saveChain
+            saveChain = Task { [weak self] in
+                await previous?.value
+                do { try await riskStore.saveAcceptedRisks(book) } catch { self?.riskStoreError = error.localizedDescription }
+            }
+            return
+        }
         guard let riskFile else { return }
         prepare?()
         try? AcceptedRiskStorage.save(risks, to: riskFile)

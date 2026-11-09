@@ -93,6 +93,7 @@ struct ClusterSurveyView: View {
             title: session.config.name, tab: $tab, namespace: namespace,
             reports: model.report.map { [$0] } ?? [], names: [session.config.id: session.config.name],
             isLoading: model.report == nil, isComputing: model.isComputing, isWatching: model.isWatching,
+            sessions: [session],
             refresh: { await model.refresh() })
         // The RBAC and workload stores exist only while this view is on screen.
         .onAppear { model.retain() }
@@ -115,6 +116,7 @@ struct FleetSurveyView: View {
             reports: hub.fleet.compactMap(\.report), names: Dictionary(uniqueKeysWithValues: hub.fleet.map { ($0.id, $0.name) }),
             isLoading: hub.fleet.isEmpty || (hub.isLoadingFleet && hub.fleet.allSatisfy { $0.report == nil }), isComputing: hub.isLoadingFleet, isWatching: false,
             fleetEntries: hub.fleet,
+            sessions: registry.map { r in r.clusters.compactMap { r.session(for: $0.id) }.filter { !$0.credentialsMissing } } ?? [],
             refresh: { if let registry { await hub.loadFleet(registry: registry) } })
         .task { if let registry, hub.fleet.isEmpty { await hub.loadFleet(registry: registry) } }
     }
@@ -133,6 +135,8 @@ struct SurveyScaffold: View {
     let isComputing: Bool
     let isWatching: Bool
     var fleetEntries: [FleetSurveyEntry] = []
+    /// The clusters the Vulnerabilities tab reads (operator reports and local scans).
+    var sessions: [ClusterSession] = []
     let refresh: () async -> Void
 
     @State private var showExport = false
@@ -153,6 +157,8 @@ struct SurveyScaffold: View {
             SurveyExportSheet(reports: reports, names: names, defaultNamespace: namespace, title: title)
         }
         .background(Palette.groupedBackground)
+        // Opens survey.sqlite (lazily) so the accepted risks live there; nothing else starts.
+        .task { await ScanCoordinator.shared.prepare() }
     }
 
     private var header: some View {
@@ -203,8 +209,7 @@ struct SurveyScaffold: View {
                 SurveyOverviewView(reports: reports, names: names, entries: fleetEntries, tab: $tab)
             }
         case .vulnerabilities:
-            ContentUnavailableView("Vulnerability scanning arrives in M8b", systemImage: "ladybug",
-                                   description: Text("Survey shows access and workload risks from built-in rules today. Trivy Operator reports and local image scans come next."))
+            VulnerabilitiesTabView(sessions: sessions, namespace: namespace)
         case .access:
             findings(.access)
         case .workload:

@@ -21,9 +21,13 @@ public struct ProcessSpec: Sendable {
     /// Ring buffer: the tail is kept.
     public var stderrLimit: Int
     public var qos: QualityOfService
+    /// A child of a quit group is sent SIGTERM (to its process group) by ``Subprocess/terminateAll(group:)``, which the app calls when it
+    /// quits. nil (the default) leaves the child alone.
+    public var quitGroup: String?
 
     public init(executable: URL, arguments: [String] = [], environment: [String: String], currentDirectory: URL? = nil, stdin: Data? = nil,
-                timeout: Duration = .seconds(60), stdoutLimit: Int = 64 << 20, stderrLimit: Int = 1 << 20, qos: QualityOfService = .userInitiated) {
+                timeout: Duration = .seconds(60), stdoutLimit: Int = 64 << 20, stderrLimit: Int = 1 << 20, qos: QualityOfService = .userInitiated,
+                quitGroup: String? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -33,6 +37,7 @@ public struct ProcessSpec: Sendable {
         self.stdoutLimit = stdoutLimit
         self.stderrLimit = stderrLimit
         self.qos = qos
+        self.quitGroup = quitGroup
     }
 }
 
@@ -77,6 +82,12 @@ public enum SubprocessError: Error, Equatable, Sendable, LocalizedError {
 /// Runs a program through `posix_spawn`: absolute path, argument array, no shell, its own process group, no inherited descriptors,
 /// an explicit environment, a timeout and output caps.
 public enum Subprocess {
+    /// SIGTERM to the process group of every running child of `group` (see ``ProcessSpec/quitGroup``). The app calls it when it quits, so
+    /// a scan does not keep running (and keep its credential folder alive) after the app is gone.
+    public static func terminateAll(group: String) {
+        for pid in SpawnedProcess.live.snapshot(group: group) { kill(-pid, SIGTERM) }
+    }
+
     public static func run(_ spec: ProcessSpec) async throws -> ProcessResult {
         let collector = Collector(spec: spec)
         return try await withTaskCancellationHandler {
@@ -175,6 +186,15 @@ private final class Collector: Sendable {
 /// One spawned child with its pipes. Events arrive on a private serial queue: output chunks, then exactly one `.exit` after both
 /// pipes closed (or a short drain period after the child exited, for grandchildren that keep a pipe open).
 final class SpawnedProcess: Sendable {
+    /// Children that have been spawned and not yet reported their exit.
+    final class LiveSet: @unchecked Sendable {
+        private let lock = NSLock()
+        private var pids: [pid_t: String] = [:]
+        func insert(_ pid: pid_t, group: String) { lock.withLock { pids[pid] = group } }
+        func remove(_ pid: pid_t) { lock.withLock { _ = pids.removeValue(forKey: pid) } }
+        func snapshot(group: String) -> [pid_t] { lock.withLock { pids.filter { $0.value == group }.map(\.key) } }
+    }
+    static let live = LiveSet()
     let pid: pid_t
     private let queue = DispatchQueue(label: "app.wheelhouse.subprocess", qos: .utility)
     private struct State {
@@ -242,6 +262,7 @@ final class SpawnedProcess: Sendable {
             throw SubprocessError.launchFailed(String(cString: strerror(rc)))
         }
         self.pid = childPID
+        if let group = spec.quitGroup { Self.live.insert(childPID, group: group) }
 
         if let input = spec.stdin, inPipe[1] >= 0 { Self.writeAll(input, to: inPipe[1], on: queue) }
         let out = Self.makeReader(fd: outPipe[0], queue: queue) { [self] data in handler(.stdout(data)) } onEOF: { [self] in readerClosed() }
@@ -331,6 +352,7 @@ final class SpawnedProcess: Sendable {
             guard !s.delivered, let exited = s.exited, s.openReaders <= 0 else { return nil }
             s.delivered = true
             s.drainTask?.cancel()
+            Self.live.remove(pid)
             return .exit(ProcessExit(code: exited.code, signal: exited.signal, timedOut: s.timedOut, duration: started.duration(to: .now)))
         }
         if let event { handler(event) }

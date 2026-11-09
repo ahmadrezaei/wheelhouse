@@ -3,8 +3,8 @@ import UniformTypeIdentifiers
 import WheelhouseKit
 import WheelhouseUI
 
-/// Settings ▸ Survey (M8a): what the built-in rules check, display defaults and the accepted risks. M8b adds the scanning settings
-/// (Trivy, registries, schedules) to this file.
+/// Settings ▸ Survey (M8a): what the built-in rules check, display defaults and the accepted risks. The scanning settings (Trivy, registries) are in
+/// ``ScanSettingsSection``.
 struct SurveyPane: View {
     @AppStorage("survey.hideSystemNamespaces") private var hideSystem = true
     @State private var hub = SurveyHub.shared
@@ -36,13 +36,17 @@ struct SurveyPane: View {
             }
 
             Section("Accepted risks") {
+                if let error = hub.riskStoreError {
+                    Label("Accepted risks could not be stored in Survey's database: \(error)", systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(Palette.warning)
+                }
                 if hub.risks.risks.isEmpty {
                     Text("Nothing accepted. Use Accept Risk… on a finding to record a reason and an expiry.").foregroundStyle(.secondary)
                 }
                 ForEach(hub.risks.risks.sorted { $0.expiresAt < $1.expiresAt }) { risk in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(risk.ruleID) · \(risk.scope.title)").font(.body.weight(.medium))
+                            Text(risk.cveID.map { "\($0) · this cluster" } ?? "\(risk.ruleID) · \(risk.scope.title)").font(.body.weight(.medium))
                             Text(risk.reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             Text(risk.isExpired() ? "Expired \(risk.expiresAt.formatted(date: .abbreviated, time: .omitted))" : "Until \(risk.expiresAt.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption).foregroundStyle(risk.isExpired() ? Palette.warning : Color.secondary)
@@ -62,9 +66,7 @@ struct SurveyPane: View {
                 }
             }
 
-            Section("Vulnerability scanning") {
-                Text("Trivy Operator reports, local image scans and registry sign-in arrive with the next Survey release.").foregroundStyle(.secondary)
-            }
+            ScanSettingsSection()
         }
         .formStyle(.grouped)
         .navigationTitle("Survey")
