@@ -199,7 +199,7 @@ struct LandfallAdapterTests {
     @Test func azureFetchesTheCAOnlyForEntraRowsBeingAdded() async throws {
         let calls = ArgLog()
         let az = AzureCLI(runner: RecordedRunner(azRecording(calls)))
-        let scan = await az.scan(account: CloudAccount(provider: .azure, accountID: "sub", name: "Platform"), options: ScanOptions(), now: now)
+        let scan = await az.scan(account: CloudAccount(provider: .azure, accountID: "00000000-0000-0000-0000-0000000000aa", name: "Platform"), options: ScanOptions(), now: now)
         let edge = try #require(scan.clusters.first { $0.name == "edge-aks" })
         let prepared = try await az.prepareToAdd(edge)
         #expect(prepared.caData == "QVpVUkUtQ0E=")
@@ -234,6 +234,38 @@ struct LandfallAdapterTests {
         #expect(!yaml.contains("token:") && !yaml.contains("client-key") && !yaml.contains("password"))
         // A numeric profile stays a string in the YAML.
         #expect(yaml.contains("'123456789012'") || yaml.contains("\"123456789012\""))
+    }
+
+    @Test func cliDerivedValuesAreValidatedBeforeTheyReachAnArgvOrAURL() {
+        let account = CloudAccount(provider: .azure, accountID: "00000000-0000-0000-0000-0000000000aa", name: "S")
+        func aks(_ name: String, group: String, managed: Bool? = true, sub: CloudAccount? = nil) -> CloudCluster? {
+            var c: [String: Any] = ["name": name, "resourceGroup": group, "location": "we", "fqdn": "x.hcp.we.azmk8s.io"]
+            if let managed { c["aadProfile"] = ["managed": managed] }
+            return AzureCLI.cluster(from: c, account: sub ?? account)
+        }
+        #expect(aks("edge-aks", group: "rg-edge")?.addable == true)
+        #expect(aks("edge-aks", group: "rg-edge", managed: false)?.addable == false)          // aadProfile without managed: not addable
+        #expect(aks("edge-aks", group: "rg-edge", managed: nil)?.addable == false)
+        #expect(aks("--bad", group: "rg")?.addable == false)
+        #expect(aks("ok", group: "rg; rm")?.addable == false)
+        #expect(aks("ok", group: "rg", sub: CloudAccount(provider: .azure, accountID: "--subscription x", name: "S"))?.addable == false)
+        let acct = CloudAccount(provider: .aws, accountID: "p", name: "p")
+        func eks(_ endpoint: String) -> CloudCluster? {
+            AWSCLI.cluster(from: ["endpoint": endpoint, "status": "ACTIVE", "arn": "arn:aws:eks:r:1:cluster/n"], name: "n", region: "r", account: acct)
+        }
+        #expect(eks("https://AAAA.gr7.eu-west-1.eks.amazonaws.com") != nil)
+        #expect(eks("http://aaaa.example.test") == nil)
+        #expect(eks("https://user@host.example.test") == nil)
+        #expect(eks("https://host.example.test/path?x") == nil)
+        #expect(eks("https://host example.test") == nil)
+    }
+
+    @Test func wheelhouseBackupsTempFilesAndLocksAreNotKubeconfigSources() {
+        for name in ["config.wheelhouse-backup-20261109-070000", "config.wheelhouse-backup-20261109-070000-2", ".config.wheelhouse-tmp-1F2E", "config.lock", "landfall.yaml.wheelhouse-backup-1"] {
+            #expect(!KubeconfigLoader.isCandidateName(name), "\(name)")
+        }
+        #expect(KubeconfigLoader.isCandidateName("config"))
+        #expect(KubeconfigLoader.isCandidateName("work.yaml"))
     }
 }
 #endif

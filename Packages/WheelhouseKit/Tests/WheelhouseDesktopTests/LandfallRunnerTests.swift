@@ -183,6 +183,8 @@ struct LandfallRunnerTests {
         #expect(f("ERROR: Please run 'az login' to setup account.") == .signedOut)
         #expect(f("User is not authorized to perform: eks:ListClusters") == .accessDenied(action: "eks:ListClusters"))
         #expect(f("something else") == .other("something else"))
+        // "has expired" alone is not a sign-in problem: a TLS certificate can expire too.
+        #expect(f("x509: certificate has expired or is not yet valid") == .other("x509: certificate has expired or is not yet valid"))
     }
 }
 #endif

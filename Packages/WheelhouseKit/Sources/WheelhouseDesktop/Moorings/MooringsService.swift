@@ -330,6 +330,14 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             if let existing = o, existing.added {
                 var updated = existing
                 updated.sourceRemovedAt = nil
+                // The same name now points at another API server: what the user approved was for the old one. Back to read-only,
+                // not approved, environment not chosen.
+                if let old = existing.lastKnown?.server, let new = ctx.context.server, ServerURL.normalized(URL(string: old) ?? new) != ServerURL.normalized(new) {
+                    updated.readOnly = true
+                    updated.contactApproved = false
+                    updated.environmentChosen = false
+                    updated.environment = ctx.suggestion?.environment
+                }
                 updated.lastKnown = lastKnown(ctx)
                 if updated != existing { overrideChanges[id] = updated }
                 if previous[id] == nil, !isFirstScan { change.added.append(id) }
@@ -443,6 +451,13 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             previous[id] = before
             var o = before ?? DiscoveredOverride()
             if !o.added || o.hidden { o.readOnly = true; o.addedAt = stamp; o.isNew = false; o.contactApproved = false }
+            // Registered for another server than the one it was approved for: start over.
+            if let old = (before?.lastKnown?.server).flatMap({ URL(string: $0) }), let new = row.server.flatMap({ URL(string: $0) }), ServerURL.normalized(old) != ServerURL.normalized(new) {
+                o.readOnly = true
+                o.contactApproved = false
+                o.environmentChosen = false
+                o.environment = nil
+            }
             o.added = true
             o.hidden = false
             if !o.environmentChosen, o.environment == nil || row.suggestedEnvironment == .production { o.environment = row.suggestedEnvironment ?? o.environment }

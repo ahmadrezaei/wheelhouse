@@ -248,8 +248,15 @@ struct LandfallServiceTests {
         #expect(await h.service.hasDailyTask)
         let info = try #require(h.registry.snapshot().first)
         #expect(info.name == LandfallService.taskName)
-        #expect(info.hiddenInterval == 3600)                              // runs while hidden: the user chose daily
-        #expect(h.registry.effectiveIntervals(windowsVisible: false).map(\.name) == [LandfallService.taskName])
+        #expect(info.hiddenInterval == nil)                               // §12.3.3: nothing but Crow's Nest runs while hidden
+        #expect(info.interval == 900)
+        #expect(h.registry.effectiveIntervals(windowsVisible: false).isEmpty)
+        #expect(h.registry.effectiveIntervals(windowsVisible: true).map(\.name) == [LandfallService.taskName])
+        // Visibility changes park and re-arm the task but never remove it.
+        h.registry.setWindowsVisible(false)
+        #expect(h.registry.snapshot().count == 1)
+        h.registry.setWindowsVisible(true)
+        #expect(h.registry.snapshot().count == 1)
 
         try h.prefs.update { $0.rescan = .manual }
         await h.service.applyRescanPolicy()
@@ -274,6 +281,113 @@ struct LandfallServiceTests {
         h.advance(86_400)
         await h.service.dailyTick()
         #expect(h.runner.count > afterFirst)
+    }
+
+    @Test func lastScanIsTrackedPerProvider() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        _ = try await h.service.scan(.aws, accounts: [h.profile])            // a manual AWS scan
+        #expect(h.prefs.value.lastScan.keys.sorted() == ["aws"])
+        try h.prefs.update { $0.rescan = .daily; $0.selectedAccounts = ["gcp": ["lab-2"]] }
+        let before = h.runner.count
+        await h.service.dailyTick()                                         // Google was never scanned: due although AWS just was
+        #expect(h.runner.count > before)
+        #expect(h.prefs.value.lastScan["gcp"] != nil || h.runner.calls(matching: "projects").count > 0)
+    }
+
+    // MARK: Names that already exist
+
+    @Test func landfallYamlNeverRepointsAnExistingNameToAnotherServer() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        let first = scan.clusters[0]
+        let outcome = try await h.service.add([first])
+        let id = try #require(outcome.ids[first.id])
+        // The user approved it: changes allowed, environment chosen.
+        var o = try #require(h.state.overrides.override(for: id))
+        o.readOnly = false; o.environmentChosen = true; o.contactApproved = true
+        try h.state.overrides.set(o, for: id)
+        let before = try String(contentsOf: h.landfallFile, encoding: .utf8)
+
+        var other = first; other.accountID = "other-profile"; other.endpoint = "https://ZZZZ9999.gr7.eu-west-1.eks.amazonaws.com"
+        let second = try await h.service.add([other])
+        #expect(second.added.isEmpty)
+        #expect(second.skipped[other.id]?.contains("already has a different cluster") == true)
+        #expect(try String(contentsOf: h.landfallFile, encoding: .utf8) == before)
+        #expect(h.state.overrides.override(for: id) == o)                   // still what the user approved
+
+        // The same cluster again (same server) is fine.
+        let again = try await h.service.add([first])
+        #expect(again.added.count == 1)
+    }
+
+    @Test func anAKSNameFromAnotherSubscriptionGetsASubscriptionQualifiedContextName() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: { p, a in
+            guard p == .azure else { return nil }
+            if a.prefix(2) == ["aks", "get-credentials"] { return CLIOutput(exitCode: 0, stdout: landfallFixture("az/get-credentials-aad.yaml")) }
+            return nil
+        })
+        func aks(_ sub: String, _ host: String) -> CloudCluster {
+            CloudCluster(provider: .azure, accountID: sub, accountName: sub, name: "aks-main", region: "westeurope", endpoint: "https://\(host):443",
+                         status: "Active", contextName: "aks-main", resourceGroup: "rg-main")
+        }
+        let dev = aks("00000000-0000-0000-0000-0000000000aa", "dev-dns.hcp.westeurope.azmk8s.io")
+        let prod = aks("11111111-1111-1111-1111-1111111111bb", "prod-dns.hcp.westeurope.azmk8s.io")
+        let first = try await h.service.add([dev])
+        let devID = try #require(first.ids[dev.id])
+        let second = try await h.service.add([prod])
+        #expect(second.added.first?.contextName == "aks-main-11111111")
+        let prodID = try #require(second.ids[prod.id])
+        #expect(prodID != devID)
+        let yaml = try String(contentsOf: h.landfallFile, encoding: .utf8)
+        #expect(yaml.contains("dev-dns") && yaml.contains("prod-dns"))
+    }
+
+    @Test func aChangedServerResetsWhatTheUserApproved() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let file = KubeconfigWriter.resolve(h.landfallFile)
+        let key = DiscoveredContextKey(definingFile: file.path, contextName: "ctx")
+        var o = DiscoveredOverride()
+        o.added = true; o.readOnly = false; o.environmentChosen = true; o.environment = .development; o.contactApproved = true
+        o.lastKnown = LastKnownContext(definingFile: file.path, contextName: "ctx", server: "https://old.example.test", tlsServerName: nil, authKind: .none,
+                                       insecureSkipTLSVerify: false, namespace: nil, displayName: "ctx", suggestedEnvironment: nil)
+        try h.state.overrides.set(o, for: key.clusterID)
+        try await h.moorings.registerLandfall([LandfallRegistration(key: key, suggestedEnvironment: nil, server: "https://new.example.test")])
+        let after = try #require(h.state.overrides.override(for: key.clusterID))
+        #expect(after.readOnly && !after.contactApproved && !after.environmentChosen)
+        // The same server keeps the approval.
+        try h.state.overrides.set(o, for: key.clusterID)
+        try await h.moorings.registerLandfall([LandfallRegistration(key: key, suggestedEnvironment: nil, server: "https://old.example.test")])
+        #expect(h.state.overrides.override(for: key.clusterID)?.environmentChosen == true)
+    }
+
+    @Test func aLockedLandfallFileFailsTheAddAndUndoesTheRegistration() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        let file = KubeconfigWriter.resolve(h.landfallFile)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "".write(to: file.appendingPathExtension("lock"), atomically: true, encoding: .utf8)     // another add holds the lock
+        await #expect(throws: KubeconfigWriteError.locked) { _ = try await h.service.add(scan.clusters) }
+        #expect(h.state.overrides.all.isEmpty)
+        #expect(h.contacts.total == 0)
+    }
+
+    @Test func aPlanThatWouldReplaceUserEntriesIsNotConfirmed() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        let c = scan.clusters[0]
+        let target = try s.write("user-kc", "apiVersion: v1\nkind: Config\nclusters:\n- name: \(c.contextName)\n  cluster: {server: \"https://mine.example.test\"}\n")
+        let entries = LandfallKubeconfig.entries(for: [c])
+        let replacing = try KubeconfigWriter(gate: h.gate).plan(entries: entries, into: target)
+        #expect(!replacing.replaced.isEmpty)
+        await #expect(throws: KubeconfigWriteError.wouldReplace) { _ = try await h.service.confirmUserMerge(replacing, entries: entries, clusters: [c]) }
+        #expect(try String(contentsOf: target, encoding: .utf8).contains("mine.example.test"))
+        #expect(h.state.overrides.all.isEmpty)
     }
 
     @Test func theUserFileMergeNeverReplacesExistingNamesAndRegistersTheCopyAsProduction() async throws {

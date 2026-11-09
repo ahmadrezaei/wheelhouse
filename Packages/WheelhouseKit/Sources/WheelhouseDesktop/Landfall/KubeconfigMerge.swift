@@ -11,6 +11,8 @@ public enum KubeconfigWriteError: Error, Equatable, Sendable, LocalizedError {
     case hardLinked
     case locked
     case changedSinceReview
+    /// A plan that would replace an entry of the user's file. Landfall only adds to it.
+    case wouldReplace
     case backupFailed(String)
     case writeFailed(String)
     /// The result did not match; `restored` says whether the original is back in place.
@@ -23,6 +25,7 @@ public enum KubeconfigWriteError: Error, Equatable, Sendable, LocalizedError {
         case .hardLinked: "The kubeconfig has more than one hard link, so Wheelhouse does not change it."
         case .locked: "Another program is changing the kubeconfig right now (config.lock exists). Try again in a moment."
         case .changedSinceReview: "The kubeconfig changed after you reviewed the merge. Review it again."
+        case .wouldReplace: "The merge would replace entries that are already in your kubeconfig, so it was not done."
         case .backupFailed(let why): "The backup could not be made: \(why)"
         case .writeFailed(let why): "The kubeconfig could not be written: \(why)"
         case .verificationFailed(let why, let restored): "\(why) " + (restored ? "Your original file was put back." : "Restoring the original failed; the backup is next to the file.")
@@ -34,6 +37,8 @@ public enum KubeconfigWriteError: Error, Equatable, Sendable, LocalizedError {
 public struct KubeconfigMergePlan: Sendable, Equatable {
     /// The file that will be changed (symlinks resolved).
     public var target: URL
+    /// The path as given (a symlink such as `~/.kube/config`): kubectl locks this path, so it is locked too.
+    public var requested: URL
     /// The exact YAML of the entries to merge.
     public var yaml: String
     public var backup: URL?
@@ -111,7 +116,7 @@ extension KubeconfigWriter {
             guard let root = try? KubeconfigParser.parse(t) else { return nil }
             return root.currentContext
         }
-        return KubeconfigMergePlan(target: target, yaml: yaml, backup: backup, added: merged.added, replaced: merged.replaced,
+        return KubeconfigMergePlan(target: target, requested: url, yaml: yaml, backup: backup, added: merged.added, replaced: merged.replaced,
                                    baseHash: data.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }, currentContext: current)
     }
 
@@ -135,11 +140,16 @@ extension KubeconfigWriter {
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
         // client-go's convention: `<file>.lock`, created exclusively.
-        let lock = target.appendingPathExtension("lock")
-        let lockFD = open(lock.path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
-        guard lockFD >= 0 else { throw KubeconfigWriteError.locked }
-        close(lockFD)
-        defer { unlink(lock.path) }
+        var locks: [URL] = []
+        defer { for l in locks { unlink(l.path) } }
+        for path in [plan.requested, target] {
+            let lock = path.appendingPathExtension("lock")
+            if locks.contains(lock) { continue }
+            let lockFD = open(lock.path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
+            guard lockFD >= 0 else { throw KubeconfigWriteError.locked }
+            close(lockFD)
+            locks.append(lock)
+        }
 
         let (text, data, mode) = try Self.read(target)
         let hash = data.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }

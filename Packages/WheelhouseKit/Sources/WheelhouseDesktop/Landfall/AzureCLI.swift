@@ -65,14 +65,22 @@ public struct AzureCLI: CloudProviderAdapter {
         let provisioning = CLIJSON.string(c["provisioningState"]) ?? "Unknown"
         let status = power == "Stopped" ? "Stopped" : (provisioning == "Succeeded" ? "Active" : provisioning)
         let nodes = CLIJSON.array(c["agentPoolProfiles"]).compactMap { $0["count"] as? Int }.reduce(0, +)
-        let entra = !CLIJSON.object(c["aadProfile"]).isEmpty
+        let entra = CLIJSON.bool(CLIJSON.object(c["aadProfile"])["managed"]) == true
+        let group = CLIJSON.string(c["resourceGroup"])
+        // These go into argv later: only Azure's own grammar.
+        let valid = Self.isValidName(name) && (group.map(Self.isValidResourceGroup) ?? false) && Self.isValidSubscription(account.accountID)
         return CloudCluster(
             provider: .azure, accountID: account.accountID, accountName: account.name, name: name, region: location, endpoint: "https://\(host):443",
             version: CLIJSON.string(c["kubernetesVersion"]), status: status, access: isPrivate ? .privateEndpoint : .publicEndpoint,
             tags: CLIJSON.stringMap(c["tags"]), nodeCount: nodes > 0 ? nodes : nil, contextName: name, resourceGroup: CLIJSON.string(c["resourceGroup"]),
-            addable: entra,
-            unsupportedReason: entra ? nil : "This cluster uses local accounts only. Adding it would need its credential stored in the Keychain, which Landfall does not do yet.")
+            addable: entra && valid,
+            unsupportedReason: !valid ? "The cluster name, resource group or subscription is not in a form Landfall can pass to az."
+                : (entra ? nil : "This cluster has no managed Entra ID integration (local accounts only). Adding it would need its credential stored in the Keychain, which Landfall does not do yet."))
     }
+
+    static func isValidName(_ s: String) -> Bool { s.range(of: #"^[A-Za-z0-9]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$"#, options: .regularExpression) != nil }
+    static func isValidResourceGroup(_ s: String) -> Bool { s.range(of: #"^[A-Za-z0-9._()-]{1,90}$"#, options: .regularExpression) != nil && !s.hasPrefix("-") }
+    static func isValidSubscription(_ s: String) -> Bool { s.range(of: #"^[0-9A-Fa-f-]{36}$"#, options: .regularExpression) != nil }
 
     /// The CA of an Entra ID cluster, read from `az aks get-credentials --file -`. Only the CA is kept; nothing else of that output is read.
     public func prepareToAdd(_ cluster: CloudCluster) async throws -> CloudCluster {

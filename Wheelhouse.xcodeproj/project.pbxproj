@@ -45,6 +45,7 @@
 		2069C9F94BBAFFF02F92F96E /* Route.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05850A5A2F03124AD8641A6D /* Route.swift */; };
 		206A718C545F283BFE894007 /* WheelhouseMacPerfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F13DCEB437CE6A298E9C69F /* WheelhouseMacPerfTests.swift */; };
 		20D58BCF8DADAFBC8F9748D9 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60B2D3A3F138EC3D2CA018FA /* NetworkMonitor.swift */; };
+		20ED3F3A272827BE3BE0ECF3 /* LandfallModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */; };
 		210AA3728CC12AA81BDBC053 /* BasicTerminalSurface+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED31BF9841DCBEB1A867B06 /* BasicTerminalSurface+iOS.swift */; };
 		21145216806B71625C53402B /* LandfallPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A023E423619E813328039D2C /* LandfallPane.swift */; };
 		21E8463FE6F0EFA33EFD4BAB /* SessionsHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309FD722690ACE35D393E993 /* SessionsHub.swift */; };
@@ -417,6 +418,7 @@
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
 		3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesDetailView.swift; sourceTree = "<group>"; };
 		3FB8C8FF29952189955D7D92 /* SignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInSheet.swift; sourceTree = "<group>"; };
+		4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallModelTests.swift; sourceTree = "<group>"; };
 		4271F087BBF30B039F71536D /* ClusterDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashModel.swift; sourceTree = "<group>"; };
 		43D00A40858D143534756846 /* SidebarRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRows.swift; sourceTree = "<group>"; };
 		46F48152520311B2144B42D8 /* MacAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppEnvironment.swift; sourceTree = "<group>"; };
@@ -657,6 +659,7 @@
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */,
 				2FB1CC652EB53E4DFCF4D504 /* KubeTableDiffTests.swift */,
+				4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */,
 				CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */,
 				6C7BAF4AFA921DEF8FCD1930 /* LaunchPathTests.swift */,
 				63C86BF66B2F9F6B71625516 /* LiveClusterTests.swift */,
@@ -1893,6 +1896,7 @@
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */,
 				9F2169A48127E89417F810D3 /* KubeTableDiffTests.swift in Sources */,
+				20ED3F3A272827BE3BE0ECF3 /* LandfallModelTests.swift in Sources */,
 				CC32488B9762B039BB3CF34D /* LandfallSafetyTests.swift in Sources */,
 				4C65B0FFF0A23AE7C7829917 /* LaunchPathTests.swift in Sources */,
 				7A98F9D04C58726C6F21C3ED /* LiveClusterTests.swift in Sources */,

@@ -63,7 +63,7 @@ public enum CLIFailure: Equatable, Sendable {
     public static func classify(_ error: Error) -> CLIFailure {
         guard case CLIError.failed(_, let stderr) = error else { return .other(error.localizedDescription) }
         let lower = stderr.lowercased()
-        let signedOutMarkers = ["sso session", "error loading sso token", "token has expired", "has expired", "sso login", "unable to locate credentials", "expiredtoken", "refresh token has expired",
+        let signedOutMarkers = ["the sso session", "error loading sso token", "sso token", "token has expired", "refresh token has expired", "sso login", "unable to locate credentials", "expiredtoken", "refresh token has expired",
                                 "gcloud auth login", "reauthentication", "do not currently have an active account", "az login",
                                 "aadsts", "interactive authentication is needed", "unable to refresh"]
         if signedOutMarkers.contains(where: lower.contains) { return .signedOut }

@@ -15,8 +15,8 @@ public struct LandfallPreferences: Codable, Equatable, Sendable {
     public var selectedAccounts: [String: [String]] = [:]
     /// AWS regions to scan; nil = every enabled region.
     public var awsRegions: [String]?
-    /// When the last scan finished, for the daily cadence.
-    public var lastScan: Date?
+    /// When each provider's last scan finished (`CloudProvider.rawValue`), for the daily cadence.
+    public var lastScan: [String: Date] = [:]
     public init() {}
 }
 
@@ -66,8 +66,11 @@ final class LandfallCacheStore: Sendable {
 public struct LandfallRegistration: Sendable, Equatable {
     public var key: DiscoveredContextKey
     public var suggestedEnvironment: ClusterEnvironment?
-    public init(key: DiscoveredContextKey, suggestedEnvironment: ClusterEnvironment?) {
+    /// The API server the context points at (a change of server resets what the user approved).
+    public var server: String?
+    public init(key: DiscoveredContextKey, suggestedEnvironment: ClusterEnvironment?, server: String? = nil) {
         self.key = key
+        self.server = server
         self.suggestedEnvironment = suggestedEnvironment
     }
 }
@@ -120,16 +123,18 @@ public actor LandfallService {
     private let now: @Sendable () -> Date
     private let registry: PeriodicTaskRegistry
     private let ttl: TimeInterval
+    private let userMergeTarget: URL?
     private var dailyTask: PeriodicTask?
 
     /// How often the daily task wakes to see whether a day has passed.
-    static let dailyWake: TimeInterval = 3600
+    static let dailyWake: TimeInterval = 900
     static let dailyAge: TimeInterval = 86_400
     public static let taskName = "landfall.daily-rescan"
 
     public init(adapters: [any CloudProviderAdapter], moorings: any LandfallMoorings, landfallFile: URL, cacheFile: URL, preferences: LandfallPreferencesStore,
                 gateProvider: @escaping @Sendable () -> DevSafetyPolicy = { .current }, now: @escaping @Sendable () -> Date = { Date() },
-                registry: PeriodicTaskRegistry = .shared, ttl: TimeInterval = 3600) {
+                registry: PeriodicTaskRegistry = .shared, ttl: TimeInterval = 3600, userMergeTarget: URL? = nil) {
+        self.userMergeTarget = userMergeTarget
         self.adapters = Dictionary(adapters.map { ($0.provider, $0) }, uniquingKeysWith: { a, _ in a })
         self.moorings = moorings
         self.landfallFile = landfallFile
@@ -187,7 +192,7 @@ public actor LandfallService {
             cache.update { $0.scans[account.id] = scan }
             results.append(scan)
         }
-        try? preferences.update { $0.lastScan = now() }
+        try? preferences.update { $0.lastScan[provider.rawValue] = now() }
         return results
     }
 
@@ -205,14 +210,27 @@ public actor LandfallService {
         var prepared: [CloudCluster] = []
         var skipped: [String: String] = [:]
         var seenContexts = Set<String>()
-        for c in clusters {
-            guard seenContexts.insert(c.contextName).inserted else { skipped[c.id] = "Another selected row has the same context name (\(c.contextName))."; continue }
-            guard c.addable else { skipped[c.id] = c.unsupportedReason ?? "This cluster cannot be added."; continue }
+        // landfall.yaml only ever gains names: a name it already holds for another API server is never overwritten (that would repoint
+        // a cluster the user approved). An AKS row is retried under a subscription-qualified name; anything else is skipped with the reason.
+        let held = heldServers()
+        var originalIDs: [String] = []      // parallel to `prepared`: the row's id before any rename
+        for var c in clusters {
+            let rowID = c.id
+            if let existing = held[c.contextName], let url = c.serverURL, existing != ServerURL.normalized(url) {
+                if c.provider == .azure, !held.keys.contains("\(c.name)-\(c.accountID.prefix(8))") {
+                    c.contextName = "\(c.name)-\(c.accountID.prefix(8))"
+                } else {
+                    skipped[rowID] = "landfall.yaml already has a different cluster named \(c.contextName)."
+                    continue
+                }
+            }
+            guard seenContexts.insert(c.contextName).inserted else { skipped[rowID] = "Another selected row has the same context name (\(c.contextName))."; continue }
+            guard c.addable else { skipped[rowID] = c.unsupportedReason ?? "This cluster cannot be added."; continue }
             do {
                 let full = try await adapter(c.provider).prepareToAdd(c)
-                guard full.caData != nil, full.serverURL != nil else { skipped[c.id] = "The cluster has no endpoint or CA yet (is it still being created?)."; continue }
-                prepared.append(full)
-            } catch { skipped[c.id] = error.localizedDescription }
+                guard full.caData != nil, full.serverURL != nil else { skipped[rowID] = "The cluster has no endpoint or CA yet (is it still being created?)."; continue }
+                prepared.append(full); originalIDs.append(rowID)
+            } catch { skipped[rowID] = error.localizedDescription }
         }
         let entries = LandfallKubeconfig.entries(for: prepared)
         guard !prepared.isEmpty else {
@@ -220,7 +238,7 @@ public actor LandfallService {
         }
         let file = KubeconfigWriter.resolve(landfallFile)
         let regs = prepared.map { LandfallRegistration(key: DiscoveredContextKey(definingFile: file.path, contextName: $0.contextName),
-                                                       suggestedEnvironment: $0.suggestion?.environment) }
+                                                       suggestedEnvironment: $0.suggestion?.environment, server: $0.endpoint) }
         let created = try await moorings.registerLandfall(regs)
         do {
             try KubeconfigWriter(gate: gateProvider()).merge(entries: entries, into: landfallFile, backup: false)
@@ -231,8 +249,8 @@ public actor LandfallService {
         await moorings.rescanSources()
         var ids: [String: ClusterID] = [:]
         var toCheck: [ClusterID] = []
-        for (c, r) in zip(prepared, regs) {
-            ids[c.id] = r.key.clusterID
+        for ((c, r), rowID) in zip(zip(prepared, regs), originalIDs) {
+            ids[rowID] = r.key.clusterID
             if !c.isSuggestedProduction { toCheck.append(r.key.clusterID) }
         }
         await moorings.startFirstRunChecks(ids: toCheck)
@@ -244,6 +262,13 @@ public actor LandfallService {
         }
         return LandfallAddOutcome(ids: ids, added: prepared, skipped: skipped, checked: toCheck, entries: entries, mergePlan: merge?.plan,
                                   mergeEntries: merge?.entries, mergeLeftUnchanged: merge?.leftUnchanged ?? [], mergeNote: note)
+    }
+
+    /// context name → normalised server, for what landfall.yaml holds now.
+    private func heldServers() -> [String: String] {
+        guard let text = try? String(contentsOf: landfallFile, encoding: .utf8),
+              let config = try? KubeconfigParser.parse(text, environment: .desktop(baseDirectory: landfallFile.deletingLastPathComponent())) else { return [:] }
+        return Dictionary(config.contexts.compactMap { c in c.server.map { (c.name, ServerURL.normalized($0)) } }, uniquingKeysWith: { a, _ in a })
     }
 
     /// The user pressed **Check** on a row (the only way a Production-suggested row is contacted).
@@ -265,7 +290,7 @@ public actor LandfallService {
     /// as they are and listed in `leftUnchanged`. `target` is the user's file (tests pass a scratch file).
     public func planUserMerge(_ entries: KubeconfigEntries, target explicit: URL? = nil) throws -> UserMergePlan {
         let gate = gateProvider()
-        let target = try explicit ?? LandfallMergeTarget.resolve(gate: gate)
+        let target = try explicit ?? userMergeTarget ?? LandfallMergeTarget.resolve(gate: gate)
         let writer = KubeconfigWriter(gate: gate)
         let first = try writer.plan(entries: entries, into: target, now: now())
         guard !first.replaced.isEmpty else { return UserMergePlan(plan: first, entries: entries, leftUnchanged: []) }
@@ -284,11 +309,12 @@ public actor LandfallService {
     @discardableResult
     public func confirmUserMerge(_ plan: KubeconfigMergePlan, entries: KubeconfigEntries, clusters: [CloudCluster] = []) async throws -> KubeconfigMergeResult {
         let gate = gateProvider()
-        if gate.isActive { _ = try LandfallMergeTarget.resolve(gate: gate) }
+        try gate.require(gate.allowsKubeconfigWrites, feature: "Merging into ~/.kube/config")
+        guard plan.replaced.isEmpty else { throw KubeconfigWriteError.wouldReplace }
         let byName = Dictionary(clusters.map { ($0.contextName, $0) }, uniquingKeysWith: { a, _ in a })
         let regs = entries.contexts.map { ctx in
             LandfallRegistration(key: DiscoveredContextKey(definingFile: plan.target.path, contextName: ctx.name),
-                                 suggestedEnvironment: byName[ctx.name]?.suggestion?.environment)
+                                 suggestedEnvironment: byName[ctx.name]?.suggestion?.environment, server: byName[ctx.name]?.endpoint)
         }
         let previous = try await moorings.registerLandfall(regs)
         do { return try KubeconfigWriter(gate: gate).merge(plan: plan, entries: entries) } catch {
@@ -305,7 +331,7 @@ public actor LandfallService {
         dailyTask?.stop()
         dailyTask = nil
         guard isEnabled, preferences.value.rescan == .daily else { return }
-        let task = PeriodicTask(name: Self.taskName, interval: Self.dailyWake, hiddenInterval: Self.dailyWake, registry: registry) { [weak self] in
+        let task = PeriodicTask(name: Self.taskName, interval: Self.dailyWake, hiddenInterval: nil, registry: registry) { [weak self] in
             await self?.dailyTick()
         }
         dailyTask = task
@@ -317,14 +343,13 @@ public actor LandfallService {
     /// One wake of the daily task.
     public func dailyTick() async {
         guard isEnabled, preferences.value.rescan == .daily else { return }
-        if let last = preferences.value.lastScan, now().timeIntervalSince(last) < Self.dailyAge { return }
         for provider in CloudProvider.allCases {
+            if let last = preferences.value.lastScan[provider.rawValue], now().timeIntervalSince(last) < Self.dailyAge { continue }
             let selected = Set(preferences.value.selectedAccounts[provider.rawValue] ?? [])
             guard !selected.isEmpty, adapters[provider] != nil else { continue }
             guard let all = try? await accounts(provider, force: true) else { continue }
             _ = try? await scan(provider, accounts: all.filter { selected.contains($0.accountID) }, force: true)
         }
-        try? preferences.update { $0.lastScan = now() }
     }
 }
 #endif

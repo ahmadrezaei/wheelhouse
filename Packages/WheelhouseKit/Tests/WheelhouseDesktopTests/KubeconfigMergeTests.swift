@@ -221,6 +221,17 @@ struct KubeconfigMergeTests {
         #expect(try String(contentsOf: b.backup!, encoding: .utf8).contains("arn:aws:eks"))
     }
 
+    @Test func aLockOnTheSymlinkPathAloneStopsTheMerge() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let realFile = try s.write("dotfiles/kubeconfig", Self.existing)
+        let link = s.root.appending(path: "linked-config")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: realFile)
+        try s.write("linked-config.lock", "")                                   // kubectl locks the path it was given
+        #expect(throws: KubeconfigWriteError.locked) { _ = try writer(s).merge(entries: LandfallKubeconfig.entries(for: [Self.cluster()]), into: link) }
+        #expect(try String(contentsOf: realFile, encoding: .utf8) == Self.existing)
+        #expect(!FileManager.default.fileExists(atPath: realFile.appendingPathExtension("lock").path))   // the lock taken first is released
+    }
+
     // MARK: Gate
 
     @Test func everyWriteIsRefusedWhileTheGateIsActive() throws {

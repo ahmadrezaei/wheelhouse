@@ -8,6 +8,10 @@ enum CLIJSON {
     static func string(_ any: Any?) -> String? { (any as? String).flatMap { $0.isEmpty ? nil : $0 } }
     static func bool(_ any: Any?) -> Bool? { any as? Bool }
     static func strings(_ any: Any?) -> [String] { (any as? [Any])?.compactMap { $0 as? String } ?? [] }
+    /// `https://host[:port]` with a plain host name or address: nothing a later URL or argv step could misread.
+    static func isHTTPSEndpoint(_ s: String) -> Bool {
+        s.range(of: #"^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$"#, options: .regularExpression) != nil
+    }
     static func stringMap(_ any: Any?) -> [String: String] {
         (any as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
     }
@@ -113,7 +117,7 @@ public struct AWSCLI: CloudProviderAdapter {
 
     /// `aws eks describe-cluster` → a cluster. The context name is the cluster ARN, like `aws eks update-kubeconfig` writes it.
     static func cluster(from c: [String: Any], name: String, region: String, account: CloudAccount) -> CloudCluster? {
-        guard let endpoint = CLIJSON.string(c["endpoint"]) else { return nil }
+        guard let endpoint = CLIJSON.string(c["endpoint"]), CLIJSON.isHTTPSEndpoint(endpoint) else { return nil }
         let vpc = CLIJSON.object(c["resourcesVpcConfig"])
         let publicAccess = CLIJSON.bool(vpc["endpointPublicAccess"])
         let status = CLIJSON.string(c["status"]) ?? "UNKNOWN"
