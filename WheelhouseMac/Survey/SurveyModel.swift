@@ -182,6 +182,8 @@ final class SurveyHub {
     private(set) var risks: AcceptedRiskBook
     private(set) var fleet: [FleetSurveyEntry] = []
     private(set) var isLoadingFleet = false
+    private(set) var riskStoreError: String?
+    @ObservationIgnored private var riskStore: SurveyStore?
     @ObservationIgnored private var models: [ClusterID: SurveyModel] = [:]
     @ObservationIgnored private let riskFile: URL?
     /// Creates the app's folder (mode 0700) before the first save.
@@ -222,7 +224,30 @@ final class SurveyHub {
         persist()
     }
 
+    func acceptCVE(_ cveID: String, clusterID: ClusterID, reason: String, days: Int) {
+        risks.acceptCVE(cveID, clusterID: clusterID, reason: reason, days: days)
+        persist()
+    }
+
+    /// Moves the accepted risks into `survey.sqlite` (M8b): once, the M8a JSON file is imported (it stays in place), after which the
+    /// database is the only store. If the database cannot be opened the JSON file keeps being used and nothing is overwritten.
+    func attach(store: SurveyStore?) async {
+        guard let store, riskStore == nil else { return }
+        do {
+            if let riskFile { try await store.importLegacyRisksOnce(from: riskFile) }
+            risks = try await store.acceptedRisks()
+            riskStore = store
+        } catch {
+            riskStoreError = error.localizedDescription
+        }
+    }
+
     private func persist() {
+        if let riskStore {
+            let book = risks
+            Task { try? await riskStore.saveAcceptedRisks(book) }
+            return
+        }
         guard let riskFile else { return }
         prepare?()
         try? AcceptedRiskStorage.save(risks, to: riskFile)

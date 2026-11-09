@@ -91,6 +91,11 @@ public struct TrivyCLI: Sendable {
         if !isolated {
             let docker = environment.build(profile: .docker)
             for key in ["DOCKER_CONFIG", "DOCKER_HOST"] { if let v = docker[key] { env[key] = v } }
+            // Trivy's own cloud auth for ECR, GCR and ACR reads the user's AWS, Google and Azure variables (the scrubbed allowlists).
+            for profile in [EnvironmentBuilder.ToolProfile.aws, .google, .azure] {
+                let cloudEnv = environment.build(profile: profile)
+                for (k, v) in cloudEnv where env[k] == nil && k != "KUBECACHEDIR" { env[k] = v }
+            }
             for (k, v) in cloud { env[k] = v }
         }
         if let dockerConfig {

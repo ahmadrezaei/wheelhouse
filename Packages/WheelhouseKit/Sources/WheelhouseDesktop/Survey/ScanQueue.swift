@@ -21,14 +21,24 @@ public struct ScanProgress: Equatable, Sendable {
         case paused(ScanGate.PauseReason)
         case userPaused
     }
-    public var state: State = .idle
-    public var queued = 0
-    public var scanned = 0
-    public var failed = 0
+    public var state: State
+    public var queued: Int
+    public var scanned: Int
+    public var failed: Int
     public var current: String?
     /// Estimated seconds left: average duration of the finished images times those left. Updated when an image finishes.
     public var eta: TimeInterval?
     public var lastError: String?
+
+    public init(state: State = .idle, queued: Int = 0, scanned: Int = 0, failed: Int = 0, current: String? = nil, eta: TimeInterval? = nil, lastError: String? = nil) {
+        self.state = state
+        self.queued = queued
+        self.scanned = scanned
+        self.failed = failed
+        self.current = current
+        self.eta = eta
+        self.lastError = lastError
+    }
 }
 
 /// The scan queue (ARCHITECTURE-MAC §6.1 "CPU and energy"): persisted in `survey.sqlite`, one image at a time, pausable. Before
