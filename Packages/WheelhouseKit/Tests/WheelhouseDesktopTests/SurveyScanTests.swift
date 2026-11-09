@@ -38,7 +38,7 @@ struct TrivyCLITests {
     @Test func scanArgvIsPinned() {
         let o = TrivyOptions(cacheDirectory: URL(fileURLWithPath: "/c"), architecture: "arm64")
         #expect(TrivyCLI.scanArguments(target: "docker.io/library/nginx:latest", options: o) == [
-            "image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--skip-java-db-update", "--cache-dir", "/c", "--timeout", "10m",
+            "image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--image-src", "remote", "--cache-dir", "/c", "--timeout", "10m",
             "--parallel", "1", "--platform", "linux/arm64", "--", "docker.io/library/nginx:latest",
         ])
         var mirror = o
@@ -75,6 +75,12 @@ struct TrivyCLITests {
         #expect(try await fake.cli.version() == "Version: 0.99.0")
     }
 
+    @Test func classifyDoesNotMistakeADigestForAnAuthFailure() {
+        let noise = "FATAL scan error: sha256:a401b2c3 timestamp 12:00:01.401Z failed"
+        #expect(TrivyCLI.classify(stderr: noise, code: 1, registry: "r") == .failed(code: 1, message: noise))
+        #expect(TrivyCLI.classify(stderr: "GET https://r/v2/x: 401 Unauthorized", code: 1, registry: "r") == .unauthorized(registry: "r"))
+    }
+
     @Test func mapsFailures() async throws {
         let fake = try FakeTrivy()
         defer { fake.scratch.cleanup() }
@@ -97,6 +103,8 @@ struct TrivyCLITests {
         let dev = TrivyCLI(executable: fake.cli.executable, environment: EnvironmentBuilder(snapshot: nil, paths: isolated, home: isolated.home))
         let devEnv = dev.processEnvironment(dockerConfig: nil, cloud: ["AWS_PROFILE": "p"])
         #expect(devEnv["AWS_PROFILE"] == nil)
+        #expect(devEnv["HOME"] != isolated.home.path && devEnv["HOME"]?.contains("trivy-home") == true)
+        #expect(devEnv["AWS_EC2_METADATA_DISABLED"] == "true")
         #expect(devEnv["DOCKER_CONFIG"]?.contains("empty-docker-config") == true)
         #expect(TrivyCLI.defaultCacheDirectory(paths: isolated).path.contains("Caches/com.ahmadrezaei.wheelhouse.mac.debug/trivy"))
         #expect(TrivyCLI.defaultCacheDirectory(paths: fake.paths).path.hasSuffix("Library/Caches/trivy"))
@@ -193,6 +201,24 @@ private actor RecordingRunner: ScanRunner {
         if item.image == blockOn { try await Task.sleep(for: .seconds(30)) }
         try Task.checkCancellation()
         scanned.append(item.image)
+        return ImageScanResult(image: item.image, digest: nil, isMutable: true, dbVersion: "2", scannedAt: Date(), vulnerabilities: [])
+    }
+}
+
+/// Counts how many scans overlap. A cancelled scan takes a moment to "exit", like a child process that must be killed.
+private actor OverlapRunner: ScanRunner {
+    var active = 0
+    var maxActive = 0
+    var started = 0
+    func scan(_ item: ScanQueueItem, trigger: ScanTrigger) async throws -> ImageScanResult {
+        active += 1
+        started += 1
+        maxActive = max(maxActive, active)
+        defer { active -= 1 }
+        do { try await Task.sleep(for: .milliseconds(started == 1 ? 5_000 : 50)) } catch {
+            try? await Task.sleep(for: .milliseconds(300))          // the child is still exiting
+            throw error
+        }
         return ImageScanResult(image: item.image, digest: nil, isMutable: true, dbVersion: "2", scannedAt: Date(), vulnerabilities: [])
     }
 }
@@ -336,15 +362,15 @@ struct ScanQueueTests {
         let observer = FakeObserver()
         let (queue, _) = try await makeQueue(scratch, runner: runner, conditions: Box(ScanConditions()), observer: observer)
         #expect(!observer.active)
-        try await queue.enqueue(images: images(2), trigger: .manual)
+        try await queue.enqueue(images: images(2), trigger: .scheduled)
         #expect(!observer.active)
-        await queue.start(trigger: .manual)
+        await queue.start(trigger: .scheduled)
         try await waitFor("observing") { observer.active }
         await queue.pause()
         try await waitFor("user paused") { await queue.progress.state == .userPaused }
         #expect(!observer.active)
         await runner.setBlock(nil)
-        await queue.resume(trigger: .manual)
+        await queue.resume(trigger: .scheduled)
         try await waitFor("finished \(await queue.progress)") { await queue.progress.scanned == 2 }
         try await waitFor("observer released") { !observer.active }
     }
@@ -365,6 +391,32 @@ struct ScanQueueTests {
         try await waitFor("done") { let p = await queue.progress; return p.state == .idle && p.scanned == 1 }
         #expect(await queue.progress.failed == 1)
         #expect(await queue.progress.lastError?.contains("registry.example.com") == true)
+    }
+
+    @Test func pauseThenResumeNeverRunsTwoScansAtOnce() async throws {
+        let scratch = try Scratch()
+        defer { scratch.cleanup() }
+        let runner = OverlapRunner()
+        let store = try SurveyStore(url: scratch.root.appending(path: "survey.sqlite"))
+        let queue = ScanQueue(store: store, runner: runner, conditions: { ScanConditions() })
+        try await queue.enqueue(images: images(2), trigger: .manual)
+        await queue.start(trigger: .manual)
+        try await waitFor("first running") { await runner.started >= 1 }
+        await queue.pause()
+        await queue.resume(trigger: .manual)                           // at once: the cancelled child is still exiting
+        try await waitFor("both done") { await queue.progress.scanned == 2 }
+        #expect(await runner.maxActive == 1)
+        #expect(await queue.progress.failed == 0)
+    }
+
+    @Test func theArchitectureComesFromTheQueueItem() async throws {
+        let scratch = try Scratch()
+        defer { scratch.cleanup() }
+        let store = try SurveyStore(url: scratch.root.appending(path: "survey.sqlite"))
+        try await store.enqueue(image: "registry.example.com/app:1", isMutable: true, clusters: ["c"], trigger: .manual, architecture: "arm64")
+        try await store.enqueue(image: "registry.example.com/other:1", isMutable: true, clusters: ["c"], trigger: .manual)
+        let items = try await store.queue()
+        #expect(items[0].architecture == "arm64" && items[1].architecture == nil)
     }
 
     @Test func anIdleQueueRegistersNoPeriodicTask() async throws {

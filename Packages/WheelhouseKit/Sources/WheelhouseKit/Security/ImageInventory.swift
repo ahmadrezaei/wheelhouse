@@ -46,6 +46,16 @@ public enum ImageInventory {
         return order.compactMap { uses[$0] }
     }
 
+    /// The most common `status.nodeInfo.architecture` of the nodes (`arm64` or `amd64`), the platform trivy should pick for the
+    /// cluster's images. nil when no node says.
+    public static func dominantArchitecture(nodes: [JSONValue]) -> String? {
+        var counts: [String: Int] = [:]
+        for n in nodes {
+            if let a = n.value(at: "status.nodeInfo.architecture")?.stringValue, a == "arm64" || a == "amd64" { counts[a, default: 0] += 1 }
+        }
+        return counts.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key
+    }
+
     /// One entry per scan target; the clusters that run it, in the order they were given.
     public struct Merged: Hashable, Sendable {
         public var reference: ImageReference

@@ -4,8 +4,8 @@ import WheelhouseKit
 import WheelhouseUI
 
 /// Settings ▸ Survey ▸ Vulnerability scanning: the source of trivy, the database mirror, the energy rule and the per-cluster
-/// "Use the cluster's imagePullSecrets" opt-in (off by default). Opening Settings does not open the database or start anything
-/// beyond one lookup of where trivy is.
+/// "Use the cluster's imagePullSecrets" opt-in (off by default). Opening Settings opens `survey.sqlite` (lazily, here and in the
+/// Survey screens) and looks up where trivy is; nothing is scanned.
 struct ScanSettingsSection: View {
     @Environment(MacAppEnvironment.self) private var env
     @AppStorage(SurveyScanSettings.onlyOnPower) private var onlyOnPower = true

@@ -15,7 +15,7 @@
 #     (an OLDER report of ReplicaSet web-5c6b7d8e9f, container app, 9 of each, must be ignored)
 #   StatefulSet db:  pg 1C 0H 0M 2L 1U
 #   Pod tool:        c  0C 0H 3M 0L 0U
-#   namespace total: 3 critical, 4 high, 5 medium, 2 low, 1 unknown = 15; 4 workload entries (web, db, tool; web has 2 containers).
+#   namespace total: 3 critical, 4 high, 5 medium, 2 low, 1 unknown = 15; 3 workload entries (web, db, tool; web has 2 containers).
 # Owned by M8b.
 
 M8B_NS=wh-m8b

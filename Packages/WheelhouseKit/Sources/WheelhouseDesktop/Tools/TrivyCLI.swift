@@ -28,10 +28,10 @@ public struct TrivyOptions: Sendable, Equatable {
     /// `--db-repository` and `--java-db-repository`: a mirror for restricted networks.
     public var dbRepository: String?
     public var javaDBRepository: String?
-    /// `arm64` or `amd64`: the node architecture of the image's cluster.
+    /// `arm64` or `amd64`: the default when a queue item names none.
     public var architecture: String
 
-    public init(cacheDirectory: URL, dbRepository: String? = nil, javaDBRepository: String? = nil, architecture: String = "arm64") {
+    public init(cacheDirectory: URL, dbRepository: String? = nil, javaDBRepository: String? = nil, architecture: String = "amd64") {
         self.cacheDirectory = cacheDirectory
         self.dbRepository = dbRepository
         self.javaDBRepository = javaDBRepository
@@ -62,7 +62,7 @@ public struct TrivyCLI: Sendable {
     // MARK: argv (golden-tested)
 
     public static func scanArguments(target: String, options: TrivyOptions) -> [String] {
-        var args = ["image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--skip-java-db-update",
+        var args = ["image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--image-src", "remote",
                     "--cache-dir", options.cacheDirectory.path, "--timeout", "10m", "--parallel", "1", "--platform", "linux/\(options.architecture)"]
         if let r = options.dbRepository, !r.isEmpty { args += ["--db-repository", r] }
         if let r = options.javaDBRepository, !r.isEmpty { args += ["--java-db-repository", r] }
@@ -103,6 +103,14 @@ public struct TrivyCLI: Sendable {
         } else if isolated {
             env["DOCKER_CONFIG"] = environment.paths.root.appending(path: "empty-docker-config", directoryHint: .isDirectory).path
         }
+        if isolated {
+            // A development build reaches no real credential: not the user's home (cloud CLIs, keychain helpers) and not the cloud
+            // metadata service.
+            env["HOME"] = environment.paths.root.appending(path: "trivy-home", directoryHint: .isDirectory).path
+            env["AWS_EC2_METADATA_DISABLED"] = "true"
+        }
+        // The run's shape is ours: a TRIVY_* variable of the shell must not redirect the output or the scan.
+        for key in ["TRIVY_OUTPUT", "TRIVY_SERVER", "TRIVY_FORMAT", "TRIVY_QUIET", "TRIVY_IMAGE_SRC", "TRIVY_PLATFORM"] { env.removeValue(forKey: key) }
         env["TRIVY_NO_PROGRESS"] = "true"
         env["TRIVY_DISABLE_TELEMETRY"] = "true"
         return env
@@ -128,7 +136,7 @@ public struct TrivyCLI: Sendable {
     /// Scans one image. The caller owns `dockerConfig` (a per-scan folder it deletes afterwards).
     public func scan(_ image: ImageReference, options: TrivyOptions, trigger: ScanTrigger, dockerConfig: URL? = nil,
                      cloud: [String: String] = [:]) async throws -> TrivyImageReportParser.Parsed {
-        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Scanning an image with trivy")
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Scanning an image with trivy")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let result = try await Subprocess.run(scanSpec(image: image, options: options, trigger: trigger, dockerConfig: dockerConfig, cloud: cloud))
         guard result.exit.succeeded else { throw Self.classify(stderr: result.stderrString, code: result.exit.code, registry: image.registry) }
@@ -137,7 +145,7 @@ public struct TrivyCLI: Sendable {
 
     /// `trivy image --download-db-only` (and the Java DB when asked).
     public func downloadDatabase(options: TrivyOptions, java: Bool = false, trigger: ScanTrigger) async throws {
-        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Downloading the vulnerability database")
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Downloading the vulnerability database")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let r = try await Subprocess.run(spec(arguments: Self.downloadDBArguments(options: options, java: java), env: processEnvironment(dockerConfig: nil, cloud: [:]),
                                               timeout: databaseTimeout, qos: ScanGate.qos(for: trigger)))
@@ -158,7 +166,7 @@ public struct TrivyCLI: Sendable {
     static func classify(stderr: String, code: Int32?, registry: String) -> TrivyError {
         let lower = stderr.lowercased()
         if lower.contains("unauthorized") || lower.contains("authentication required") || lower.contains("denied: requested access")
-            || lower.contains("401") || lower.contains("403 forbidden") {
+            || lower.range(of: #"\b401\b"#, options: .regularExpression) != nil || lower.contains("403 forbidden") {
             return .unauthorized(registry: registry)
         }
         if lower.contains("--skip-db-update cannot be specified on the first run") || lower.contains("failed to download vulnerability db")

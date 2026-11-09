@@ -192,6 +192,7 @@ struct VulnerabilitiesTabView: View {
 
     @ViewBuilder private var localSection: some View {
         if !coordinator.scans.isEmpty {
+            let rows = self.rows          // computed once per body
             GroupBox {
                 VStack(alignment: .leading, spacing: Spacing.s) {
                     let counts = SeverityCounts.of(rows.map(\.vulnerability))

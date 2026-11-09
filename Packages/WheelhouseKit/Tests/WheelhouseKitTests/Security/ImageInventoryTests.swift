@@ -32,6 +32,14 @@ struct ImageInventoryTests {
         #expect(uses[1].reference.isMutable && uses[1].workloads.first?.kind == "Pod")
     }
 
+    @Test func theClusterArchitectureIsTheMostCommonNodeArchitecture() {
+        func node(_ arch: String) -> JSONValue { ["status": ["nodeInfo": ["architecture": .string(arch)]]] }
+        #expect(ImageInventory.dominantArchitecture(nodes: [node("arm64"), node("amd64"), node("amd64")]) == "amd64")
+        #expect(ImageInventory.dominantArchitecture(nodes: [node("arm64")]) == "arm64")
+        #expect(ImageInventory.dominantArchitecture(nodes: [node("s390x")]) == nil)
+        #expect(ImageInventory.dominantArchitecture(nodes: []) == nil)
+    }
+
     @Test func mergesAcrossClusters() throws {
         let ref = try #require(ImageReference("registry.example.com/web:1"))
         let w = TrivyOperator.WorkloadKey(namespace: "n", kind: "Deployment", name: "w")

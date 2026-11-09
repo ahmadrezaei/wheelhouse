@@ -126,21 +126,12 @@ public struct ImageReference: Hashable, Sendable {
         return "\(base):\(tag ?? "latest")"
     }
 
-    /// A running container's reference: `imageID` (`docker-pullable://repo@sha256:…`, or a bare digest) when it names a digest of
-    /// the same repository, else the tag form (mutable).
+    /// A running container's reference: `imageID` (`docker-pullable://repo@sha256:…`) when it names a digest, else the tag form
+    /// (mutable). A bare `sha256:` imageID is the image's config ID (side-loaded images, CRI-O), not a manifest digest a registry
+    /// knows, so it is not used.
     public static func forContainer(image: String, imageID: String?) -> ImageReference? {
-        let tagged = ImageReference(image)
         if let imageID, let pinned = ImageReference(imageID), pinned.digest != nil { return pinned }
-        if let imageID, imageID.hasPrefix("sha256:") || imageID.hasPrefix("docker://sha256:"), let tagged {
-            let digest = imageID.replacingOccurrences(of: "docker://", with: "")
-            if digest.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil, tagged.digest == nil {
-                var pinned = tagged
-                pinned.digest = digest
-                pinned.tag = nil
-                return pinned
-            }
-        }
-        return tagged
+        return ImageReference(image)
     }
 }
 

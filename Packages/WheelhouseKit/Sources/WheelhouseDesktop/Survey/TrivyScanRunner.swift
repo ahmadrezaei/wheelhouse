@@ -44,7 +44,7 @@ public struct TrivyScanRunner: ScanRunner {
         for cluster in item.clusters.isEmpty ? [""] : item.clusters {
             try Task.checkCancellation()
             do {
-                let parsed = try await scanOnce(ref, cluster: cluster, trigger: trigger)
+                let parsed = try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: item.architecture)
                 let result = ImageScanResult(image: ref.scanTarget, digest: ref.digest, isMutable: ref.isMutable, dbVersion: dbVersion, scannedAt: now(),
                                              vulnerabilities: parsed.vulnerabilities)
                 try await store.save(result)
@@ -57,9 +57,12 @@ public struct TrivyScanRunner: ScanRunner {
         throw lastError
     }
 
-    private func scanOnce(_ ref: ImageReference, cluster: String, trigger: ScanTrigger) async throws -> TrivyImageReportParser.Parsed {
+    private func scanOnce(_ ref: ImageReference, cluster: String, trigger: ScanTrigger, architecture: String?) async throws -> TrivyImageReportParser.Parsed {
         let cloud = await cloudEnvironment(cluster)
-        let cli = self.cli, options = self.options
+        let cli = self.cli
+        var chosen = self.options
+        if let architecture { chosen.architecture = architecture }
+        let options = chosen
         if let config = await pullSecretConfig(cluster, ref) {
             return try await ScanDockerConfig.with(config: config, in: paths.sessions) { dir in
                 try await cli.scan(ref, options: options, trigger: trigger, dockerConfig: dir, cloud: cloud)

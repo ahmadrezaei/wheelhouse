@@ -62,6 +62,8 @@ public actor ScanQueue {
     private var observing = false
     private var durations: [Duration] = []
     private var generation = 0
+    /// The cancelled scan(s) whose child process may still be exiting: a new loop waits for them, so two trivy never share the cache.
+    private var draining: Task<Void, Never>?
 
     public init(store: SurveyStore, runner: any ScanRunner, conditions: @escaping @Sendable () -> ScanConditions,
                 onlyOnPower: @escaping @Sendable () -> Bool = { true }, observer: (any ScanConditionsObserver)? = nil,
@@ -79,8 +81,11 @@ public actor ScanQueue {
         progress.queued = (try? await store.queueCount()) ?? 0
     }
 
-    public func enqueue(images: [(image: String, isMutable: Bool, clusters: [String])], trigger: ScanTrigger) async throws {
-        for i in images { try await store.enqueue(image: i.image, isMutable: i.isMutable, clusters: i.clusters, trigger: trigger) }
+    /// `architectures` maps an image to the node architecture of the cluster that runs it.
+    public func enqueue(images: [(image: String, isMutable: Bool, clusters: [String])], trigger: ScanTrigger, architectures: [String: String] = [:]) async throws {
+        for i in images {
+            try await store.enqueue(image: i.image, isMutable: i.isMutable, clusters: i.clusters, trigger: trigger, architecture: architectures[i.image])
+        }
         progress.queued = try await store.queueCount()
         updateObservation()
     }
@@ -98,7 +103,7 @@ public actor ScanQueue {
 
     /// The user's Pause: the running image goes back to the head of the queue.
     public func pause() {
-        guard loop != nil || progress.state == .running else { return }
+        if case .paused = progress.state {} else { guard loop != nil || progress.state == .running else { return } }
         stopLoop()
         progress.state = .userPaused
         progress.current = nil
@@ -115,9 +120,12 @@ public actor ScanQueue {
     /// Empties the queue.
     public func cancelAll() async {
         stopLoop()
-        try? await store.clearQueue()
         progress = ScanProgress(state: .idle, queued: 0, scanned: progress.scanned, failed: progress.failed)
         updateObservation()
+        let wait = draining
+        await wait?.value
+        try? await store.clearQueue()
+        progress.queued = (try? await store.queueCount()) ?? 0
     }
 
     /// Called by the observer, and by tests (the "battery" hook): the power source, Low Power Mode or the thermal state changed.
@@ -146,7 +154,14 @@ public actor ScanQueue {
     /// every suspension) exits without touching the state.
     private func stopLoop() {
         generation += 1
-        current?.cancel()
+        if let running = current {
+            running.cancel()
+            let previous = draining
+            draining = Task {
+                await previous?.value
+                _ = try? await running.value
+            }
+        }
         current = nil
         loop?.cancel()
         loop = nil
@@ -162,6 +177,7 @@ public actor ScanQueue {
     }
 
     private func run(generation mine: Int) async {
+        await draining?.value
         while !Task.isCancelled, mine == generation {
             let next = (try? await store.queue())?.first
             let count = (try? await store.queueCount()) ?? 0
@@ -190,7 +206,7 @@ public actor ScanQueue {
                 progress.eta = Double(progress.queued) * (Double(average.components.seconds) + Double(average.components.attoseconds) / 1e18)
             } catch {
                 if mine != generation || task.isCancelled || error is CancellationError || Task.isCancelled {   // the item stays queued
-                    if mine == generation { current = nil; loop = nil }
+                    if mine == generation { finish(generation: mine, state: .idle) }
                     return
                 }
                 try? await store.removeFromQueue(id: item.id)
@@ -216,7 +232,8 @@ public actor ScanQueue {
 
     /// Observers exist only while images wait and the user has not paused the queue.
     private func updateObservation() {
-        let want = progress.queued > 0 && progress.state != .userPaused && progress.state != .idle
+        // A manual run ignores the energy rules, so there is nothing to observe.
+        let want = progress.queued > 0 && progress.state != .userPaused && progress.state != .idle && runTrigger != .manual
         guard want != observing, let observer else { return }
         observing = want
         if want {

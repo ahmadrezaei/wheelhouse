@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import WheelhouseDesktop
@@ -49,8 +50,9 @@ private actor ScanClusterContext {
     init(store: SurveyStore) { self.store = store }
 
     func set(clients: [ClusterID: any KubeClientProtocol], secrets: [ClusterID: [String: [PullSecretRef]]]) {
-        self.clients = clients
-        self.secrets = secrets
+        // Merged, not replaced: images queued by an earlier request (or restored from a previous launch) keep their secrets.
+        self.clients.merge(clients) { _, new in new }
+        self.secrets.merge(secrets) { _, new in new }
     }
 
     /// The minimal docker config for `ref` from the cluster's imagePullSecrets, only when the cluster opted in.
@@ -90,6 +92,9 @@ final class ScanCoordinator {
     @ObservationIgnored private let conditions: @Sendable () -> ScanConditions
     @ObservationIgnored private let managedDownloader: any TrivyDownloader
     @ObservationIgnored private var storeURL: URL
+    @ObservationIgnored private var lastReloadedScanned = 0
+    @ObservationIgnored private var preparing: Task<Void, Never>?
+    @ObservationIgnored private var terminateToken: NSObjectProtocol?
     /// Receives the opened database so the accepted risks move into it.
     @ObservationIgnored private weak var hub: SurveyHub?
 
@@ -107,7 +112,15 @@ final class ScanCoordinator {
 
     /// Opens `survey.sqlite` (lazily), restores the queue (it never starts by itself) and sweeps per-scan docker folders a crash left.
     func prepare() async {
-        guard store == nil, !isPreparing else { return }
+        if let preparing { await preparing.value; return }
+        guard store == nil else { return }
+        let task = Task { await self.openStore() }
+        preparing = task
+        await task.value
+        preparing = nil
+    }
+
+    private func openStore() async {
         isPreparing = true
         defer { isPreparing = false }
         do {
@@ -116,7 +129,15 @@ final class ScanCoordinator {
             let opened = try SurveyStore(url: storeURL)
             store = opened
             context = ScanClusterContext(store: opened)
+            try? await opened.prune(olderThan: DBUpdatePolicy.resultMaximumAge * 4)
             scans = (try? await opened.allScans()) ?? []
+            // A quit while a pull-secret scan runs would leave its private folder behind: remove any at termination too.
+            if terminateToken == nil {
+                let sessions = paths.sessions
+                terminateToken = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+                    ScanDockerConfig.sweepStale(in: sessions)
+                }
+            }
             await hub?.attach(store: opened)
             await resolveSource()
             await makeQueue()
@@ -129,6 +150,13 @@ final class ScanCoordinator {
     // MARK: Source
 
     func resolveSource() async {
+        let before = source
+        await locateSource()
+        // A new trivy (or none) means a new runner; a running queue is left alone until it ends.
+        if source != before || queue == nil, progress.state != .running, store != nil { await makeQueue() }
+    }
+
+    private func locateSource() async {
         if let custom = SurveyScanSettings.string(SurveyScanSettings.trivyPath), FileManager.default.isExecutableFile(atPath: custom) {
             source = .configured(URL(fileURLWithPath: custom))
         } else {
@@ -149,7 +177,6 @@ final class ScanCoordinator {
             _ = try await managed.install()
             message = nil
             await resolveSource()
-            await makeQueue()
         } catch {
             message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -162,7 +189,7 @@ final class ScanCoordinator {
         let options = TrivyOptions(cacheDirectory: TrivyCLI.defaultCacheDirectory(paths: paths),
                                    dbRepository: SurveyScanSettings.string(SurveyScanSettings.dbRepository),
                                    javaDBRepository: SurveyScanSettings.string(SurveyScanSettings.javaDBRepository),
-                                   architecture: "arm64")
+                                   architecture: "amd64")
         let runner = TrivyScanRunner(cli: TrivyCLI(executable: exe, environment: environment), options: options, store: store, paths: paths,
                                      pullSecretConfig: { cluster, ref in await context.pullSecretConfig(cluster: cluster, ref: ref) })
         let q = ScanQueue(store: store, runner: runner, conditions: conditions, onlyOnPower: { SurveyScanSettings.isOnlyOnPower },
@@ -173,10 +200,10 @@ final class ScanCoordinator {
 
     fileprivate func receive(_ p: ScanProgress) {
         let finished = progress.state == .running && p.state != .running
+        let grew = p.scanned > lastReloadedScanned
         progress = p
-        if finished || p.scanned != scans.count {
-            Task { await reloadScans() }
-        }
+        lastReloadedScanned = p.scanned
+        if finished || grew { Task { await reloadScans() } }
     }
 
     func reloadScans() async {
@@ -196,12 +223,16 @@ final class ScanCoordinator {
         guard let queue, source.url != nil else { message = "No trivy is available. Set one up first."; return }
         message = nil
         var uses: [ImageUse] = []
+        var arch: [ClusterID: String] = [:]
         var clients: [ClusterID: any KubeClientProtocol] = [:]
         for session in sessions where !session.credentialsMissing {
             do {
                 let pods = try await session.client.list(Unstructured.self, kind: .pod, namespace: nil, options: ListOptions())
                 uses += ImageInventory.build(pods: pods.items.map(\.raw), clusterID: session.config.id)
                 clients[session.config.id] = session.client
+                if let nodes = try? await session.client.list(Unstructured.self, kind: .node, namespace: nil, options: ListOptions()) {
+                    arch[session.config.id] = ImageInventory.dominantArchitecture(nodes: nodes.items.map(\.raw))
+                }
             } catch {
                 message = "\(session.config.name): \(error.localizedDescription)"
             }
@@ -217,7 +248,10 @@ final class ScanCoordinator {
         workloadsByImage.merge(byImage) { _, new in new }
         await context?.set(clients: clients, secrets: secrets)
         do {
-            try await queue.enqueue(images: merged.map { (image: $0.reference.scanTarget, isMutable: $0.reference.isMutable, clusters: $0.clusters) }, trigger: trigger)
+            var architectures: [String: String] = [:]
+            for m in merged { if let a = m.clusters.compactMap({ arch[$0] }).first { architectures[m.reference.scanTarget] = a } }
+            try await queue.enqueue(images: merged.map { (image: $0.reference.scanTarget, isMutable: $0.reference.isMutable, clusters: $0.clusters) },
+                                    trigger: trigger, architectures: architectures)
             await queue.start(trigger: trigger)
         } catch {
             message = error.localizedDescription

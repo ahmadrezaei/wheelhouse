@@ -163,6 +163,22 @@ struct VulnerabilityModelTests {
         #expect(!model.isWatching)
     }
 
+    @Test func aRiskChangedBeforeTheDatabaseOpensIsKeptAndSeveralQuickAcceptsAllPersist() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wh-hub2-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let json = dir.appending(path: "risks.json")
+        let hub = SurveyHub(riskFile: json)
+        hub.acceptCVE("CVE-2026-1", clusterID: "a", reason: "r", days: 30)          // before attach: written to the JSON file
+        let store = try SurveyStore(url: dir.appending(path: "survey.sqlite"))
+        await hub.attach(store: store)
+        #expect(hub.risks.risks.count == 1)
+        for c in ["b", "c", "d"] { hub.acceptCVE("CVE-2026-2", clusterID: c, reason: "r", days: 30) }
+        try await Task.sleep(for: .milliseconds(400))
+        let stored = try await store.acceptedRisks()
+        #expect(stored.risks.count == 4)
+    }
+
     @Test func acceptedRisksMoveIntoTheDatabaseOnceAndSurviveAHubRestart() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wh-hub-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

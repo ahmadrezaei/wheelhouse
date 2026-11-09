@@ -24,6 +24,8 @@ public struct ScanQueueItem: Codable, Hashable, Sendable, Identifiable {
     /// Clusters that run it, in the order their credentials are tried.
     public var clusters: [String]
     public var trigger: ScanTrigger
+    /// The node architecture of the cluster that runs it (`arm64` or `amd64`); nil uses the default.
+    public var architecture: String?
 }
 
 /// `survey.sqlite` under `AppPaths.root` (ARCHITECTURE-MAC §6.1): scan results keyed by (image digest, DB version), the persisted
@@ -49,7 +51,7 @@ public actor SurveyStore {
                 CREATE TABLE IF NOT EXISTS scans (id TEXT PRIMARY KEY, image TEXT NOT NULL, digest TEXT, mutable INTEGER NOT NULL, db_version TEXT NOT NULL,
                                                   scanned_at REAL NOT NULL, vulns BLOB NOT NULL);
                 CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, image TEXT NOT NULL, mutable INTEGER NOT NULL, clusters TEXT NOT NULL,
-                                                  trigger TEXT NOT NULL);
+                                                  trigger TEXT NOT NULL, arch TEXT);
                 CREATE TABLE IF NOT EXISTS accepted_risks (id TEXT PRIMARY KEY, body BLOB NOT NULL);
                 CREATE TABLE IF NOT EXISTS pull_secret_optin (cluster_id TEXT PRIMARY KEY);
                 """)
@@ -91,19 +93,19 @@ public actor SurveyStore {
     // MARK: Queue (persisted so a relaunch can offer Resume; it never starts by itself)
 
     @discardableResult
-    public func enqueue(image: String, isMutable: Bool, clusters: [String], trigger: ScanTrigger) throws -> Int64 {
+    public func enqueue(image: String, isMutable: Bool, clusters: [String], trigger: ScanTrigger, architecture: String? = nil) throws -> Int64 {
         if let existing = try handle.query("SELECT id FROM queue WHERE image = ?", [.text(image)], { $0.int(0) }).first { return existing }
         let clusterJSON = String(decoding: try JSONEncoder().encode(clusters), as: UTF8.self)
-        try handle.run("INSERT INTO queue (image, mutable, clusters, trigger) VALUES (?, ?, ?, ?)",
-                       [.text(image), .int(isMutable ? 1 : 0), .text(clusterJSON), .text(trigger.rawValue)])
+        try handle.run("INSERT INTO queue (image, mutable, clusters, trigger, arch) VALUES (?, ?, ?, ?, ?)",
+                       [.text(image), .int(isMutable ? 1 : 0), .text(clusterJSON), .text(trigger.rawValue), architecture.map { .text($0) } ?? .null])
         return handle.lastInsertRowID
     }
 
     public func queue() throws -> [ScanQueueItem] {
-        try handle.query("SELECT id, image, mutable, clusters, trigger FROM queue ORDER BY id", []) { row in
+        try handle.query("SELECT id, image, mutable, clusters, trigger, arch FROM queue ORDER BY id", []) { row in
             ScanQueueItem(id: row.int(0), image: row.text(1) ?? "", isMutable: row.int(2) != 0,
                           clusters: (row.text(3).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }) ?? [],
-                          trigger: ScanTrigger(rawValue: row.text(4) ?? "") ?? .scheduled)
+                          trigger: ScanTrigger(rawValue: row.text(4) ?? "") ?? .scheduled, architecture: row.text(5))
         }
     }
 

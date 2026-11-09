@@ -184,6 +184,8 @@ final class SurveyHub {
     private(set) var isLoadingFleet = false
     private(set) var riskStoreError: String?
     @ObservationIgnored private var riskStore: SurveyStore?
+    @ObservationIgnored private var risksChangedBeforeAttach = false
+    @ObservationIgnored private var saveChain: Task<Void, Never>?
     @ObservationIgnored private var models: [ClusterID: SurveyModel] = [:]
     @ObservationIgnored private let riskFile: URL?
     /// Creates the app's folder (mode 0700) before the first save.
@@ -235,7 +237,12 @@ final class SurveyHub {
         guard let store, riskStore == nil else { return }
         do {
             if let riskFile { try await store.importLegacyRisksOnce(from: riskFile) }
-            risks = try await store.acceptedRisks()
+            if risksChangedBeforeAttach {
+                // Changed (and written to the JSON file) before the database was open: that book is the newest, so it is stored.
+                try await store.saveAcceptedRisks(risks)
+            } else {
+                risks = try await store.acceptedRisks()
+            }
             riskStore = store
         } catch {
             riskStoreError = error.localizedDescription
@@ -244,10 +251,16 @@ final class SurveyHub {
 
     private func persist() {
         if let riskStore {
+            // One serial chain: saves run in order, each writing the newest book; a failure is shown, never swallowed.
             let book = risks
-            Task { try? await riskStore.saveAcceptedRisks(book) }
+            let previous = saveChain
+            saveChain = Task { [weak self] in
+                await previous?.value
+                do { try await riskStore.saveAcceptedRisks(book) } catch { self?.riskStoreError = error.localizedDescription }
+            }
             return
         }
+        risksChangedBeforeAttach = true
         guard let riskFile else { return }
         prepare?()
         try? AcceptedRiskStorage.save(risks, to: riskFile)
