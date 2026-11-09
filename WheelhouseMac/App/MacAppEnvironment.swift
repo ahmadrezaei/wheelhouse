@@ -175,7 +175,7 @@ final class MacAppEnvironment {
         // development build (the service refuses everything while the gate is active).
         whenReady { [moorings, paths] in
             let landfall = LandfallModel.make(moorings: moorings, paths: paths)
-            LandfallModel.shared = landfall
+            LandfallHub.shared.model = landfall
             Task { await landfall.start() }
         }
         // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).

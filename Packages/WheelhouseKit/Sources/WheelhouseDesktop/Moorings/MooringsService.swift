@@ -429,30 +429,32 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
 
     // MARK: Landfall
 
-    /// Marks the contexts Landfall is about to write to `landfall.yaml` as added: read-only, with the environment Landfall suggested
-    /// (name and cloud tags). This runs BEFORE the file is written, so a scan that sees the new contexts finds them already decided and
-    /// a tag-only Production suggestion cannot be lost. Returns the ids that were not added before (for ``unregisterLandfall(_:)``).
+    /// Marks the contexts Landfall is about to write as added: read-only, with the environment Landfall suggested (name and cloud tags).
+    /// This runs BEFORE the file is written, so a scan that sees the new contexts finds them already decided and a tag-only Production
+    /// suggestion cannot be lost. Returns the overrides as they were, for ``unregisterLandfall(_:)``.
     @discardableResult
-    public func registerLandfall(_ rows: [LandfallRegistration]) throws -> [ClusterID] {
+    public func registerLandfall(_ rows: [LandfallRegistration]) throws -> [ClusterID: DiscoveredOverride?] {
         let stamp = now()
         var changes: [ClusterID: DiscoveredOverride?] = [:]
-        var created: [ClusterID] = []
+        var previous: [ClusterID: DiscoveredOverride?] = [:]
         for row in rows {
             let id = row.key.clusterID
-            var o = state.overrides.override(for: id) ?? DiscoveredOverride()
-            if !o.added { created.append(id); o.readOnly = true; o.addedAt = stamp; o.isNew = false }
+            let before = state.overrides.override(for: id)
+            previous[id] = before
+            var o = before ?? DiscoveredOverride()
+            if !o.added || o.hidden { o.readOnly = true; o.addedAt = stamp; o.isNew = false; o.contactApproved = false }
             o.added = true
             o.hidden = false
-            if !o.environmentChosen, o.environment == nil { o.environment = row.suggestedEnvironment }
+            if !o.environmentChosen, o.environment == nil || row.suggestedEnvironment == .production { o.environment = row.suggestedEnvironment ?? o.environment }
             changes[id] = o
         }
         try state.overrides.apply(changes)
-        return created
+        return previous
     }
 
-    /// Undoes ``registerLandfall(_:)`` for contexts that were not written.
-    public func unregisterLandfall(_ ids: [ClusterID]) throws {
-        try state.overrides.apply(Dictionary(uniqueKeysWithValues: ids.map { ($0, nil as DiscoveredOverride?) }))
+    /// Undoes ``registerLandfall(_:)`` for contexts that were not written: every override goes back to what it was.
+    public func unregisterLandfall(_ previous: [ClusterID: DiscoveredOverride?]) throws {
+        try state.overrides.apply(previous)
     }
 
     // MARK: Allow changes, opening, removal

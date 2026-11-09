@@ -275,5 +275,47 @@ struct LandfallServiceTests {
         await h.service.dailyTick()
         #expect(h.runner.count > afterFirst)
     }
+
+    @Test func theUserFileMergeNeverReplacesExistingNamesAndRegistersTheCopyAsProduction() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        let payments = scan.clusters[0], tagged = scan.clusters[1]
+        // A user file that already has the payments entries (written by `aws eks update-kubeconfig`, with a role).
+        let existing = "apiVersion: v1\nkind: Config\ncurrent-context: keep\nclusters:\n- name: \(payments.contextName)\n  cluster: {server: \"https://mine.example.test\"}\nusers: []\ncontexts: []\n"
+        let target = try s.write("user-kubeconfig", existing)
+        let entries = LandfallKubeconfig.entries(for: [payments, tagged])
+        let merge = try await h.service.planUserMerge(entries, target: target)
+        #expect(merge.leftUnchanged == [payments.contextName])
+        #expect(merge.entries.clusters.map(\.name) == [tagged.contextName])
+        #expect(merge.plan.replaced.isEmpty)
+        _ = try await h.service.confirmUserMerge(merge.plan, entries: merge.entries, clusters: [payments, tagged])
+        let text = try String(contentsOf: target, encoding: .utf8)
+        #expect(text.contains("https://mine.example.test") && text.contains("current-context: keep"))
+        // Moorings sees the user's file as a source: the copy of the tag-only Production cluster is registered and held.
+        try await h.moorings.addFileSource(target)
+        let key = DiscoveredContextKey(definingFile: target.path, contextName: tagged.contextName)
+        #expect(h.state.isContactHeld(key.clusterID))
+        #expect(h.state.overrides.override(for: key.clusterID)?.environment == .production)
+        #expect(h.contacts.total == 0)
+    }
+
+    @Test func twoRowsWithOneContextNameAddOnceAndAFailedWriteRestoresEarlierOverrides() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        var twin = scan.clusters[0]; twin.accountID = "other-profile"      // same ARN, another profile
+        let outcome = try await h.service.add([scan.clusters[0], twin])
+        #expect(outcome.added.count == 1 && outcome.skipped[twin.id]?.contains("same context name") == true)
+
+        let file = KubeconfigWriter.resolve(h.landfallFile)
+        let key = DiscoveredContextKey(definingFile: file.path, contextName: "x")
+        var earlier = DiscoveredOverride(); earlier.name = "My name"; earlier.hidden = true
+        try h.state.overrides.set(earlier, for: key.clusterID)
+        let previous = try await h.moorings.registerLandfall([LandfallRegistration(key: key, suggestedEnvironment: nil)])
+        #expect(h.state.overrides.override(for: key.clusterID)?.added == true)
+        try await h.moorings.unregisterLandfall(previous)
+        #expect(h.state.overrides.override(for: key.clusterID) == earlier)
+    }
 }
 #endif

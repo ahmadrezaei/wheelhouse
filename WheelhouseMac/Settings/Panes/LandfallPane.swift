@@ -6,7 +6,7 @@ import WheelhouseDesktop
 struct LandfallPane: View {
     var body: some View {
         Form {
-            if let model = LandfallModel.shared {
+            if let model = LandfallHub.shared.model {
                 if model.isEnabled { Content(model: model) } else {
                     Section { Label("Landfall is off in development builds. Cloud CLIs talk to real accounts.", systemImage: "lock").foregroundStyle(.secondary) }
                 }

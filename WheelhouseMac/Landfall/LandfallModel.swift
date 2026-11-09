@@ -7,14 +7,13 @@ import WheelhouseKit
 /// refuses all of it while the development gate is active.
 @MainActor @Observable
 final class LandfallModel {
-    /// The running model (the feature view and the Settings pane read it).
-    static var shared: LandfallModel?
-
     /// A merge into the user's `~/.kube/config` waiting for the user's confirmation: the exact YAML and the backup name.
     struct MergeReview: Identifiable {
         let id = UUID()
         var plan: KubeconfigMergePlan
         var entries: KubeconfigEntries
+        var clusters: [CloudCluster]
+        var leftUnchanged: [String]
     }
 
     /// A login command to run in the Sign-in sheet.
@@ -147,7 +146,7 @@ final class LandfallModel {
     func refreshKnownServers() {
         var set = Set<String>()
         for c in moorings.registry?.clusters ?? [] { set.insert(ServerURL.normalized(c.server)) }
-        for ctx in moorings.state.contexts where moorings.state.overrides.override(for: ctx.id)?.added == true {
+        for ctx in moorings.state.contexts where moorings.state.overrides.override(for: ctx.id).map({ $0.added && !$0.hidden }) == true {
             if let s = ctx.server { set.insert(ServerURL.normalized(s)) }
         }
         knownServers = set
@@ -172,7 +171,9 @@ final class LandfallModel {
             let skipped = outcome.skipped.values.sorted()
             notice = skipped.isEmpty ? nil : skipped.joined(separator: "\n")
             selection.subtract(outcome.ids.keys)
-            if let plan = outcome.mergePlan { mergeReview = MergeReview(plan: plan, entries: outcome.entries) }
+            if let plan = outcome.mergePlan, let entries = outcome.mergeEntries {
+                mergeReview = MergeReview(plan: plan, entries: entries, clusters: outcome.added, leftUnchanged: outcome.mergeLeftUnchanged)
+            }
             else if let why = outcome.mergeNote { notice = [notice, "Not merged into ~/.kube/config: \(why)"].compactMap { $0 }.joined(separator: "\n") }
         } catch { notice = error.localizedDescription }
         await moorings.refresh()
@@ -191,7 +192,7 @@ final class LandfallModel {
     func confirmMerge(_ review: MergeReview) async {
         mergeReview = nil
         do {
-            let result = try await service.confirmUserMerge(review.plan, entries: review.entries)
+            let result = try await service.confirmUserMerge(review.plan, entries: review.entries, clusters: review.clusters)
             notice = "Merged \(result.added.count + result.replaced.count) entries into \(result.target.path). Backup: \(result.backup?.lastPathComponent ?? "none")."
         } catch { notice = error.localizedDescription }
     }
@@ -230,4 +231,11 @@ final class LandfallModel {
         try? service.preferences.update { $0.awsRegions = list.isEmpty ? nil : list }
         preferences = service.preferences.value
     }
+}
+
+/// Holds the running model where views observe it (the model is built after launch, once the allowed hosts are known).
+@MainActor @Observable
+final class LandfallHub {
+    static let shared = LandfallHub()
+    var model: LandfallModel?
 }

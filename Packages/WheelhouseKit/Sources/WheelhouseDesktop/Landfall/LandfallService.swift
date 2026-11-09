@@ -74,8 +74,8 @@ public struct LandfallRegistration: Sendable, Equatable {
 
 /// What Landfall needs from Moorings (`landfall.yaml` is one of its sources). ``MooringsService`` conforms.
 public protocol LandfallMoorings: Sendable {
-    func registerLandfall(_ rows: [LandfallRegistration]) async throws -> [ClusterID]
-    func unregisterLandfall(_ ids: [ClusterID]) async throws
+    func registerLandfall(_ rows: [LandfallRegistration]) async throws -> [ClusterID: DiscoveredOverride?]
+    func unregisterLandfall(_ previous: [ClusterID: DiscoveredOverride?]) async throws
     func rescanSources() async
     func startFirstRunChecks(ids: [ClusterID]) async
     func check(_ id: ClusterID) async -> ClusterCheckResult
@@ -98,6 +98,10 @@ public struct LandfallAddOutcome: Sendable, Equatable {
     public var entries: KubeconfigEntries
     /// The merge into the user's `~/.kube/config`, to be shown and confirmed; nil when the option is off.
     public var mergePlan: KubeconfigMergePlan?
+    /// The entries the merge will write: only names the user's file does not have yet.
+    public var mergeEntries: KubeconfigEntries?
+    /// Names the user's file already defines. They are left exactly as they are.
+    public var mergeLeftUnchanged: [String] = []
     public var mergeNote: String?
 }
 
@@ -200,7 +204,9 @@ public actor LandfallService {
         try requireEnabled()
         var prepared: [CloudCluster] = []
         var skipped: [String: String] = [:]
+        var seenContexts = Set<String>()
         for c in clusters {
+            guard seenContexts.insert(c.contextName).inserted else { skipped[c.id] = "Another selected row has the same context name (\(c.contextName))."; continue }
             guard c.addable else { skipped[c.id] = c.unsupportedReason ?? "This cluster cannot be added."; continue }
             do {
                 let full = try await adapter(c.provider).prepareToAdd(c)
@@ -210,7 +216,7 @@ public actor LandfallService {
         }
         let entries = LandfallKubeconfig.entries(for: prepared)
         guard !prepared.isEmpty else {
-            return LandfallAddOutcome(ids: [:], added: [], skipped: skipped, checked: [], entries: entries, mergePlan: nil, mergeNote: nil)
+            return LandfallAddOutcome(ids: [:], added: [], skipped: skipped, checked: [], entries: entries, mergePlan: nil, mergeEntries: nil, mergeNote: nil)
         }
         let file = KubeconfigWriter.resolve(landfallFile)
         let regs = prepared.map { LandfallRegistration(key: DiscoveredContextKey(definingFile: file.path, contextName: $0.contextName),
@@ -231,12 +237,13 @@ public actor LandfallService {
         }
         await moorings.startFirstRunChecks(ids: toCheck)
 
-        var plan: KubeconfigMergePlan?
+        var merge: UserMergePlan?
         var note: String?
         if preferences.value.mergeIntoUserKubeconfig {
-            do { plan = try planUserMerge(entries) } catch { note = error.localizedDescription }
+            do { merge = try planUserMerge(entries) } catch { note = error.localizedDescription }
         }
-        return LandfallAddOutcome(ids: ids, added: prepared, skipped: skipped, checked: toCheck, entries: entries, mergePlan: plan, mergeNote: note)
+        return LandfallAddOutcome(ids: ids, added: prepared, skipped: skipped, checked: toCheck, entries: entries, mergePlan: merge?.plan,
+                                  mergeEntries: merge?.entries, mergeLeftUnchanged: merge?.leftUnchanged ?? [], mergeNote: note)
     }
 
     /// The user pressed **Check** on a row (the only way a Production-suggested row is contacted).
@@ -247,19 +254,47 @@ public actor LandfallService {
 
     // MARK: Merge into ~/.kube/config
 
-    /// The exact YAML and the backup name, to show before anything is written. Throws while the gate is active.
-    public func planUserMerge(_ entries: KubeconfigEntries) throws -> KubeconfigMergePlan {
-        let gate = gateProvider()
-        let target = try LandfallMergeTarget.resolve(gate: gate)
-        return try KubeconfigWriter(gate: gate).plan(entries: entries, into: target, now: now())
+    public struct UserMergePlan: Sendable, Equatable {
+        public var plan: KubeconfigMergePlan
+        public var entries: KubeconfigEntries
+        public var leftUnchanged: [String]
     }
 
-    /// Writes the reviewed plan: backup first, `current-context` untouched, verified, restored on any mismatch.
-    @discardableResult
-    public func confirmUserMerge(_ plan: KubeconfigMergePlan, entries: KubeconfigEntries) throws -> KubeconfigMergeResult {
+    /// The exact YAML and the backup name, to show before anything is written. Throws while the gate is active. Names the user's file
+    /// already defines (for instance from `aws eks update-kubeconfig`, perhaps with another role or profile) are NOT replaced: they are left
+    /// as they are and listed in `leftUnchanged`. `target` is the user's file (tests pass a scratch file).
+    public func planUserMerge(_ entries: KubeconfigEntries, target explicit: URL? = nil) throws -> UserMergePlan {
         let gate = gateProvider()
-        _ = try LandfallMergeTarget.resolve(gate: gate)
-        return try KubeconfigWriter(gate: gate).merge(plan: plan, entries: entries)
+        let target = try explicit ?? LandfallMergeTarget.resolve(gate: gate)
+        let writer = KubeconfigWriter(gate: gate)
+        let first = try writer.plan(entries: entries, into: target, now: now())
+        guard !first.replaced.isEmpty else { return UserMergePlan(plan: first, entries: entries, leftUnchanged: []) }
+        let existing = Set(first.replaced.map { String($0.split(separator: "/", maxSplits: 1).last ?? "") })
+        var kept = entries
+        kept.clusters.removeAll { existing.contains($0.name) }
+        kept.users.removeAll { existing.contains($0.name) }
+        kept.contexts.removeAll { existing.contains($0.name) }
+        guard !kept.isEmpty else { return UserMergePlan(plan: first, entries: kept, leftUnchanged: existing.sorted()) }
+        return UserMergePlan(plan: try writer.plan(entries: kept, into: target, now: now()), entries: kept, leftUnchanged: existing.sorted())
+    }
+
+    /// Writes the reviewed plan: backup first, `current-context` untouched, verified, restored on any mismatch. The new contexts of the
+    /// user's file are registered with Moorings first (Moorings reads `~/.kube/config` too, and would otherwise add a second copy of a
+    /// Production-by-tag cluster with no suggestion), and the registration is undone if the write fails.
+    @discardableResult
+    public func confirmUserMerge(_ plan: KubeconfigMergePlan, entries: KubeconfigEntries, clusters: [CloudCluster] = []) async throws -> KubeconfigMergeResult {
+        let gate = gateProvider()
+        if gate.isActive { _ = try LandfallMergeTarget.resolve(gate: gate) }
+        let byName = Dictionary(clusters.map { ($0.contextName, $0) }, uniquingKeysWith: { a, _ in a })
+        let regs = entries.contexts.map { ctx in
+            LandfallRegistration(key: DiscoveredContextKey(definingFile: plan.target.path, contextName: ctx.name),
+                                 suggestedEnvironment: byName[ctx.name]?.suggestion?.environment)
+        }
+        let previous = try await moorings.registerLandfall(regs)
+        do { return try KubeconfigWriter(gate: gate).merge(plan: plan, entries: entries) } catch {
+            try? await moorings.unregisterLandfall(previous)
+            throw error
+        }
     }
 
     // MARK: Daily rescan

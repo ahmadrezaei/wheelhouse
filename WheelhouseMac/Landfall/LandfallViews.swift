@@ -5,7 +5,7 @@ import WheelhouseKit
 /// The Landfall pane (DESIGN-MAC §6.11): provider tabs with CLI status, accounts with checkboxes, the cluster table and Add.
 struct LandfallScreen: View {
     var body: some View {
-        if let model = LandfallModel.shared {
+        if let model = LandfallHub.shared.model {
             if model.isEnabled {
                 LandfallContent(model: model)
             } else {
@@ -183,6 +183,9 @@ struct LandfallMergeSheet: View {
             Text("Merge into \(review.plan.target.path)?").font(.headline)
             Text("Wheelhouse adds these entries itself. current-context is never changed. The file is checked afterwards and restored from the backup on any difference. Comments and formatting are normalised, as `kubectl config` does.")
                 .font(.callout).foregroundStyle(.secondary)
+            if !review.leftUnchanged.isEmpty {
+                Text("Already in your file, left unchanged: \(review.leftUnchanged.joined(separator: ", "))").font(.callout).foregroundStyle(.orange)
+            }
             if let backup = review.plan.backup { Text("Backup: \(backup.lastPathComponent)").font(.system(.callout, design: .monospaced)) }
             ScrollView { Text(review.plan.yaml).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                 .frame(minHeight: 200).padding(8).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
