@@ -48,10 +48,16 @@ final class WorkspaceStore {
     // MARK: Loading
 
     private func load() {
-        guard let file, let data = try? Data(contentsOf: file) else {
+        guard let file else { installBuiltIns(); return }
+        guard FileManager.default.fileExists(atPath: file.path) else { installBuiltIns(); return }
+        // A file that exists but cannot be read (permissions, a prompt) is not a missing file: it is never overwritten.
+        guard let data = try? Data(contentsOf: file) else {
+            writesDisabled = true
             installBuiltIns()
             return
         }
+        struct Header: Decodable { var version: Int? }
+        let version = (try? JSONDecoder().decode(Header.self, from: data))?.version
         do {
             let decoded = try JSONDecoder().decode(WorkspaceFile.self, from: data)
             // A file written by a newer build may hold fields this one does not know: it is read, never overwritten.
@@ -59,6 +65,12 @@ final class WorkspaceStore {
             apply(decoded)
             lastWritten = nil
         } catch {
+            if let version, version > WorkspaceFile.currentVersion {
+                // A newer build's file this one cannot read: start fresh in memory and leave the file exactly where it is.
+                writesDisabled = true
+                installBuiltIns()
+                return
+            }
             let stamp = ISO8601DateFormatter().string(from: now()).replacingOccurrences(of: ":", with: "-")
             let aside = file.deletingLastPathComponent().appending(path: "workspace.corrupt-\(stamp).json")
             if (try? FileManager.default.moveItem(at: file, to: aside)) != nil { movedAsideCorruptFile = aside }
@@ -69,6 +81,8 @@ final class WorkspaceStore {
     private func apply(_ f: WorkspaceFile) {
         windowOrder = f.windows.map(\.id)
         windows = Dictionary(f.windows.map { ($0.id, $0.state) }, uniquingKeysWith: { first, _ in first })
+        for entry in f.windows { if let frame = entry.state.frame { windowFrames[entry.id] = frame } }
+        for entry in f.detached { if let frame = entry.frame { detachedFrames[entry.pane.id] = frame } }
         windowOrder = windowOrder.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
         detached = Dictionary(f.detached.map { ($0.pane.id, $0) }, uniquingKeysWith: { first, _ in first })
         stations = f.stations
@@ -89,8 +103,20 @@ final class WorkspaceStore {
 
     var snapshot: WorkspaceFile {
         var f = WorkspaceFile()
-        f.windows = windowOrder.compactMap { id in windows[id].map { WindowEntry(id: id, state: $0) } }
-        f.detached = detachedOrder.compactMap { detached[$0] }
+        f.windows = windowOrder.compactMap { id in
+            windows[id].map { state in
+                var copy = state
+                if state.raw == nil { copy.frame = windowFrames[id] ?? state.frame }
+                return WindowEntry(id: id, state: copy)
+            }
+        }
+        f.detached = detachedOrder.compactMap { id in
+            detached[id].map { entry in
+                var copy = entry
+                if entry.pane.raw == nil { copy.frame = detachedFrames[id] ?? entry.frame }
+                return copy
+            }
+        }
         f.stations = stations.filter { !$0.isBuiltIn }
         f.rail = rail
         return f
@@ -169,7 +195,6 @@ final class WorkspaceStore {
         scheduleSave()
     }
 
-    func isClosed(_ id: WorkspaceWindowID) -> Bool { closedWindows.contains(id) }
     @ObservationIgnored private var closedWindows: Set<WorkspaceWindowID> = []
 
     func windowAppeared(_ id: WorkspaceWindowID) {
@@ -215,16 +240,24 @@ final class WorkspaceStore {
         return result
     }
 
+    /// Window frames live outside the observed state: moving or resizing a window must not re-evaluate every view of every window.
+    @ObservationIgnored private var windowFrames: [WorkspaceWindowID: [Double]] = [:]
+    @ObservationIgnored private var detachedFrames: [PaneID: [Double]] = [:]
+
+    func frame(for id: WorkspaceWindowID) -> [Double]? { windowFrames[id] ?? windows[id]?.frame }
+    func detachedFrame(_ id: PaneID) -> [Double]? { detachedFrames[id] ?? detached[id]?.frame }
+
     func setFrame(_ frame: [Double], for id: WorkspaceWindowID) {
-        guard windows[id]?.frame != frame else { return }
-        windows[id]?.frame = frame
+        guard windows[id] != nil, windowFrames[id] != frame else { return }
+        windowFrames[id] = frame
         scheduleSave()
     }
 
     // MARK: Detached panes
 
     func detach(_ pane: PaneState, frame: [Double]? = nil) {
-        detached[pane.id] = DetachedEntry(pane: pane, frame: frame)
+        detached[pane.id] = DetachedEntry(pane: pane, frame: nil)
+        detachedFrames[pane.id] = frame
         detachedOrder.append(pane.id)
         scheduleSave()
     }
@@ -232,8 +265,8 @@ final class WorkspaceStore {
     func detachedPane(_ id: PaneID) -> PaneState? { detached[id]?.pane }
 
     func mutateDetachedFrame(_ id: PaneID, _ frame: [Double]) {
-        guard detached[id] != nil, detached[id]?.frame != frame else { return }
-        detached[id]?.frame = frame
+        guard detached[id] != nil, detachedFrames[id] != frame else { return }
+        detachedFrames[id] = frame
         scheduleSave()
     }
 
@@ -306,8 +339,20 @@ final class WorkspaceStore {
     }
 
     /// The window state a Station opens as. `clusters` answers each placeholder of a template (placeholder → real cluster).
-    func instantiate(_ station: Station, clusters: [ClusterID: ClusterID] = [:]) -> WorkspaceWindowState {
+    func instantiate(_ station: Station, clusters: [ClusterID: ClusterID] = [:], dropTerminals: Bool = false) -> WorkspaceWindowState {
         var tabs = station.tabs.filter { $0.raw == nil }
+        // A link never opens a Deck Terminal (DESIGN-MAC section 3.5): a Station opened from one gets those panes empty.
+        if dropTerminals {
+            tabs = tabs.map { tab in
+                var copy = tab
+                copy.root = tab.root.mapPanes { pane in
+                    var p = pane
+                    if p.stack.contains(where: { if case .deckTerminal = $0 { true } else { false } }) { p.stack = [] }
+                    return p
+                }
+                return copy
+            }
+        }
         if tabs.isEmpty { tabs = [TabState(showing: .route(.fleet))] }
         let selectedIndex = station.tabs.filter { $0.raw == nil }.firstIndex { $0.id == station.selectedTab } ?? 0
         tabs = tabs.map { Self.freshIdentifiers($0.replacingClusters { clusters[$0] ?? $0 }) }

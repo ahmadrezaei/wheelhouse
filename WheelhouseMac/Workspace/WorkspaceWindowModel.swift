@@ -11,6 +11,8 @@ final class WorkspaceController {
     let store: WorkspaceStore
     let registry: ClusterRegistry
     private(set) var activeWindowID: WorkspaceWindowID?
+    /// The detached pane window that is key, if the last window to become key was one (menus must not act on a background window).
+    private(set) var activeDetachedID: PaneID?
     @ObservationIgnored private(set) var models: [WorkspaceWindowID: WorkspaceWindowModel] = [:]
     @ObservationIgnored private(set) var detachedModels: [PaneID: WorkspaceWindowModel] = [:]
     /// Set by the scenes (SwiftUI's `openWindow`): opening a workspace window or a detached pane window.
@@ -35,6 +37,7 @@ final class WorkspaceController {
     }
 
     var activeModel: WorkspaceWindowModel? {
+        if let id = activeDetachedID, let m = detachedModels[id] { return m }
         if let id = activeWindowID, let m = models[id] { return m }
         return models.values.first
     }
@@ -44,7 +47,8 @@ final class WorkspaceController {
     func model(for id: WorkspaceWindowID) -> WorkspaceWindowModel {
         if let m = models[id] { return m }
         store.ensureWindow(id)
-        let m = WorkspaceWindowModel(scope: .window(id), controller: self, sidebar: sidebarFactory())
+        let factory = sidebarFactory
+        let m = WorkspaceWindowModel(scope: .window(id), controller: self, sidebar: { factory() })
         models[id] = m
         store.windowAppeared(id)
         m.sidebar.restore(store.state(for: id).sidebar.persisted)
@@ -53,7 +57,8 @@ final class WorkspaceController {
 
     func detachedModel(for pane: PaneID) -> WorkspaceWindowModel {
         if let m = detachedModels[pane] { return m }
-        let m = WorkspaceWindowModel(scope: .detached(pane), controller: self, sidebar: sidebarFactory())
+        let factory = sidebarFactory
+        let m = WorkspaceWindowModel(scope: .detached(pane), controller: self, sidebar: { factory() })
         detachedModels[pane] = m
         store.detachedAppeared(pane)
         return m
@@ -61,13 +66,14 @@ final class WorkspaceController {
 
     /// Badges of the sidebars of windows that can be seen (a hidden window's sidebar costs nothing).
     func refreshSidebarBadges() {
-        for model in allModels where model.isVisible { model.sidebar.refreshBadges() }
+        for model in allModels where model.isVisible { model.sidebarIfCreated?.refreshBadges() }
     }
 
     /// Copies each sidebar's disclosure state into its window's state (on resign key, close and quit).
     func syncSidebarState() {
         for (id, model) in models {
-            let persisted = model.sidebar.persisted.state
+            guard let sidebar = model.sidebarIfCreated else { continue }
+            let persisted = sidebar.persisted.state
             if store.windows[id]?.sidebar != persisted { store.mutate(id) { $0.sidebar = persisted } }
         }
     }
@@ -79,15 +85,28 @@ final class WorkspaceController {
         if activeWindowID == id { activeWindowID = nil }
     }
 
+    func becameActiveDetached(_ id: PaneID) { activeDetachedID = id }
+
     func detachedClosed(_ id: PaneID) {
         store.detachedClosed(id)
         detachedModels[id]?.teardown()
         detachedModels[id] = nil
+        if activeDetachedID == id { activeDetachedID = nil }
     }
 
     func becameActive(_ id: WorkspaceWindowID) {
         activeWindowID = id
+        activeDetachedID = nil
         models[id]?.focusedPaneChanged()
+    }
+
+    /// ⌘N: a new window with the Fleet, or, when every window is closed, the window the last run left saved (no second, ghost window).
+    func newWindowOrReopenLast() {
+        if store.liveWindows.isEmpty, let saved = store.windowOrder.first(where: { !store.liveWindows.contains($0) }) {
+            openWorkspaceWindow?(saved)
+            return
+        }
+        newWindow()
     }
 
     /// Opens a new workspace window (⌘N) showing the Fleet.
@@ -100,9 +119,18 @@ final class WorkspaceController {
     func mergeAllWindows() {
         guard let target = activeModel else { return }
         for (id, model) in models where model !== target {
-            let tabs = store.state(for: id).tabs.filter { $0.raw == nil }
+            // Placeholder tabs travel with their JSON; the source is reset so no tab or pane ID exists in two windows, even when its
+            // NSWindow is already gone and cannot be closed.
+            let tabs = store.state(for: id).tabs
             target.mutate { state in for tab in tabs { state.addTab(tab, select: false) } }
+            model.mutate { $0 = WorkspaceWindowState.fresh() }
             model.closeWindow()
+        }
+        for (id, entry) in store.detached {
+            guard let pane = store.takeDetached(id) else { continue }
+            target.mutate { state in state.addTab(TabState(root: .leaf(pane), focusedPane: pane.id), select: false) }
+            detachedModels[id]?.closeWindow()
+            _ = entry
         }
     }
 
@@ -114,15 +142,10 @@ final class WorkspaceController {
             target.dock(payload.pane, onto: targetPane, zone: zone)
             return true
         }
-        let pane: PaneState?
-        if let source = payload.window {
-            guard let sourceModel = models[source] else { return false }
-            pane = sourceModel.mutate { $0.extractPane(payload.pane) }
-            sourceModel.pruneRouters()
-        } else {
-            pane = store.takeDetached(payload.pane)
-            detachedModels[payload.pane]?.closeWindow()
-        }
+        // Check the target before anything is taken out of the source.
+        guard target.pane(targetPane) != nil, let source = payload.window, let sourceModel = models[source] else { return false }
+        let pane: PaneState? = sourceModel.mutate { $0.extractPane(payload.pane) }
+        sourceModel.pruneRouters()
         guard let pane else { return false }
         target.mutate { $0.insertForeign(pane, onto: targetPane, zone: zone) }
         target.focusedPaneChanged()
@@ -141,27 +164,39 @@ final class WorkspaceController {
     /// A `wheelhouse://` link or a notification tap. `wheelhouse://station/<id>` opens a Station; everything else goes to the
     /// active window's focused pane. Links never open a terminal or start a mutation (DESIGN-MAC section 3.5).
     func handle(url: URL) {
+        // The lock comes first, for every link (a Station link too): it waits and replays after unlock.
+        guard !isLocked() else { pendingURL = url; return }
         if url.scheme == "wheelhouse", url.host == "station" {
             let id = url.pathComponents.dropFirst().first ?? ""
-            if let station = store.stations.first(where: { $0.id.rawValue == id }) { open(station: station) }
+            if let station = store.stations.first(where: { $0.id.rawValue == id }), confirmsLinkedStation(station) { open(station: station, fromLink: true) }
             return
         }
-        guard !isLocked(), let model = activeModel else { pendingURL = url; return }
+        guard let model = activeModel else { pendingURL = url; return }
         model.openURL(url)
     }
 
     /// A bound Station opens in a new window; a template asks for its clusters first.
-    func open(station: Station, clusters: [ClusterID: ClusterID]? = nil) {
+    /// A link must not open a layout by itself: the person confirms first (tests replace this).
+    @ObservationIgnored var confirmsLinkedStation: (Station) -> Bool = { station in
+        let alert = NSAlert()
+        alert.messageText = "Open the Station “\(station.name)”?"
+        alert.informativeText = "A link asked Wheelhouse to open this saved layout. Terminals in it will not start."
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func open(station: Station, clusters: [ClusterID: ClusterID]? = nil, fromLink: Bool = false) {
         if station.isTemplate, clusters == nil {
             let needed = station.placeholders
             if needed.count == 1, registry.clusters.count == 1, let only = registry.clusters.first {
-                newWindow(store.instantiate(station, clusters: [needed[0]: only.id]))
+                newWindow(store.instantiate(station, clusters: [needed[0]: only.id], dropTerminals: fromLink))
             } else {
                 activeModel?.sheet = .pickClusters(station.id)
             }
             return
         }
-        newWindow(store.instantiate(station, clusters: clusters ?? [:]))
+        newWindow(store.instantiate(station, clusters: clusters ?? [:], dropTerminals: fromLink))
     }
 }
 
@@ -174,7 +209,17 @@ final class WorkspaceWindowModel {
     let scope: Scope
     /// Strong: the controller drops the model when its window closes, which ends the cycle.
     let controller: WorkspaceController
-    let sidebar: SidebarModel
+    /// The window's resource tree state. Created on first use: a detached pane window has no sidebar and so triggers no discovery
+    /// or rules review.
+    private let makeSidebar: @MainActor () -> SidebarModel
+    @ObservationIgnored private var createdSidebar: SidebarModel?
+    var sidebar: SidebarModel {
+        if let createdSidebar { return createdSidebar }
+        let made = makeSidebar()
+        createdSidebar = made
+        return made
+    }
+    var sidebarIfCreated: SidebarModel? { createdSidebar }
     /// False while the window is miniaturised or covered: nothing draws.
     private(set) var isVisible = true
     /// False once the window has been hidden for the grace period: pane content that only holds store consumers is torn down.
@@ -193,10 +238,10 @@ final class WorkspaceWindowModel {
     /// A count of the panes built and torn down, for tests and the soak's leak checks.
     @ObservationIgnored private(set) var routerCount = 0
 
-    init(scope: Scope, controller: WorkspaceController, sidebar: SidebarModel) {
+    init(scope: Scope, controller: WorkspaceController, sidebar: @escaping @MainActor () -> SidebarModel) {
         self.scope = scope
         self.controller = controller
-        self.sidebar = sidebar
+        self.makeSidebar = sidebar
     }
 
     var store: WorkspaceStore { controller.store }
@@ -246,7 +291,7 @@ final class WorkspaceWindowModel {
         let router = AppRouter()
         router.isCompact = false
         router.paneNavigation = AppRouter.PaneNavigation(
-            push: { [weak self] route, _ in self?.push(route, from: pane) },
+            push: { [weak self] route, _ in self?.push(route, from: pane, commandHeld: NSEvent.modifierFlags.contains(.command)) },
             open: { [weak self] route in self?.open(route: route) },
             openChain: { [weak self] chain in self?.open(chain: chain) })
         routers[pane] = router
@@ -265,6 +310,9 @@ final class WorkspaceWindowModel {
         for id in routers.keys where !alive.contains(id) { routers[id] = nil }
     }
 
+    /// Critical memory pressure: a hidden window's content goes now, without the grace period.
+    func releaseContentNow() { if !isVisible { graceTask?.cancel(); buildsContent = false } }
+
     func teardown() {
         graceTask?.cancel()
         routers.removeAll()
@@ -276,7 +324,7 @@ final class WorkspaceWindowModel {
 
     /// A route pushed from `pane`: ⌘-click opens a new tab, a selection in a source pane goes to its linked panes, anything else is
     /// pushed onto the pane's stack.
-    func push(_ route: Route, from pane: PaneID, commandHeld: Bool = NSEvent.modifierFlags.contains(.command)) {
+    func push(_ route: Route, from pane: PaneID, commandHeld: Bool = false) {
         if commandHeld { openInNewTab(.route(route)); return }
         if route.isDetail, state.hasLinkedPanes(following: pane) {
             mutate { $0.deliver(selection: route, from: pane) }
@@ -308,7 +356,6 @@ final class WorkspaceWindowModel {
     func open(chain: [Route]) {
         guard let first = chain.first else { return }
         let stack = chain.map { WorkspaceDestination.route($0) }
-        _ = first
         if let existing = state.allPanes.first(where: { $0.stack == stack }) {
             mutate { $0.focus(pane: existing.id) }
         } else {
@@ -345,7 +392,7 @@ final class WorkspaceWindowModel {
         // A pane with no cluster of its own (the Fleet) leaves the registry's current cluster as the focus (the sidebar opens it).
         guard let cluster = focusedPane?.context.clusterID ?? focusedPane?.stack.lazy.compactMap(\.clusterID).first ?? registry.currentClusterID else { return }
         if registry.currentClusterID != cluster, registry.config(for: cluster) != nil { registry.select(cluster) }
-        sidebar.focus(cluster: cluster)
+        if case .window = scope { sidebar.focus(cluster: cluster) }
     }
 
     // MARK: Tabs and panes
@@ -358,9 +405,14 @@ final class WorkspaceWindowModel {
     }
 
     func closePane(_ id: PaneID) {
+        let wasPlaceholder = pane(id)?.isPlaceholder == true
         let kept = mutate { $0.closePane(id) }
         routers[id] = nil
-        if !kept { closeWindow() }
+        if !kept {
+            // A window that holds only a pane that could not be restored is reset to a fresh window instead of closing (closing
+            // the last window would keep the unreadable JSON saved for good).
+            if wasPlaceholder, case .window = scope { mutate { $0 = WorkspaceWindowState.fresh() } } else { closeWindow() }
+        }
         pruneRouters()
     }
 

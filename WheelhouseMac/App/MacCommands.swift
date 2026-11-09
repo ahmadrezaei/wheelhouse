@@ -15,9 +15,15 @@ struct MacCommands: Commands {
     private var model: WorkspaceWindowModel? { workspace.activeModel }
     /// While App Lock is on every command that reaches content is off; only Lock and Quit (and the app menu) stay.
     private var locked: Bool { env.lock.isLocked }
-    private var hasWindow: Bool { model != nil }
+    /// Tab and pane commands act on a workspace window, never on a detached pane window (a synthesized one-tab window).
+    private var hasWindow: Bool { if let m = model, case .window = m.scope { true } else { false } }
     private var focusedCluster: ClusterConfig? {
         model?.focusedPane?.context.clusterID.flatMap { registry.config(for: $0) } ?? registry.currentCluster
+    }
+    /// While the Welcome screen shows there is no pane: its sheets belong to the window.
+    private var commandRouter: AppRouter? {
+        guard let model else { return nil }
+        return registry.clusters.isEmpty && !registry.isDemoMode ? model.windowRouter : model.focusedRouter
     }
     private var readOnlyCurrent: Bool { focusedCluster?.readOnly ?? true }
 
@@ -38,14 +44,14 @@ struct MacCommands: Commands {
         // File
         CommandGroup(replacing: .newItem) {
             Group {
-                Button("New Window") { workspace.newWindow() }.keyboardShortcut("n")
+                Button("New Window") { workspace.newWindowOrReopenLast() }.keyboardShortcut("n")
                 Button("New Tab") { model?.newTab() }.keyboardShortcut("t").disabled(!hasWindow)
                 Button("Close Tab") { if let m = model { m.closeTab(m.selectedTab.id) } }.keyboardShortcut("w", modifiers: [.command, .option]).disabled(!hasWindow)
                 Divider()
-                Button("Add Cluster with Token…") { model?.focusedRouter.push(.addCluster) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!hasWindow)
+                Button("Add Cluster with Token…") { commandRouter?.push(.addCluster) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!hasWindow)
                 Button("Import File…") { env.importer.presentOpenPanel(whileLocked: env.lock.isLocked) }
                 Button("Create from YAML…") {
-                    if let id = focusedCluster?.id { model?.focusedRouter.push(.createYAML(id, namespace: registry.namespace(for: id))) }
+                    if let id = focusedCluster?.id { commandRouter?.push(.createYAML(id, namespace: model?.focusedPane?.context.namespace ?? registry.namespace(for: id))) }
                 }
                 .keyboardShortcut("n", modifiers: [.command, .control])
                 .disabled(!hasWindow || focusedCluster == nil || readOnlyCurrent)

@@ -87,7 +87,7 @@ struct ActivityView: View {
     private func reload() async {
         let query = ActivityQuery(text: text, cluster: clusterFilter, since: range.since, limit: Self.visibleRows)
         records = await log.records(query)
-        total = records.count < Self.visibleRows ? records.count : await log.records(ActivityQuery(text: text, cluster: clusterFilter, since: range.since, limit: Int(Int32.max))).count
+        total = records.count < Self.visibleRows ? records.count : await log.count(matching: query)
         loaded = true
     }
 

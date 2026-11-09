@@ -68,9 +68,13 @@ struct PaneHost: View {
     var body: some View {
         if let pane = model.pane(paneID) {
             let router = model.router(for: paneID)
-            let tearsDown = WorkspaceWindowModel.tearsDownWhenHidden(pane.top)
+            // Every entry of the stack counts: a pushed YAML editor under a list keeps the pane's state alive.
+            let tearsDown = pane.stack.allSatisfy { WorkspaceWindowModel.tearsDownWhenHidden($0) }
             let state = model.state
-            let tabIsSelected = state.tabIndex(containing: paneID).map { state.tabs[$0].id == state.selectedTab } ?? false
+            let tabIndex = state.tabIndex(containing: paneID)
+            // A pane parked behind a zoomed one is treated like a pane of a hidden tab.
+            let parked = tabIndex.map { state.tabs[$0].zoomedPane.map { $0 != paneID } ?? false } ?? false
+            let tabIsSelected = (tabIndex.map { state.tabs[$0].id == state.selectedTab } ?? false) && !parked
             let builds = pane.isPlaceholder || pane.stack.isEmpty || !tearsDown || (tabIsSelected && model.buildsContent)
             let isFocused = model.focusedPaneID == paneID
             let multiple = model.selectedTab.panes.count > 1
@@ -90,7 +94,12 @@ struct PaneHost: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .overlay { if PaneDragState.shared.isActive { PaneDropTarget(model: model, paneID: paneID) } }
+            .simultaneousGesture(TapGesture().onEnded { model.focus(pane: paneID) })
             .overlay { if multiple && isFocused { Rectangle().strokeBorder(Palette.tint.opacity(0.55), lineWidth: 1.5).allowsHitTesting(false) } }
+            // The lock does not cross the hosting boundary of the window, so the pane covers itself.
+            .disabled(env.lock.isLocked)
+            .accessibilityHidden(env.lock.isLocked)
             .paneEnvironment(env: env, model: model, router: router, visible: model.isVisible && tabIsSelected)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Pane: \(pane.title(registry: env.registry))")

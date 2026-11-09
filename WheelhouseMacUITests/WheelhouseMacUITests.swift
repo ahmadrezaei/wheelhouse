@@ -192,6 +192,17 @@ final class WheelhouseMacUITests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("holodeck"))
     }
 
+    /// The Welcome screen's buttons push sheet routes: the window must present them.
+    func testWelcomeButtonsOpenTheirSheets() throws {
+        let app = try launch(["-WHResetState"])
+        guard app.buttons["Import kubeconfig"].waitForExistence(timeout: 20) else { throw XCTSkip("the Welcome screen did not show (clusters exist)") }
+        app.buttons["Import kubeconfig"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 10), "Import did nothing")
+        app.typeKey(.escape, modifierFlags: [])
+        app.buttons["Add Cluster"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 10), "Add Cluster did nothing")
+    }
+
     /// Quits with ⌘Q, which runs the app's terminate path (it writes the workspace); `terminate()` would kill the app first.
     private func quit(_ app: XCUIApplication) {
         app.typeKey("q", modifierFlags: .command)

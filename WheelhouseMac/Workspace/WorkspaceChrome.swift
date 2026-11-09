@@ -148,10 +148,6 @@ struct StatusBar: View {
         }
     }
 
-    static func format(_ d: Duration) -> String {
-        let ms = Double(d.components.seconds) * 1_000 + Double(d.components.attoseconds) / 1e15
-        return "\(Int(ms.rounded())) ms"
-    }
 }
 
 // MARK: Inspector

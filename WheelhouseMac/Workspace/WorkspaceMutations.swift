@@ -89,8 +89,9 @@ extension WorkspaceWindowState {
     @discardableResult
     mutating func split(_ target: PaneID, axis: SplitAxis, showing destination: WorkspaceDestination? = nil) -> PaneID? {
         guard let i = tabIndex(containing: target), let source = tabs[i].root.pane(target) else { return nil }
-        var fresh = PaneState(context: source.context, stack: destination.map { [$0] } ?? source.stack.prefix(1).map { $0 })
-        if destination == nil, source.isPlaceholder { fresh.stack = [] }
+        // A new pane is never a copy of the pane it was split from (a second live editor or log of the same thing): it opens the
+        // overview of the pane's cluster, or stays empty.
+        var fresh = PaneState(context: source.context, stack: destination.map { [$0] } ?? (source.context.clusterID.map { [.route(.cluster($0))] } ?? []))
         tabs[i].raw = nil
         raw = nil
         tabs[i].root = tabs[i].root.splitting(target, axis: axis, inserting: fresh)

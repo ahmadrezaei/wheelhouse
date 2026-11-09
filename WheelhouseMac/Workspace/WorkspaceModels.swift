@@ -476,6 +476,24 @@ struct Station: Codable, Hashable, Sendable, Identifiable {
 struct WindowEntry: Codable, Hashable, Sendable {
     var id: WorkspaceWindowID
     var state: WorkspaceWindowState
+
+    private enum CodingKeys: String, CodingKey { case id, state }
+
+    init(id: WorkspaceWindowID, state: WorkspaceWindowState) { self.id = id; self.state = state }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(WorkspaceWindowID.self, forKey: .id)
+        state = try c.decode(WorkspaceWindowState.self, forKey: .state)
+    }
+
+    /// An entry that could not be read holds the whole entry's JSON as `state.raw`: it is written back as it was (not wrapped again).
+    func encode(to encoder: Encoder) throws {
+        if let raw = state.raw { try raw.encode(to: encoder); return }
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(state, forKey: .state)
+    }
 }
 
 /// A pane torn off into its own window.

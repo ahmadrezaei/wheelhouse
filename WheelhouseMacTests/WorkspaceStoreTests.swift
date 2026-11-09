@@ -439,4 +439,59 @@ struct WorkspaceStoreTests {
         let store = WorkspaceStore(file: nil)
         #expect(store.snapshot.stations.isEmpty)
     }
+
+    // MARK: Review fixes
+
+    @Test func anUnreadableWindowEntryIsWrittenBackByteForByteAcrossSaves() throws {
+        let file = #"{"version":1,"windows":[{"id":"w-bad","state":"nope","extra":{"k":[1,2]}}]}"#
+        var f = try JSONDecoder().decode(WorkspaceFile.self, from: Data(file.utf8))
+        let first = try encode(f)
+        for _ in 0..<3 { f = try JSONDecoder().decode(WorkspaceFile.self, from: try encode(f)) }
+        #expect(try encode(f) == first)                  // not nested deeper on every save
+        guard case .object(let written) = try json(first), case .object(let original) = try json(Data(file.utf8)) else { Issue.record("shape"); return }
+        #expect(written["windows"] == original["windows"])        // the entry itself is exactly what was read
+    }
+
+    @Test func aNewerFileThatCannotBeReadIsLeftAloneAndAnUnreadableFileIsNotOverwritten() throws {
+        let url = tempFile()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let text = #"{"version":9,"windows":"a shape this build does not know"}"#
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        let store = WorkspaceStore(file: url)
+        #expect(store.writesDisabled && store.movedAsideCorruptFile == nil)
+        store.mutate(store.windowOrder[0]) { $0.sidebarWidth = 300 }
+        store.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8) == text)
+        // A file that exists but cannot be read is not a missing file.
+        let locked = tempFile()
+        try FileManager.default.createDirectory(at: locked.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: locked.deletingLastPathComponent()) }
+        try "{}".write(to: locked, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        let unreadable = WorkspaceStore(file: locked)
+        #expect(unreadable.writesDisabled)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: locked.path)
+    }
+
+    @Test func aStationOpenedFromALinkNeverStartsATerminalAndWaitsForTheLockAndAConfirmation() {
+        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: UserDefaults(suiteName: "wh.station.\(UUID().uuidString)")!)
+        let c = WorkspaceController(store: WorkspaceStore(file: nil), registry: registry, sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
+        var state = window()
+        let first = state.tabs[0].focusedPane
+        _ = state.split(first, axis: .horizontal, showing: .deckTerminal(TerminalSpec(clusterID: Self.c1)))
+        let station = c.store.saveStation(named: "Term", from: state, bindToClusters: true)
+        let dropped = c.store.instantiate(station, dropTerminals: true)
+        #expect(!dropped.allPanes.contains { $0.stack.contains { if case .deckTerminal = $0 { true } else { false } } })
+        #expect(c.store.instantiate(station).allPanes.contains { $0.stack.contains { if case .deckTerminal = $0 { true } else { false } } })
+        let url = URL(string: "wheelhouse://station/\(station.id.rawValue)")!
+        var asked = 0
+        c.confirmsLinkedStation = { _ in asked += 1; return false }
+        c.isLocked = { true }
+        c.handle(url: url)
+        #expect(asked == 0 && c.pendingURL == url)       // the lock comes first, before anything is asked
+        c.isLocked = { false }
+        c.handle(url: url)
+        #expect(asked == 1)                              // declined: nothing opened
+    }
 }

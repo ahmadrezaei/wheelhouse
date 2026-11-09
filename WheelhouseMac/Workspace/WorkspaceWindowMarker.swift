@@ -75,14 +75,17 @@ final class WindowObserver {
     }
 
     private func becameKey() {
-        if case .window(let id) = model.scope { model.controller.becameActive(id) }
+        switch model.scope {
+        case .window(let id): model.controller.becameActive(id)
+        case .detached(let id): model.controller.becameActiveDetached(id)
+        }
     }
 
     private func restoreFrame(_ window: NSWindow) {
         let saved: [Double]?
         switch model.scope {
-        case .window(let id): saved = model.store.state(for: id).frame
-        case .detached(let id): saved = model.store.detached[id]?.frame
+        case .window(let id): saved = model.store.frame(for: id)
+        case .detached(let id): saved = model.store.detachedFrame(id)
         }
         guard let f = saved, f.count == 4, f[2] >= 400, f[3] >= 300 else { return }
         let frame = NSRect(x: f[0], y: f[1], width: f[2], height: f[3])

@@ -58,6 +58,9 @@ final class MacAppEnvironment {
                                              sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
         let lock = self.lock
         self.workspace.isLocked = { lock.isLocked }
+        let workspace = self.workspace
+        energy.trimSidebars = { workspace.allModels.forEach { $0.sidebarIfCreated?.trimCaches() } }
+        energy.releaseHiddenWindowContent = { workspace.allModels.forEach { $0.releaseContentNow() } }
     }
 
     /// Every client is built through this: `DesktopClientFactory`. While the gate is active a server that is not an allowed test host

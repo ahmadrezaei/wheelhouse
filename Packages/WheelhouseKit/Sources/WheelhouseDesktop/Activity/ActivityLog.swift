@@ -92,6 +92,13 @@ public final class ActivityLog: ActivityLogging, @unchecked Sendable {
         }
     }
 
+    /// How many entries match `query` (its limit is ignored), by SQL COUNT.
+    public func count(matching query: ActivityQuery) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in continuation.resume(returning: countMatching(query)) }
+        }
+    }
+
     public func clear() {
         queue.async { [self] in
             guard let db = openIfNeeded() else { return }
@@ -161,6 +168,42 @@ public final class ActivityLog: ActivityLogging, @unchecked Sendable {
         bind(stmt, 7, entry.result)
         bind(stmt, 8, entry.commandLine)
         sqlite3_step(stmt)
+    }
+
+    private func countMatching(_ query: ActivityQuery) -> Int {
+        guard let db = openIfNeeded() else { return 0 }
+        let (sql, binder) = Self.whereClause(query)
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM activity" + sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        _ = binder(stmt, self)
+        return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
+    }
+
+    /// The WHERE clause of a query and a function that binds its values (returns the next free index).
+    private static func whereClause(_ query: ActivityQuery) -> (String, (OpaquePointer?, ActivityLog) -> Int32) {
+        var clauses: [String] = []
+        var texts: [String] = []
+        var times: [Double] = []
+        if let cluster = query.cluster { clauses.append("cluster = ?"); texts.append(cluster) }
+        if let since = query.since { clauses.append("time >= ?"); times.append(since.timeIntervalSince1970) }
+        let search = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !search.isEmpty {
+            let columns = ["verb", "object", "result", "cluster", "origin_label", "command_line"]
+            clauses.append("(" + columns.map { "\($0) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ") + ")")
+            let escaped = search.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
+            texts.append(contentsOf: Array(repeating: "%\(escaped)%", count: columns.count))
+        }
+        let sql = clauses.isEmpty ? "" : " WHERE " + clauses.joined(separator: " AND ")
+        let hasCluster = query.cluster != nil
+        return (sql, { stmt, log in
+            var index: Int32 = 1
+            var remaining = texts
+            if hasCluster { log.bind(stmt, index, remaining.removeFirst()); index += 1 }
+            for t in times { sqlite3_bind_double(stmt, index, t); index += 1 }
+            for t in remaining { log.bind(stmt, index, t); index += 1 }
+            return index
+        })
     }
 
     private func select(_ query: ActivityQuery) -> [ActivityRecord] {

@@ -92,6 +92,7 @@ final class PaneDragSourceView: NSView, NSDraggingSource {
         let title = model.pane(paneID)?.title(registry: model.registry) ?? "Pane"
         let image = Self.chip(title)
         dragging.setDraggingFrame(NSRect(origin: NSPoint(x: bounds.minX, y: bounds.minY), size: image.size), contents: image)
+        MainActor.assumeIsolated { PaneDragState.shared.isActive = true }
         beginDraggingSession(with: [dragging], event: start, source: self)
     }
 
@@ -113,6 +114,7 @@ final class PaneDragSourceView: NSView, NSDraggingSource {
 
     /// A drag that no pane accepted and that ended outside every workspace window tears the pane off into a window of its own.
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        MainActor.assumeIsolated { PaneDragState.shared.isActive = false }
         guard operation.isEmpty else { return }
         let overWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain && $0.frame.contains(screenPoint) }
         guard !overWindow else { return }
@@ -125,42 +127,75 @@ final class PaneDragSourceView: NSView, NSDraggingSource {
 
 // MARK: Destination
 
-/// The drop overlay of a pane leaf: shows the zone under the cursor. Never takes a click.
-final class PaneDropOverlay: NSView {
-    var zone: DropZone? { didSet { needsDisplay = true; isHidden = zone == nil } }
+/// True while a pane is being dragged. Only then does each pane carry a drop target, so the target never exists during normal use and
+/// cannot intercept a click or a file drop (the kubeconfig import target keeps its drags).
+@MainActor @Observable
+final class PaneDragState {
+    static let shared = PaneDragState()
+    var isActive = false
+}
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isHidden = true
-        wantsLayer = true
+/// The drop target of a pane while a pane drag is active: it registers only the pane pasteboard type and shows the zone under the cursor.
+struct PaneDropTarget: NSViewRepresentable {
+    let model: WorkspaceWindowModel
+    let paneID: PaneID
+
+    func makeNSView(context: Context) -> PaneDropTargetView { PaneDropTargetView(model: model, paneID: paneID) }
+    func updateNSView(_ view: PaneDropTargetView, context: Context) { view.model = model; view.paneID = paneID }
+}
+
+final class PaneDropTargetView: NSView {
+    var model: WorkspaceWindowModel
+    var paneID: PaneID
+    var zone: DropZone? { didSet { needsDisplay = true } }
+
+    init(model: WorkspaceWindowModel, paneID: PaneID) {
+        self.model = model
+        self.paneID = paneID
+        super.init(frame: .zero)
+        registerForDraggedTypes([.wheelhousePane])
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let zone else { return }
-        let unit = PaneDropZones.highlight(zone)
-        let rect = NSRect(x: bounds.width * unit.minX, y: bounds.height * unit.minY, width: bounds.width * unit.width, height: bounds.height * unit.height)
-        NSColor.controlAccentColor.withAlphaComponent(0.22).setFill()
-        NSBezierPath(roundedRect: rect.insetBy(dx: 3, dy: 3), xRadius: 8, yRadius: 8).fill()
-        NSColor.controlAccentColor.setStroke()
-        let path = NSBezierPath(roundedRect: rect.insetBy(dx: 3, dy: 3), xRadius: 8, yRadius: 8)
-        path.lineWidth = 2
-        path.stroke()
-    }
-}
-
-extension PaneLeafView {
     func payload(from info: NSDraggingInfo) -> PaneDragPayload? {
         info.draggingPasteboard.data(forType: .wheelhousePane).flatMap(PaneDragPayload.init(data:))
     }
 
     func zone(for info: NSDraggingInfo) -> DropZone {
         let p = convert(info.draggingLocation, from: nil)
-        // AppKit's y is up; the zones are measured from the top.
-        return PaneDropZones.zone(at: CGPoint(x: p.x, y: bounds.height - p.y), in: bounds.size)
+        return PaneDropZones.zone(at: CGPoint(x: p.x, y: p.y), in: bounds.size)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let payload = payload(from: sender), payload.pane != paneID else { zone = nil; return [] }
+        zone = zone(for: sender)
+        return .move
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { zone = nil }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { zone = nil }
+        guard let payload = payload(from: sender), payload.pane != paneID else { return false }
+        let zone = zone(for: sender)
+        let target = paneID
+        return MainActor.assumeIsolated { model.controller.dockPane(payload, into: model, onto: target, zone: zone) }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let zone else { return }
+        let unit = PaneDropZones.highlight(zone)
+        let rect = NSRect(x: bounds.width * unit.minX, y: bounds.height * unit.minY, width: bounds.width * unit.width, height: bounds.height * unit.height).insetBy(dx: 3, dy: 3)
+        NSColor.controlAccentColor.withAlphaComponent(0.22).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        NSColor.controlAccentColor.setStroke()
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        path.lineWidth = 2
+        path.stroke()
     }
 }

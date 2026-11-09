@@ -59,6 +59,7 @@ struct WorkspaceWindowContent: View {
     var body: some View {
         @Bindable var importer = env.importer
         @Bindable var model = model
+        @Bindable var windowRouter = windowRouter
         ZStack {
             // Demo needs no test kubeconfig, so it never waits for the folder prompt.
             if !env.isReady && !registry.isDemoMode {
@@ -94,6 +95,18 @@ struct WorkspaceWindowContent: View {
                 .environment(\.clusterChangeAllowing, env.moorings.service)
                 .frame(minWidth: 560, minHeight: 520)
         }
+        // The sheet routes the Welcome screen pushes (Add Cluster, Import) and, like every pane, Settings as its own scene.
+        .sheet(item: $windowRouter.sheet) { presented in
+            SheetRouteView(route: presented.route)
+                .environment(env).environment(registry).environment(env.preferences).environment(windowRouter).environment(env.lock.controller).environment(env.workspace.network)
+                .environment(\.kubeconfigImportPolicy, env.importer.policy)
+                .environment(\.clusterClientFactory, env.clientFactory)
+                .environment(\.clusterChangeAllowing, env.moorings.service)
+                .frame(minWidth: 520, minHeight: 480)
+        }
+        .onChange(of: windowRouter.sheet) { _, sheet in
+            if sheet?.route == .settings { windowRouter.sheet = nil; openSettings() }
+        }
         .sheet(item: $model.sheet) { sheet in
             Group {
                 switch sheet {
@@ -124,6 +137,11 @@ struct WorkspaceWindowContent: View {
         }
         .onChange(of: env.lock.isLocked) { _, locked in
             if locked {
+                // Everything above the overlay goes: this window's sheets (Stations, Save Station, the cluster picker, Add Cluster) and
+                // every sheet presented by a screen of any window (sign-in, merge review, scanner setup).
+                model.sheet = nil
+                windowRouter.sheet = nil
+                for other in env.workspace.allModels { other.sheet = nil }
                 ChartRoomMemory.scrub()
                 env.importer.dismiss()
                 Self.coverWindows()
@@ -144,7 +162,7 @@ struct WorkspaceWindowContent: View {
 
     private var workspace: some View {
         let state = model.state
-        let hosted = state.tabs.filter { $0.id == state.selectedTab || $0.panes.contains { !WorkspaceWindowModel.tearsDownWhenHidden($0.top) } }
+        let hosted = state.tabs.filter { $0.id == state.selectedTab || $0.panes.contains { !$0.stack.allSatisfy { WorkspaceWindowModel.tearsDownWhenHidden($0) } } }
         return NavigationSplitView {
             SidebarPane(window: model)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
@@ -154,18 +172,7 @@ struct WorkspaceWindowContent: View {
                 Divider()
                 ZStack {
                     ForEach(hosted, id: \.id) { tab in
-                        // One pane: the window hosts it directly, so the screens' toolbars and search fields reach the window
-                        // toolbar as they always did. Several panes: the split view (nested hosting views).
-                        Group {
-                            if tab.panes.count == 1, let only = tab.panes.first {
-                                PaneHost(env: env, model: model, paneID: only.id)
-                                    .id(only.id)
-                                    .opacity(tab.id == state.selectedTab ? 1 : 0)
-                                    .allowsHitTesting(tab.id == state.selectedTab)
-                            } else {
-                                PaneSplitView(env: env, model: model, tab: tab, isSelected: tab.id == state.selectedTab)
-                            }
-                        }
+                        PaneTreeLayout(env: env, model: model, tab: tab, isSelected: tab.id == state.selectedTab)
                         .accessibilityHidden(tab.id != state.selectedTab)
                     }
                 }
@@ -189,6 +196,7 @@ struct WorkspaceWindowContent: View {
     /// the overlay) and closes the Settings window, which the overlay of this window does not cover.
     private static func coverWindows() {
         for window in NSApp.windows {
+            for sheet in window.sheets { window.endSheet(sheet) }
             window.makeFirstResponder(nil)
             if window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true { window.close() }
         }
@@ -213,7 +221,7 @@ struct DetachedPaneWindow: View {
         let model = env.workspace.detachedModel(for: paneID)
         VStack(spacing: 0) {
             ZStack {
-                if env.lock.isLocked { Color.clear } else { PaneHost(env: env, model: model, paneID: paneID) }
+                PaneHost(env: env, model: model, paneID: paneID)
                 if env.lock.isLocked { LockScreenView().environment(env.lock.controller).transition(.identity) }
             }
         }

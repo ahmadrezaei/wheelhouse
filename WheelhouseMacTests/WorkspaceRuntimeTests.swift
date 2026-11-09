@@ -203,75 +203,31 @@ struct WorkspaceRuntimeTests {
         #expect(model.pane(pane)?.stack == [.route(.resourceList("other", .pod, namespace: nil))])
     }
 
-    // MARK: Split view
+    // MARK: Pane layout
 
-    @Test func theSplitViewBuildsOneLeafPerPaneAndReusesThemAcrossChanges() throws {
-        let f = fixture()
-        let model = f.controller.model(for: f.controller.store.createWindow())
-        let first = model.focusedPaneID
-        let tabID = model.selectedTab.id
-        let view = PaneTreeView(env: f.env, model: model, tabID: tabID)
-        view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
-        view.apply(root: model.selectedTab.root, focused: first)
-        #expect(view.leafIDs == [first] && view.splitViews.isEmpty)
-        model.split(.horizontal)
-        model.split(.vertical)
-        view.apply(root: model.selectedTab.root, focused: model.focusedPaneID)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.leafIDs.count == 3)
-        #expect(view.splitViews.count == 2)
-        let reused = view.leafIDs.contains(first)
-        #expect(reused)
-        // Moving a pane rebuilds the splits and keeps the leaf views.
-        model.movePane(first, .down)
-        view.apply(root: model.selectedTab.root, focused: first)
-        #expect(view.leafIDs.count == 3)
-        // Closing removes the leaf.
-        let extra = model.selectedTab.panes.last!.id
-        model.closePane(extra)
-        view.apply(root: model.selectedTab.root, focused: model.focusedPaneID)
-        #expect(view.leafIDs.count == 2 && view.splitViews.count == 1)
+    @Test func dividersAndRectanglesFollowTheTreeAndTheFractions() {
+        let a = PaneState(), b = PaneState(), c = PaneState()
+        let tree = PaneNode.split(axis: .horizontal, fraction: 0.4, first: .leaf(a), second: .split(axis: .vertical, fraction: 0.5, first: .leaf(b), second: .leaf(c)))
+        let rects = Dictionary(uniqueKeysWithValues: tree.layout().map { ($0.id, $0.rect) })
+        #expect(rects[a.id] == CGRect(x: 0, y: 0, width: 0.4, height: 1))
+        #expect(rects[b.id] == CGRect(x: 0.4, y: 0, width: 0.6, height: 0.5))
+        let dividers = tree.dividers()
+        #expect(dividers.map(\.path) == [[], [1]])
+        #expect(dividers[1].parent == CGRect(x: 0.4, y: 0, width: 0.6, height: 1))
+        let moved = tree.applying(fractions: [[]: 0.7])
+        #expect(Dictionary(uniqueKeysWithValues: moved.layout().map { ($0.id, $0.rect) })[a.id]?.width == 0.7)
+        #expect(PaneTreeLayout.minimumFraction(side: 1_000, points: 320) == 0.32)
     }
 
-    @Test func zoomingParksThePanesInsteadOfFreeingThem() {
+    @Test func splittingDoesNotDuplicateThePaneItWasSplitFrom() {
         let f = fixture()
         let model = f.controller.model(for: f.controller.store.createWindow())
-        let first = model.focusedPaneID
-        let tabID = model.selectedTab.id
-        let view = PaneTreeView(env: f.env, model: model, tabID: tabID)
-        view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
+        let pane = model.focusedPaneID
+        model.mutate { $0.setRoot(.route(.resourceList(f.cluster, .pod, namespace: nil)), in: pane) }
         model.split(.horizontal)
-        let second = model.focusedPaneID
-        view.apply(root: model.selectedTab.root, all: model.selectedTab.root, focused: second)
-        let before = view.leafIDs
-        let tab = model.selectedTab
-        view.apply(root: .leaf(tab.root.pane(second)!), all: tab.root, focused: second)       // zoomed
-        #expect(view.leafIDs == before)
-        view.apply(root: tab.root, all: tab.root, focused: second)
-        #expect(view.leafIDs == before && before.contains(first))
-    }
-
-    @Test func dividerFractionsFollowTheState() throws {
-        let f = fixture()
-        let model = f.controller.model(for: f.controller.store.createWindow())
-        let tabID = model.selectedTab.id
-        let view = PaneTreeView(env: f.env, model: model, tabID: tabID)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        window.orderBack(nil)
-        defer { window.close() }
-        model.split(.horizontal)
-        model.setFraction(0.4, tab: tabID, path: [])   // above the 320 pt minimum of a 1,000 pt split
-        view.apply(root: model.selectedTab.root, focused: model.focusedPaneID)
-        window.layoutIfNeeded()
-        view.layoutSubtreeIfNeeded()
-        view.needsLayout = true
-        view.layoutSubtreeIfNeeded()
-        let split = try #require(view.splitViews.first)
-        let first = split.subviews[0].frame.width
-        let total = split.bounds.width - split.dividerThickness
-        #expect(abs(first / total - 0.4) < 0.02)
+        let new = model.focusedPaneID
+        #expect(model.pane(new)?.stack == [.route(.cluster(f.cluster))])
+        #expect(model.pane(pane)?.stack == [.route(.resourceList(f.cluster, .pod, namespace: nil))])
     }
 
     // MARK: Scenarios
@@ -304,5 +260,58 @@ struct WorkspaceRuntimeTests {
         let scenario = PerfScenario(name: "soak-5", description: nil, clusters: 2, windows: 2, tabs: 2, panes: ["deck-terminal:x"], hideWindowsAfterSeconds: nil, windowAction: nil, cycleSeconds: 300)
         let plan = PerfLayout.plan(scenario, clusters: clusters)
         #expect(plan.count == 2 && plan.allSatisfy { $0.count == 2 })
+    }
+
+    @Test func mergeAllWindowsKeepsPlaceholderTabsAndDetachedPanesWithoutDuplicates() throws {
+        let f = fixture()
+        let c = f.controller
+        let a = c.model(for: c.store.createWindow())
+        let bID = c.store.createWindow(WorkspaceWindowState(tabs: [TabState.placeholder(raw: ["id": "bad", "root": ["x": 1]])]))
+        let b = c.model(for: bID)
+        a.split(.horizontal)
+        let moved = a.focusedPaneID
+        a.detach(moved)
+        _ = c.detachedModel(for: moved)
+        c.becameActive({ if case .window(let w) = a.scope { w } else { WorkspaceWindowID.new() } }())
+        c.mergeAllWindows()
+        let tabs = a.state.tabs
+        #expect(tabs.contains { $0.raw != nil })                             // the unreadable tab and its JSON travelled
+        let ids = tabs.flatMap(\.panes).map(\.id)
+        #expect(ids.count == Set(ids).count)                                 // no pane ID twice
+        #expect(ids.contains(moved))                                         // the detached pane joined
+        #expect(b.state.tabs.count == 1 && b.state.tabs[0].raw == nil)       // the source is reset
+        #expect(c.store.detachedPane(moved) == nil)
+    }
+
+    @Test func closingTheOnlyPaneOfAPlaceholderWindowResetsItInsteadOfClosing() {
+        let f = fixture()
+        let id = f.controller.store.createWindow(.placeholder(raw: ["id": "w", "state": "nope"]))
+        let model = f.controller.model(for: id)
+        model.closePane(model.focusedPaneID)
+        #expect(f.controller.store.windows[id]?.raw == nil)
+        #expect(f.controller.store.windows[id]?.tabs.first?.raw == nil)
+    }
+
+    @Test func detachedWindowsHaveNoSidebarAndMenusSkipThem() {
+        let f = fixture()
+        let model = f.controller.model(for: f.controller.store.createWindow())
+        let detachedPane = PaneState(showing: .route(.sessions))
+        f.controller.store.detach(detachedPane)
+        let detached = f.controller.detachedModel(for: detachedPane.id)
+        detached.focusedPaneChanged()
+        #expect(detached.sidebarIfCreated == nil)                            // no discovery or rules review from a detached window
+        f.controller.becameActiveDetached(detachedPane.id)
+        #expect(f.controller.activeModel === detached)
+        _ = model
+    }
+
+    @Test func aHiddenWindowsContentIsReleasedAtOnceOnCriticalPressure() {
+        let f = fixture()
+        let model = f.controller.model(for: f.controller.store.createWindow())
+        model.releaseGrace = 60
+        model.visibilityChanged(false, thermalGrace: false)
+        #expect(model.buildsContent)
+        model.releaseContentNow()
+        #expect(!model.buildsContent)
     }
 }

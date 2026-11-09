@@ -69,19 +69,6 @@ struct PaneDragTests {
         #expect(target.selectedTab.panes.count == 1)
     }
 
-    @Test func aDetachedPaneDockedIntoAWindowLeavesTheStore() throws {
-        let c = controller()
-        let model = c.model(for: c.store.createWindow())
-        model.split(.horizontal)
-        let pane = model.focusedPaneID
-        model.detach(pane)
-        #expect(c.store.detachedPane(pane) != nil)
-        _ = c.detachedModel(for: pane)
-        #expect(c.dockPane(PaneDragPayload(window: nil, pane: pane), into: model, onto: model.focusedPaneID, zone: .right))
-        #expect(c.store.detachedPane(pane) == nil)
-        #expect(model.selectedTab.panes.count == 2)
-    }
-
     @Test func aTearOffKeepsThePanesStateInADetachedWindow() throws {
         let c = controller()
         let model = c.model(for: c.store.createWindow())
@@ -91,16 +78,14 @@ struct PaneDragTests {
         model.detach(pane, near: NSPoint(x: 300, y: 300))
         let detached = try #require(c.store.detachedPane(pane))
         #expect(detached.stack == [.route(.alerts)])
-        #expect(c.store.detached[pane]?.frame?.count == 4)
+        #expect(c.store.detachedFrame(pane)?.count == 4)
         #expect(model.selectedTab.panes.count == 1)
     }
 
-    @Test func aPaneLeafRegistersOnlyForPaneDrags() throws {
+    @Test func aDropTargetRegistersOnlyForPaneDrags() {
         let c = controller()
-        let env = MacAppEnvironment.live()
         let model = c.model(for: c.store.createWindow())
-        let leaf = PaneLeafView(env: env, model: model, paneID: model.focusedPaneID)
-        #expect(leaf.registeredDraggedTypes == [.wheelhousePane])          // never file URLs: kubeconfig drops keep their own target
-        #expect(leaf.dropOverlay.hitTest(NSPoint(x: 1, y: 1)) == nil)       // the overlay never takes a click
+        let target = PaneDropTargetView(model: model, paneID: model.focusedPaneID)
+        #expect(target.registeredDraggedTypes == [.wheelhousePane])          // never file URLs: kubeconfig drops keep their own target
     }
 }
