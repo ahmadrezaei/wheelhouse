@@ -427,6 +427,34 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     /// "Choose Later": nothing is added and the sheet stays available.
     public func deferFirstRun() {}
 
+    // MARK: Landfall
+
+    /// Marks the contexts Landfall is about to write to `landfall.yaml` as added: read-only, with the environment Landfall suggested
+    /// (name and cloud tags). This runs BEFORE the file is written, so a scan that sees the new contexts finds them already decided and
+    /// a tag-only Production suggestion cannot be lost. Returns the ids that were not added before (for ``unregisterLandfall(_:)``).
+    @discardableResult
+    public func registerLandfall(_ rows: [LandfallRegistration]) throws -> [ClusterID] {
+        let stamp = now()
+        var changes: [ClusterID: DiscoveredOverride?] = [:]
+        var created: [ClusterID] = []
+        for row in rows {
+            let id = row.key.clusterID
+            var o = state.overrides.override(for: id) ?? DiscoveredOverride()
+            if !o.added { created.append(id); o.readOnly = true; o.addedAt = stamp; o.isNew = false }
+            o.added = true
+            o.hidden = false
+            if !o.environmentChosen, o.environment == nil { o.environment = row.suggestedEnvironment }
+            changes[id] = o
+        }
+        try state.overrides.apply(changes)
+        return created
+    }
+
+    /// Undoes ``registerLandfall(_:)`` for contexts that were not written.
+    public func unregisterLandfall(_ ids: [ClusterID]) throws {
+        try state.overrides.apply(Dictionary(uniqueKeysWithValues: ids.map { ($0, nil as DiscoveredOverride?) }))
+    }
+
     // MARK: Allow changes, opening, removal
 
     /// Moorings owns the read-only flag of a context that was added (first run, import as source or adoption); a Keychain cluster is not managed.
@@ -528,7 +556,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public func startFirstRunChecks(ids: [ClusterID]) async {
         let eligible = ids.filter { id in
             guard let ctx = state.context(for: id), ctx.isUsable, !ctx.blockedInDevelopment else { return false }
-            return !ctx.isSuggestedProduction
+            return !ctx.isSuggestedProduction && !state.isContactHeld(id)
         }
         for id in ids where !eligible.contains(id) { state.setCheck(.notChecked, for: id) }
         await withTaskGroup(of: Void.self) { group in
