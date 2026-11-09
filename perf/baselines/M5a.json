@@ -1,0 +1,60 @@
+{
+  "milestone": "M5a",
+  "date": "2026-11-09",
+  "idle-1": {
+    "samples": 30,
+    "intervalSec": 10.0,
+    "cpuAvgPct": 0.067,
+    "cpuMaxSamplePct": 0.4,
+    "idleWakeupsPerSec": 0.003,
+    "energyImpact": 0.067,
+    "threads": 5,
+    "footprintGrowthMB": 0.0,
+    "footprintLastMinusMin10MB": 0.0,
+    "threadsOverBaseline": 1,
+    "fdsOverBaseline": 0,
+    "footprintMB": 81.0,
+    "footprintFirstMB": 81.0,
+    "footprintLastMB": 81.0,
+    "fds": 75,
+    "minutes": 5,
+    "connectedMinutesPct": 100.0,
+    "windowVisibleMinutesPct": 100.0,
+    "keepVisible": true,
+    "connectedAfterSettle": 1,
+    "note": "Gangway adds no listener, socket or timer until a consumer asks for it (the Deck Terminal is M5b), so the app-level scenario is the P1 one plus the lazy host object and one observation of the app lock. cpuAvgPct 0.067 vs P1 0.053 and cpuMaxSamplePct 0.4 vs 0.3 are one top sample (top reports 0.1 steps) on a Mac that other workers were building on (1-minute load 1.9 at the end, 2.6 at the start); wakeups 0.003/s and footprint 81 MB (P1 77 MB) are within noise and every budget is met. threads +1 over baseline: the app's own, fds equal."
+  },
+  "gangway": {
+    "environment": {
+      "machine": "MacBook Pro (Apple M4 Pro)",
+      "macOS": "27.0.1",
+      "cluster": "test cluster (minikube), live; kubectl v1.30.14 to v1.37.2",
+      "command": "WH_LIVE_TESTS=1 WH_TEST_KUBECONFIG=<repo>/.testcluster/kubeconfig swift test --filter GangwayLiveTests"
+    },
+    "proxyOverheadP50Ms": 0.1,
+    "proxyOverheadP95Ms": 0.13,
+    "proxyOverheadBudgetP50Ms": 2.0,
+    "proxyOverheadNote": "GET of a ConfigMap through Gangway to the real API server over TLS, 400 sequential requests on one keep-alive connection: the proxy's own work (head parsed to upstream write, plus first response chunk to downstream write; hold and connect time excluded). End to end through the proxy 0.74 ms p50.",
+    "idleWakeups": {
+      "testProcessBaselinePerSec": 0.25,
+      "withFourOpenSessionsPerSec": 0.375,
+      "idlePerSec": 0.0,
+      "note": "proc_pid_rusage interrupt and package-idle wakeups of the test process over 8 s, with 4 sessions each holding an open keep-alive connection: one single-shot 120 s deadline per connection, no repeating timers."
+    },
+    "kubectlVersions": [
+      "v1.30.14",
+      "v1.31.14",
+      "v1.32.2",
+      "v1.33.13",
+      "v1.34.13",
+      "v1.35.10",
+      "v1.36.6",
+      "v1.37.2"
+    ],
+    "declinedExecSheets": {
+      "before": 2,
+      "after": 1,
+      "note": "kubectl retries a refused WebSocket upgrade over SPDY; a declined stream is remembered for 3 s."
+    }
+  }
+}
