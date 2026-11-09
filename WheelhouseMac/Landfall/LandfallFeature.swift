@@ -1,7 +1,8 @@
 import SwiftUI
+import WheelhouseDesktop
 import WheelhouseKit
 
-/// Stub. M10 replaces the contents of this file (and only this folder).
+/// Landfall: discover managed clusters (EKS, GKE, AKS) through the user's own CLIs and add them read-only (ARCHITECTURE-MAC §8).
 enum LandfallFeature: WheelhouseFeature {
     static var id: FeatureID { .landfall }
     static var title: String { "Landfall" }
@@ -11,6 +12,6 @@ enum LandfallFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Landfall", milestone: "M10")
+        LandfallScreen()
     }
 }

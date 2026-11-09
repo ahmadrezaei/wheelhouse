@@ -150,5 +150,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // A copied secret must not outlive the app.
         Pasteboard.clearSensitiveIfUnchanged()
+        // The shutdown audits of Gangway, Landfall and the scanner run in `willTerminate` observers, after `applicationShouldTerminate`:
+        // flush once more so none of them is lost.
+        MainActor.assumeIsolated { MacAppDelegate.environment?.activity.flush() }
     }
 }

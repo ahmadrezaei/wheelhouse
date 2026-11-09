@@ -1,0 +1,27 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-11-08T10:00:00.000000000Z",
+  "ArtifactName": "registry.example.com/team/web@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "ArtifactType": "container_image",
+  "Metadata": {
+    "OS": { "Family": "debian", "Name": "12.7" },
+    "ImageID": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "RepoDigests": ["registry.example.com/team/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"]
+  },
+  "Results": [
+    {
+      "Target": "registry.example.com/team/web (debian 12.7)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        { "VulnerabilityID": "CVE-2026-0001", "PkgName": "libexpat1", "InstalledVersion": "2.5.0-1", "FixedVersion": "2.5.0-1+deb12u1", "Severity": "CRITICAL", "Title": "expat: integer overflow", "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-0001" },
+        { "VulnerabilityID": "CVE-2026-0002", "PkgName": "openssl", "InstalledVersion": "3.0.11-1", "Severity": "HIGH", "Title": "openssl: timing leak" },
+        { "VulnerabilityID": "CVE-2026-0003", "PkgName": "zlib1g", "InstalledVersion": "1:1.2.13", "FixedVersion": "", "Severity": "LOW" },
+        { "VulnerabilityID": "CVE-2026-0004", "PkgName": "bash", "InstalledVersion": "5.2.15", "FixedVersion": "5.2.15-3", "Severity": "WEIRD" },
+        { "VulnerabilityID": "CVE-2026-0001", "PkgName": "libexpat1", "InstalledVersion": "2.5.0-1", "FixedVersion": "2.5.0-1+deb12u1", "Severity": "CRITICAL" }
+      ]
+    },
+    { "Target": "usr/lib/app.jar", "Class": "lang-pkgs", "Type": "jar", "Vulnerabilities": null },
+    { "Target": "secrets", "Class": "secret" }
+  ]
+}

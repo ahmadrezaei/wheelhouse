@@ -7,7 +7,8 @@
 #  - the signed entitlements differ from the expected set (any extra key, or the shared iCloud group in a Debug or Profile build);
 #  - Info.plist WHDevSafety is not YES (every configuration except Distribution) or not NO (Distribution);
 #  - the bundle ID, Sparkle feed or test-kubeconfig keys do not match the configuration;
-#  - the binary contains a test-hook symbol (WHTestHook, GangwayTestHooks, autoApprove) in any configuration except Debug.
+#  - the binary contains a test-hook symbol (WHTestHook, GangwayTestHooks, autoApprove) or the Gangway auto-approve launch argument
+#    (WHGangwayAutoApprove) in any configuration except Debug.
 # `--config` defaults to $CONFIGURATION, then to Debug when the bundle ID ends in .debug.
 # Meant for `build` output. A Debug app re-signed by Xcode for hosted tests (temporary-exception entitlements, no hardened runtime) is
 # accepted for Debug only. Runs on the built product; it never launches the app and never reads ~/.kube.
@@ -168,6 +169,8 @@ HOOKS=0
 while IFS= read -r f; do
   SYMS="$(nm -m "$f" 2>/dev/null || true)"     # captured first: `nm | grep -q` under pipefail would die of SIGPIPE and report "clean"
   case "$SYMS" in *WHTestHook*|*GangwayTestHooks*|*autoApprove*) HOOKS=1; echo "  test-hook symbol in $f" >&2 ;; esac
+  # The Gangway auto-approve launch argument is a string literal: a stripped binary has no symbol for it, so look for the text too.
+  if grep -aq 'WHGangwayAutoApprove' "$f" 2>/dev/null; then HOOKS=1; echo "  Gangway auto-approve launch argument in $f" >&2; fi
 done < <(find "$APP/Contents/MacOS" "$APP/Contents/Helpers" -type f \( -perm -u+x -o -name '*.dylib' \) 2>/dev/null)
 if [ "$CONFIG" = Debug ]; then ok "test hooks allowed in Debug (symbols present: $([ "$HOOKS" = 1 ] && echo yes || echo no))"; elif [ "$HOOKS" = 0 ]; then ok "no test-hook symbols"; else fail "$CONFIG build contains test-hook symbols"; fi
 

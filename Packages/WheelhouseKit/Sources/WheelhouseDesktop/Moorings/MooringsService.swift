@@ -116,6 +116,10 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     /// Files that could not be read or are refused, by path (shown in Settings → Moorings).
     public private(set) var issues: [String: String] = [:]
     public private(set) var scanCount = 0
+    /// Added clusters whose context now points at another server (shown with the file issues until the cluster is checked or opened).
+    private var serverNotices: [ClusterID: String] = [:]
+    /// One notice per cluster whose context now points at another server (separate from the file issues).
+    public var changeNotices: [ClusterID: String] { serverNotices }
 
     public init(config: MooringsConfiguration, state: MooringsState, clients: any MooringsClientMaking, broker: ExecCredentialBroker? = nil,
                 authorizer: any ChangeAuthorizing = DenyingChangeAuthorizer(), now: @escaping @Sendable () -> Date = { Date() },
@@ -330,6 +334,17 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             if let existing = o, existing.added {
                 var updated = existing
                 updated.sourceRemovedAt = nil
+                // The same name now points at another API server: what the user approved was for the old one. Back to read-only,
+                // not approved, environment not chosen.
+                if let old = existing.lastKnown?.server, let new = ctx.context.server, ServerURL.normalized(URL(string: old) ?? new) != ServerURL.normalized(new) {
+                    updated.readOnly = true
+                    updated.contactApproved = false
+                    updated.environmentChosen = false
+                    // Production is never lowered here (that needs the owner): only the suggestion replaces a lower environment.
+                    updated.environment = existing.environment == .production ? .production : ctx.suggestion?.environment
+                    state.revokeContact(id)
+                    serverNotices[id] = ("\(ctx.displayName) now points at a different server. It is read-only and has to be checked again.")
+                }
                 updated.lastKnown = lastKnown(ctx)
                 if updated != existing { overrideChanges[id] = updated }
                 if previous[id] == nil, !isFirstScan { change.added.append(id) }
@@ -427,6 +442,45 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     /// "Choose Later": nothing is added and the sheet stays available.
     public func deferFirstRun() {}
 
+    // MARK: Landfall
+
+    /// Marks the contexts Landfall is about to write as added: read-only, with the environment Landfall suggested (name and cloud tags).
+    /// This runs BEFORE the file is written, so a scan that sees the new contexts finds them already decided and a tag-only Production
+    /// suggestion cannot be lost. Returns the overrides as they were, for ``unregisterLandfall(_:)``.
+    @discardableResult
+    public func registerLandfall(_ rows: [LandfallRegistration]) throws -> [ClusterID: DiscoveredOverride?] {
+        let stamp = now()
+        var changes: [ClusterID: DiscoveredOverride?] = [:]
+        var previous: [ClusterID: DiscoveredOverride?] = [:]
+        for row in rows {
+            let id = row.key.clusterID
+            let before = state.overrides.override(for: id)
+            previous[id] = before
+            var o = before ?? DiscoveredOverride()
+            if !o.added || o.hidden { o.readOnly = true; o.addedAt = stamp; o.isNew = false; o.contactApproved = false }
+            // Registered for another server than the one it was approved for: start over.
+            if let old = (before?.lastKnown?.server).flatMap({ URL(string: $0) }), let new = row.server.flatMap({ URL(string: $0) }), ServerURL.normalized(old) != ServerURL.normalized(new) {
+                o.readOnly = true
+                o.contactApproved = false
+                o.environmentChosen = false
+                o.environment = before?.environment == .production ? .production : nil
+                state.revokeContact(id)
+                serverNotices[id] = ("\(row.key.contextName) now points at a different server. It is read-only and has to be checked again.")
+            }
+            o.added = true
+            o.hidden = false
+            if !o.environmentChosen, o.environment == nil || row.suggestedEnvironment == .production { o.environment = row.suggestedEnvironment ?? o.environment }
+            changes[id] = o
+        }
+        try state.overrides.apply(changes)
+        return previous
+    }
+
+    /// Undoes ``registerLandfall(_:)`` for contexts that were not written: every override goes back to what it was.
+    public func unregisterLandfall(_ previous: [ClusterID: DiscoveredOverride?]) throws {
+        try state.overrides.apply(previous)
+    }
+
     // MARK: Allow changes, opening, removal
 
     /// Moorings owns the read-only flag of a context that was added (first run, import as source or adoption); a Keychain cluster is not managed.
@@ -481,6 +535,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             throw MooringsError.authorizationDenied
         }
         guard var o = state.overrides.override(for: id), o.added else { throw MooringsError.notAvailable }
+        serverNotices[id] = nil
         o.environment = environment
         o.environmentChosen = true
         o.readOnly = false
@@ -491,6 +546,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
 
     /// Opening a cluster approves contact for a Production-suggested one (owner decision 10) and clears its New badge.
     public func markOpened(_ id: ClusterID) throws {
+        serverNotices[id] = nil
         guard var o = state.overrides.override(for: id), o.added else { return }
         o.contactApproved = true
         o.isNew = false
@@ -513,6 +569,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     /// The user clicked Check. The ONLY way a Production-suggested context is contacted before it is opened.
     @discardableResult
     public func check(_ id: ClusterID) async -> ClusterCheckResult {
+        serverNotices[id] = nil
         let wasHeld = state.isContactHeld(id)
         state.approveContact(id)
         if var o = state.overrides.override(for: id), !o.contactApproved {
@@ -528,7 +585,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public func startFirstRunChecks(ids: [ClusterID]) async {
         let eligible = ids.filter { id in
             guard let ctx = state.context(for: id), ctx.isUsable, !ctx.blockedInDevelopment else { return false }
-            return !ctx.isSuggestedProduction
+            return !ctx.isSuggestedProduction && !state.isContactHeld(id)
         }
         for id in ids where !eligible.contains(id) { state.setCheck(.notChecked, for: id) }
         await withTaskGroup(of: Void.self) { group in
