@@ -1,0 +1,1 @@
+{"cluster":{"name":"tagged-only","arn":"arn:aws:eks:eu-west-1:123456789012:cluster/tagged-only","endpoint":"https://BBBB2222.gr7.eu-west-1.eks.amazonaws.com","version":"1.29","status":"ACTIVE","certificateAuthority":{"data":"Q0EtVEFHR0VE"},"resourcesVpcConfig":{"endpointPublicAccess":false,"endpointPrivateAccess":true},"tags":{"env":"prod"}}}

@@ -33,6 +33,8 @@ final class MooringsController {
     private(set) var firstRunRows: [FirstRunRow] = []
     private(set) var shellBanner: String?
     private(set) var issues: [String: String] = [:]
+    /// Clusters whose context now points at another server.
+    private(set) var serverNotices: [ClusterID: String] = [:]
     var needsFirstRun: Bool { !state.preferences.value.firstRunCompleted && !firstRunRows.isEmpty }
     weak var registry: ClusterRegistry?
 
@@ -102,6 +104,7 @@ final class MooringsController {
         contexts = state.contexts
         firstRunRows = await service.firstRunRows()
         issues = await service.issues
+        serverNotices = await service.changeNotices
     }
 
     /// Reload Shell Environment: probes the login shell again, then re-reads every source.
