@@ -2,6 +2,7 @@
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+.testcluster
 .testcluster/
 .swiftpm/
 xcuserdata/

@@ -35,6 +35,9 @@ final class MacAppEnvironment {
     @ObservationIgnored private var testKubeconfig: URL?
     @ObservationIgnored private var reader: @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }
     private var badgeTask: PeriodicTask?
+    // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
+    @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths)
+    // end M5a
     /// Routes to open once the window exists (performance scenarios, launch hooks).
     var launchRoutes: [Route] = []
 
@@ -169,8 +172,16 @@ final class MacAppEnvironment {
         lock.start(preferences: preferences, macPreferences: macPreferences)
         energy.start()
         alerts.start()
+        gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
+        // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a
+        // development build (the service refuses everything while the gate is active).
+        whenReady { [moorings, paths] in
+            let landfall = LandfallModel.make(moorings: moorings, paths: paths)
+            LandfallHub.shared.model = landfall
+            Task { await landfall.start() }
+        }
         // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
         if badgeTask == nil {
             let sidebar = sidebar

@@ -116,10 +116,10 @@ struct CertificateNames: Equatable {
 }
 
 /// Server trust evaluation against a cluster's own CA bundle.
-enum TLSValidator {
-    struct Verdict: Equatable {
-        var trusted: Bool
-        var message: String
+package enum TLSValidator {
+    package struct Verdict: Equatable {
+        package var trusted: Bool
+        package var message: String
         /// True when the standard SSL policy rejected the leaf only for its validity period and the relaxed path was used.
         var usedValidityFallback = false
     }
@@ -127,7 +127,7 @@ enum TLSValidator {
     /// `errSecCertificateValidityPeriodTooLong` — the SSL policy caps leaf lifetimes (825 days).
     static let validityTooLong = -67901
 
-    static func evaluate(_ trust: SecTrust, host: String, anchors: [SecCertificate], verifyDate: Date? = nil) -> Verdict {
+    package static func evaluate(_ trust: SecTrust, host: String, anchors: [SecCertificate], verifyDate: Date? = nil) -> Verdict {
         if let verifyDate { SecTrustSetVerifyDate(trust, verifyDate as CFDate) }
         SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, host as CFString))
         if anchors.isEmpty {
