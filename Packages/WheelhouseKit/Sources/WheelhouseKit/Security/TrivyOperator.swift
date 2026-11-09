@@ -102,7 +102,8 @@ public enum TrivyOperator {
     public static func logicalOwner(kind: String, name: String) -> (kind: String, name: String) {
         guard kind == "ReplicaSet", let dash = name.lastIndex(of: "-"), dash != name.startIndex else { return (kind, name) }
         let hash = name[name.index(after: dash)...]
-        guard hash.count >= 5, hash.allSatisfy({ $0.isLowercase || $0.isNumber }) else { return (kind, name) }
+        // Kubernetes builds the pod-template-hash from this alphabet (no vowels, no 0, 1 or 3), 5 to 10 characters.
+        guard (5...10).contains(hash.count), hash.allSatisfy({ "bcdfghjklmnpqrstvwxz2456789".contains($0) }) else { return (kind, name) }
         return ("Deployment", String(name[..<dash]))
     }
 
@@ -181,6 +182,8 @@ public struct LocalVulnerabilityRow: Hashable, Sendable, Identifiable {
     public var vulnerability: ImageVulnerability
     public var images: [String]
     public var workloads: [TrivyOperator.WorkloadKey]
+    /// The clusters whose scans carry this CVE.
+    public var clusters: [String] = []
     public var id: String { vulnerability.id }
 }
 
@@ -193,6 +196,7 @@ public enum LocalRollup {
             for v in scan.vulnerabilities {
                 var row = rows[v.id] ?? LocalVulnerabilityRow(vulnerability: v, images: [], workloads: [])
                 if !row.images.contains(scan.image) { row.images.append(scan.image) }
+                for c in scan.clusters where !row.clusters.contains(c) { row.clusters.append(c) }
                 for w in workloads where !row.workloads.contains(w) { row.workloads.append(w) }
                 rows[v.id] = row
             }

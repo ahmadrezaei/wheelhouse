@@ -10,6 +10,8 @@ public enum TrivyError: Error, Equatable, Sendable, LocalizedError {
     case failed(code: Int32?, message: String)
     case unreadableOutput
     case invalidImage(String)
+    /// The scan needs the Java DB (JARs in the image) and the cache has none: the runner downloads it (under the 24 h policy) and retries.
+    case javaDatabaseMissing
 
     public var errorDescription: String? {
         switch self {
@@ -18,6 +20,7 @@ public enum TrivyError: Error, Equatable, Sendable, LocalizedError {
         case .failed(_, let message): "trivy failed: \(message)"
         case .unreadableOutput: "trivy printed output that could not be read."
         case .invalidImage(let image): "\"\(image)\" is not a valid image reference."
+        case .javaDatabaseMissing: "The Java vulnerability database is missing."
         }
     }
 }
@@ -42,6 +45,8 @@ public struct TrivyOptions: Sendable, Equatable {
 /// The `trivy` adapter (ARCHITECTURE-MAC §6.1). The argv is built here and nowhere else; golden tests pin it. Runs through
 /// ``Subprocess``: no shell, an explicit environment, one image at a time.
 public struct TrivyCLI: Sendable {
+    /// The quit group of every trivy child (``Subprocess/terminateAll(group:)`` at app quit).
+    public static let quitGroup = "trivy"
     public var executable: URL
     public var environment: EnvironmentBuilder
     /// Overall timeout of one image scan (trivy's own `--timeout` is 10 m; this one is longer so trivy reports its own timeout).
@@ -62,7 +67,7 @@ public struct TrivyCLI: Sendable {
     // MARK: argv (golden-tested)
 
     public static func scanArguments(target: String, options: TrivyOptions) -> [String] {
-        var args = ["image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--image-src", "remote",
+        var args = ["image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--skip-java-db-update", "--image-src", "remote",
                     "--cache-dir", options.cacheDirectory.path, "--timeout", "10m", "--parallel", "1", "--platform", "linux/\(options.architecture)"]
         if let r = options.dbRepository, !r.isEmpty { args += ["--db-repository", r] }
         if let r = options.javaDBRepository, !r.isEmpty { args += ["--java-db-repository", r] }
@@ -117,7 +122,8 @@ public struct TrivyCLI: Sendable {
     }
 
     func spec(arguments: [String], env: [String: String], timeout: Duration, qos: QualityOfService) -> ProcessSpec {
-        ProcessSpec(executable: executable, arguments: arguments, environment: env, timeout: timeout, stdoutLimit: outputLimit, stderrLimit: 64 << 10, qos: qos)
+        ProcessSpec(executable: executable, arguments: arguments, environment: env, timeout: timeout, stdoutLimit: outputLimit, stderrLimit: 64 << 10, qos: qos,
+                    quitGroup: Self.quitGroup)
     }
 
     public func scanSpec(image: ImageReference, options: TrivyOptions, trigger: ScanTrigger, dockerConfig: URL?, cloud: [String: String]) -> ProcessSpec {
@@ -136,7 +142,7 @@ public struct TrivyCLI: Sendable {
     /// Scans one image. The caller owns `dockerConfig` (a per-scan folder it deletes afterwards).
     public func scan(_ image: ImageReference, options: TrivyOptions, trigger: ScanTrigger, dockerConfig: URL? = nil,
                      cloud: [String: String] = [:]) async throws -> TrivyImageReportParser.Parsed {
-        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Scanning an image with trivy")
+        let activity = ProcessInfo.processInfo.beginActivity(options: Self.activityOptions(for: trigger), reason: "Scanning an image with trivy")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let result = try await Subprocess.run(scanSpec(image: image, options: options, trigger: trigger, dockerConfig: dockerConfig, cloud: cloud))
         guard result.exit.succeeded else { throw Self.classify(stderr: result.stderrString, code: result.exit.code, registry: image.registry) }
@@ -145,11 +151,21 @@ public struct TrivyCLI: Sendable {
 
     /// `trivy image --download-db-only` (and the Java DB when asked).
     public func downloadDatabase(options: TrivyOptions, java: Bool = false, trigger: ScanTrigger) async throws {
-        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Downloading the vulnerability database")
+        let activity = ProcessInfo.processInfo.beginActivity(options: Self.activityOptions(for: trigger), reason: "Downloading the vulnerability database")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let r = try await Subprocess.run(spec(arguments: Self.downloadDBArguments(options: options, java: java), env: processEnvironment(dockerConfig: nil, cloud: [:]),
                                               timeout: databaseTimeout, qos: ScanGate.qos(for: trigger)))
         guard r.exit.succeeded else { throw TrivyError.databaseUnavailable(Self.lastLine(r.stderrString)) }
+    }
+
+    /// A manual scan is the user's request (idle system sleep still allowed); a scheduled one is background work that App Nap may delay.
+    static func activityOptions(for trigger: ScanTrigger) -> ProcessInfo.ActivityOptions {
+        trigger == .manual ? .userInitiatedAllowingIdleSystemSleep : .background
+    }
+
+    /// The Java DB's metadata (`<cache>/java-db/metadata.json`), read without a process.
+    public static func javaDatabaseMetadata(cacheDirectory: URL) -> TrivyDBMetadata? {
+        (try? Data(contentsOf: cacheDirectory.appending(path: "java-db/metadata.json"))).flatMap(TrivyDBMetadata.parse)
     }
 
     /// Trivy's own DB metadata, read without a process.
@@ -165,7 +181,14 @@ public struct TrivyCLI: Sendable {
 
     static func classify(stderr: String, code: Int32?, registry: String) -> TrivyError {
         let lower = stderr.lowercased()
+        // The Java DB first: its own registry (ghcr.io) can answer 401 or "denied", which is not the IMAGE registry refusing the pull.
+        if lower.contains("skip-java-db-update") || (lower.contains("java db") && (lower.contains("not found") || lower.contains("first run"))) {
+            return .javaDatabaseMissing
+        }
+        let denied = lower.contains("requested access to the resource is denied") || lower.contains("pull access denied")
+            || (lower.contains("denied: ") && !lower.contains("permission denied"))
         if lower.contains("unauthorized") || lower.contains("authentication required") || lower.contains("denied: requested access")
+            || lower.contains("no basic auth credentials") || denied
             || lower.range(of: #"\b401\b"#, options: .regularExpression) != nil || lower.contains("403 forbidden") {
             return .unauthorized(registry: registry)
         }
@@ -173,7 +196,10 @@ public struct TrivyCLI: Sendable {
             || lower.contains("db error") || lower.contains("no such file or directory") && lower.contains("/db/") {
             return .databaseUnavailable(lastLine(stderr))
         }
-        return .failed(code: code, message: lastLine(stderr))
+        var message = lastLine(stderr)
+        if message.isEmpty { message = "exit code \(code.map(String.init) ?? "?") and no error text" }
+        if lower.contains(registry.lowercased()) { message += " (registry \(registry))" }
+        return .failed(code: code, message: message)
     }
 
     static func lastLine(_ text: String) -> String {

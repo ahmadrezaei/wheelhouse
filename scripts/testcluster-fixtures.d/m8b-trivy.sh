@@ -12,7 +12,7 @@
 # EXPECTED ROLL-UP (the live test in Packages/WheelhouseKit/Tests/.../Security/TrivyOperatorLiveTests.swift asserts exactly this; reports in
 # other namespaces are ignored). Newest report per workload and container wins:
 #   Deployment web (reports sit on its ReplicaSet web-7d9f8c6b5d):  app 2C 3H 1M 0L 0U, sidecar 0C 1H 1M 0L 0U
-#     (an OLDER report of ReplicaSet web-5c6b7d8e9f, container app, 9 of each, must be ignored)
+#     (an OLDER report of ReplicaSet web-5c6b7d8f9d, container app, 9 of each, must be ignored)
 #   StatefulSet db:  pg 1C 0H 0M 2L 1U
 #   Pod tool:        c  0C 0H 3M 0L 0U
 #   namespace total: 3 critical, 4 high, 5 medium, 2 low, 1 unknown = 15; 3 workload entries (web, db, tool; web has 2 containers).
@@ -111,7 +111,7 @@ YAML
   local vulns='[{"vulnerabilityID":"CVE-2026-0001","resource":"libexpat1","installedVersion":"2.5.0-1","fixedVersion":"2.5.0-1+deb12u1","severity":"CRITICAL","title":"expat: integer overflow","primaryLink":"https://avd.aquasec.com/nvd/cve-2026-0001"},{"vulnerabilityID":"CVE-2026-0002","resource":"openssl","installedVersion":"3.0.11-1","fixedVersion":"","severity":"HIGH","title":"openssl: timing leak","primaryLink":""}]'
   m8b_report replicaset-web-7d9f8c6b5d-app ReplicaSet web-7d9f8c6b5d app registry.example.com/team/web 1.0 2 3 1 0 0 2026-11-08T10:00:00Z "$vulns"
   m8b_report replicaset-web-7d9f8c6b5d-sidecar ReplicaSet web-7d9f8c6b5d sidecar registry.example.com/team/proxy 2.1 0 1 1 0 0 2026-11-08T10:00:00Z
-  m8b_report replicaset-web-5c6b7d8e9f-app ReplicaSet web-5c6b7d8e9f app registry.example.com/team/web 0.9 9 9 9 9 9 2026-11-01T10:00:00Z
+  m8b_report replicaset-web-5c6b7d8f9d-app ReplicaSet web-5c6b7d8f9d app registry.example.com/team/web 0.9 9 9 9 9 9 2026-11-01T10:00:00Z
   m8b_report statefulset-db-pg StatefulSet db pg registry.example.com/team/postgres 16 1 0 0 2 1 2026-11-08T10:00:00Z
   m8b_report pod-tool-c Pod tool c registry.example.com/team/tool 3 0 0 3 0 0 2026-11-08T10:00:00Z
   echo "Done. Namespace $M8B_NS: 5 VulnerabilityReports (see the header for the expected roll-up)."

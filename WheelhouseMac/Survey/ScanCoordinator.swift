@@ -40,26 +40,37 @@ enum ScannerSource: Equatable {
     }
 }
 
-/// What the scan runner needs about each cluster: its client (to read pull secrets when the user opted in) and the pull-secret
-/// references seen on its pods.
-private actor ScanClusterContext {
-    var clients: [ClusterID: any KubeClientProtocol] = [:]
-    var secrets: [ClusterID: [String: [PullSecretRef]]] = [:]
-    let store: SurveyStore
+/// Reads one Secret of a cluster (a seam: tests count the reads).
+protocol SecretReading: Sendable {
+    func secret(name: String, namespace: String) async -> JSONValue?
+}
+
+struct ClientSecretReader: SecretReading {
+    let client: any KubeClientProtocol
+    func secret(name: String, namespace: String) async -> JSONValue? { try? await client.getRaw(.secret, name: name, namespace: namespace) }
+}
+
+/// What the scan runner needs about each cluster: a reader for its Secrets (used ONLY when the user opted that cluster in) and the
+/// pull-secret references seen on its pods.
+actor ScanClusterContext {
+    private var readers: [ClusterID: any SecretReading] = [:]
+    private var secrets: [ClusterID: [String: [PullSecretRef]]] = [:]
+    private let store: SurveyStore
 
     init(store: SurveyStore) { self.store = store }
 
-    func set(clients: [ClusterID: any KubeClientProtocol], secrets: [ClusterID: [String: [PullSecretRef]]]) {
+    func set(readers: [ClusterID: any SecretReading], secrets: [ClusterID: [String: [PullSecretRef]]]) {
         // Merged, not replaced: images queued by an earlier request (or restored from a previous launch) keep their secrets.
-        self.clients.merge(clients) { _, new in new }
+        self.readers.merge(readers) { _, new in new }
         self.secrets.merge(secrets) { _, new in new }
     }
 
-    /// The minimal docker config for `ref` from the cluster's imagePullSecrets, only when the cluster opted in.
+    /// The minimal docker config for `ref` from the cluster's imagePullSecrets. Without the cluster's opt-in no Secret is read at all;
+    /// with it, only `kubernetes.io/dockerconfigjson` Secrets named by that cluster's pods are.
     func pullSecretConfig(cluster: ClusterID, ref: ImageReference) async -> Data? {
-        guard (try? await store.usesPullSecrets(clusterID: cluster)) == true, let client = clients[cluster] else { return nil }
+        guard (try? await store.usesPullSecrets(clusterID: cluster)) == true, let reader = readers[cluster] else { return nil }
         for s in secrets[cluster]?[ref.scanTarget] ?? [] {
-            guard let raw = try? await client.getRaw(.secret, name: s.name, namespace: s.namespace),
+            guard let raw = await reader.secret(name: s.name, namespace: s.namespace),
                   raw["type"]?.stringValue == "kubernetes.io/dockerconfigjson",
                   let encoded = raw.value(at: "data")?[".dockerconfigjson"]?.stringValue, let data = Data(base64Encoded: encoded),
                   let config = DockerConfigBuilder.minimalConfig(fromDockerConfigJSON: data, registry: ref.registry) else { continue }
@@ -135,13 +146,12 @@ final class ScanCoordinator {
             if terminateToken == nil {
                 let sessions = paths.sessions
                 terminateToken = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+                    Subprocess.terminateAll(group: TrivyCLI.quitGroup)          // a running trivy must not outlive the app
                     ScanDockerConfig.sweepStale(in: sessions)
                 }
             }
             await hub?.attach(store: opened)
-            await resolveSource()
-            await makeQueue()
-            await queue?.restore()
+            await resolveSource()          // builds the queue (and restores it) when a trivy is found
         } catch {
             message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -163,7 +173,7 @@ final class ScanCoordinator {
             let snapshot = await MooringsController.shared?.shellEnvironment.current()
             if let found = ExecutableLocator(snapshot: snapshot, home: paths.home).find("trivy") {
                 source = .onPath(found)
-            } else if let exe = managed.verifiedExecutable() {
+            } else if let exe = await managed.verifiedExecutableOffMain() {
                 source = .managed(exe)
             } else {
                 source = .none
@@ -224,12 +234,12 @@ final class ScanCoordinator {
         message = nil
         var uses: [ImageUse] = []
         var arch: [ClusterID: String] = [:]
-        var clients: [ClusterID: any KubeClientProtocol] = [:]
+        var readers: [ClusterID: any SecretReading] = [:]
         for session in sessions where !session.credentialsMissing {
             do {
                 let pods = try await session.client.list(Unstructured.self, kind: .pod, namespace: nil, options: ListOptions())
                 uses += ImageInventory.build(pods: pods.items.map(\.raw), clusterID: session.config.id)
-                clients[session.config.id] = session.client
+                readers[session.config.id] = ClientSecretReader(client: session.client)
                 if let nodes = try? await session.client.list(Unstructured.self, kind: .node, namespace: nil, options: ListOptions()) {
                     arch[session.config.id] = ImageInventory.dominantArchitecture(nodes: nodes.items.map(\.raw))
                 }
@@ -246,7 +256,7 @@ final class ScanCoordinator {
             secrets[u.clusterID, default: [:]][u.reference.scanTarget] = u.pullSecrets
         }
         workloadsByImage.merge(byImage) { _, new in new }
-        await context?.set(clients: clients, secrets: secrets)
+        await context?.set(readers: readers, secrets: secrets)
         do {
             var architectures: [String: String] = [:]
             for m in merged { if let a = m.clusters.compactMap({ arch[$0] }).first { architectures[m.reference.scanTarget] = a } }

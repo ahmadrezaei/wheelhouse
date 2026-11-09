@@ -33,12 +33,9 @@ struct VulnerabilitiesTabView: View {
 
     private var clusterIDs: Set<ClusterID> { Set(sessions.map(\.config.id)) }
 
-    /// Local scan results of images these clusters run (or, before an inventory exists, every stored result).
+    /// Local scan results of images these clusters ran when they were scanned (stored with each result, so a relaunch scopes correctly).
     private var scopedScans: [ImageScanResult] {
-        let known = sessions.compactMap { coordinator.workloadsByImage[$0.config.id] }
-        guard !known.isEmpty else { return coordinator.scans }
-        let keys = Set(known.flatMap(\.keys))
-        return coordinator.scans.filter { keys.contains($0.id) }
+        coordinator.scans.filter { !Set($0.clusters).isDisjoint(with: clusterIDs) }
     }
 
     private var rows: [LocalVulnerabilityRow] {
@@ -73,7 +70,7 @@ struct VulnerabilitiesTabView: View {
         .task { await coordinator.prepare() }
         .sheet(isPresented: $showSetup) { ScannerSetupSheet(sessions: sessions) }
         .sheet(item: $accepting) { row in
-            AcceptCVESheet(cveID: row.vulnerability.cveID, clusterIDs: Array(clusterIDs).sorted())
+            AcceptCVESheet(cveID: row.vulnerability.cveID, clusterIDs: row.clusters.filter { clusterIDs.contains($0) }.sorted())
         }
         .confirmationDialog(confirmOnBattery?.message ?? "", isPresented: Binding(get: { confirmOnBattery != nil }, set: { if !$0 { confirmOnBattery = nil } }),
                             titleVisibility: .visible) {
@@ -217,7 +214,7 @@ struct VulnerabilitiesTabView: View {
                         TableColumn("Workloads") { Text("\($0.workloads.count)").monospacedDigit() }.width(70)
                         TableColumn("Image") { Text($0.images.first ?? "").lineLimit(1).foregroundStyle(.secondary) }
                         TableColumn("Status") { r in
-                            let status = clusterIDs.map { hub.risks.status(ofCVE: r.vulnerability.cveID, cluster: $0) }.first { $0.isAccepted } ?? .open
+                            let status = r.clusters.filter { clusterIDs.contains($0) }.map { hub.risks.status(ofCVE: r.vulnerability.cveID, cluster: $0) }.first { $0.isAccepted } ?? .open
                             Text(statusText(status)).foregroundStyle(status.isAccepted ? Palette.infoText : .secondary)
                         }.width(min: 60, ideal: 130)
                     }

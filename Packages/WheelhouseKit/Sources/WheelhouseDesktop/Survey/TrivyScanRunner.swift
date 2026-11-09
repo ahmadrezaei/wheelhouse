@@ -36,17 +36,21 @@ public struct TrivyScanRunner: ScanRunner {
             try await cli.downloadDatabase(options: options, trigger: trigger)
             metadata = TrivyCLI.databaseMetadata(cacheDirectory: options.cacheDirectory)
         }
-        guard let dbVersion = metadata?.version else { throw TrivyError.databaseUnavailable("trivy left no database metadata.") }
+        guard let dbVersion = metadata?.cacheKey else { throw TrivyError.databaseUnavailable("trivy left no database metadata.") }
         let key = ref.digest ?? ref.scanTarget
-        if let cached = try await store.scan(id: key), DBUpdatePolicy.canReuse(cached, dbVersion: dbVersion, now: now()) { return cached }
+        if var cached = try await store.scan(id: key), DBUpdatePolicy.canReuse(cached, dbVersion: dbVersion, now: now()) {
+            let missing = item.clusters.filter { !cached.clusters.contains($0) }
+            if !missing.isEmpty { cached.clusters += missing; try await store.save(cached) }
+            return cached
+        }
 
         var lastError: Error = TrivyError.unauthorized(registry: ref.registry)
         for cluster in item.clusters.isEmpty ? [""] : item.clusters {
             try Task.checkCancellation()
             do {
-                let parsed = try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: item.architecture)
+                let parsed = try await scanWithJavaFallback(ref, cluster: cluster, trigger: trigger, architecture: item.architecture)
                 let result = ImageScanResult(image: ref.scanTarget, digest: ref.digest, isMutable: ref.isMutable, dbVersion: dbVersion, scannedAt: now(),
-                                             vulnerabilities: parsed.vulnerabilities)
+                                             vulnerabilities: parsed.vulnerabilities, clusters: item.clusters)
                 try await store.save(result)
                 return result
             } catch let error as TrivyError {
@@ -55,6 +59,22 @@ public struct TrivyScanRunner: ScanRunner {
             }
         }
         throw lastError
+    }
+
+    /// The Java DB is downloaded only when it is needed (an image with JARs) or already present and stale, under the same 24 h rule
+    /// as the vulnerability DB, keyed on `<cache>/java-db/metadata.json`. A scan runs with `--skip-java-db-update`; when trivy says the
+    /// Java DB is missing it is fetched once and the scan retried. A failure of THAT download is a database problem, never "the image
+    /// registry refused you".
+    private func scanWithJavaFallback(_ ref: ImageReference, cluster: String, trigger: ScanTrigger, architecture: String?) async throws -> TrivyImageReportParser.Parsed {
+        if let java = TrivyCLI.javaDatabaseMetadata(cacheDirectory: options.cacheDirectory), DBUpdatePolicy.needsDownload(metadata: java, now: now()) {
+            try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
+        }
+        do {
+            return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
+        } catch TrivyError.javaDatabaseMissing {
+            try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
+            return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
+        }
     }
 
     private func scanOnce(_ ref: ImageReference, cluster: String, trigger: ScanTrigger, architecture: String?) async throws -> TrivyImageReportParser.Parsed {
@@ -80,6 +100,8 @@ public final class SystemScanConditionsObserver: ScanConditionsObserver, @unchec
     private var tokens: [NSObjectProtocol] = []
 
     public init() {}
+
+    deinit { stop() }
 
     public static func current() -> ScanConditions {
         let p = ProcessInfo.processInfo

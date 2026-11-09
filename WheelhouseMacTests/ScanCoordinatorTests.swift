@@ -83,7 +83,7 @@ struct ScanCoordinatorTests {
         try await waitIdle(c)
         #expect(c.progress.scanned > 0 && c.progress.failed == 0)
         #expect(c.scans.count == c.progress.scanned)
-        #expect(c.scans.allSatisfy { $0.vulnerabilities.count == 2 && $0.dbVersion == "2" })
+        #expect(c.scans.allSatisfy { $0.vulnerabilities.count == 2 && $0.dbVersion.hasPrefix("2") })
         #expect(FileManager.default.fileExists(atPath: env.paths.root.appending(path: "survey.sqlite").path))
         #expect(!c.workloadsByImage.isEmpty)
         // Scans are by image only: no cluster credentials are read without the opt-in.

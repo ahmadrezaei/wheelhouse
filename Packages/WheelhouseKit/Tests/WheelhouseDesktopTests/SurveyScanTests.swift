@@ -5,7 +5,7 @@ import Testing
 import WheelhouseKit
 
 /// A fake trivy (Fixtures/trivy/fake-trivy.sh) that replays recorded-format JSON, in a scratch folder.
-private struct FakeTrivy {
+struct FakeTrivy {
     let scratch: Scratch
     let cli: TrivyCLI
     let options: TrivyOptions
@@ -38,7 +38,7 @@ struct TrivyCLITests {
     @Test func scanArgvIsPinned() {
         let o = TrivyOptions(cacheDirectory: URL(fileURLWithPath: "/c"), architecture: "arm64")
         #expect(TrivyCLI.scanArguments(target: "docker.io/library/nginx:latest", options: o) == [
-            "image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--image-src", "remote", "--cache-dir", "/c", "--timeout", "10m",
+            "image", "--format", "json", "--quiet", "--scanners", "vuln", "--skip-db-update", "--skip-java-db-update", "--image-src", "remote", "--cache-dir", "/c", "--timeout", "10m",
             "--parallel", "1", "--platform", "linux/arm64", "--", "docker.io/library/nginx:latest",
         ])
         var mirror = o
@@ -77,8 +77,19 @@ struct TrivyCLITests {
 
     @Test func classifyDoesNotMistakeADigestForAnAuthFailure() {
         let noise = "FATAL scan error: sha256:a401b2c3 timestamp 12:00:01.401Z failed"
-        #expect(TrivyCLI.classify(stderr: noise, code: 1, registry: "r") == .failed(code: 1, message: noise))
-        #expect(TrivyCLI.classify(stderr: "GET https://r/v2/x: 401 Unauthorized", code: 1, registry: "r") == .unauthorized(registry: "r"))
+        let reg = "registry.example.com"
+        #expect(TrivyCLI.classify(stderr: noise, code: 1, registry: reg) == .failed(code: 1, message: noise))
+        #expect(TrivyCLI.classify(stderr: "GET https://registry.example.com/v2/x: 401 Unauthorized", code: 1, registry: reg) == .unauthorized(registry: reg))
+        // Markers of real registries: ECR and GHCR/Docker Hub style refusals.
+        #expect(TrivyCLI.classify(stderr: "Error: no basic auth credentials", code: 1, registry: reg) == .unauthorized(registry: reg))
+        #expect(TrivyCLI.classify(stderr: "pull access denied for x, repository does not exist or may require authorization: denied: requested access to the resource is denied", code: 1, registry: reg) == .unauthorized(registry: reg))
+        // A local permission error is not a registry refusal.
+        #expect(TrivyCLI.classify(stderr: "open /x: permission denied", code: 1, registry: reg) == .failed(code: 1, message: "open /x: permission denied"))
+        // The Java DB: its own registry may answer 401; that is a database problem, never "sign in to the image registry".
+        #expect(TrivyCLI.classify(stderr: "FATAL --skip-java-db-update cannot be specified with the first run", code: 1, registry: reg) == .javaDatabaseMissing)
+        // An unknown failure never prints "trivy failed:" with nothing after it.
+        #expect(TrivyCLI.classify(stderr: "", code: 1, registry: reg) == .failed(code: 1, message: "exit code 1 and no error text"))
+        #expect(TrivyCLI.classify(stderr: "boom while pulling registry.example.com/x", code: 2, registry: reg) == .failed(code: 2, message: "boom while pulling registry.example.com/x (registry registry.example.com)"))
     }
 
     @Test func mapsFailures() async throws {
@@ -437,9 +448,9 @@ struct TrivyScanRunnerTests {
         let store = try SurveyStore(url: fake.scratch.root.appending(path: "survey.sqlite"))
         let runner = TrivyScanRunner(cli: fake.cli, options: fake.options, store: store, paths: fake.paths)
         let digest = "sha256:" + String(repeating: "1", count: 64)
-        let item = ScanQueueItem(id: 1, image: "registry.example.com/team/web@\(digest)", isMutable: false, clusters: ["c1"], trigger: .manual)
+        let item = ScanQueueItem(id: 1, image: "registry.example.com/team/web@\(digest)", isMutable: false, clusters: ["c1"])
         let first = try await runner.scan(item, trigger: .manual)
-        #expect(first.vulnerabilities.count == 4 && first.dbVersion == "2" && first.digest == digest)
+        #expect(first.vulnerabilities.count == 4 && first.dbVersion.hasPrefix("2") && first.digest == digest)
         #expect(fake.log.contains("--download-db-only"))                       // no DB yet: downloaded because a scan was requested
         let before = fake.log.components(separatedBy: "ARGS image --format").count
         _ = try await runner.scan(item, trigger: .manual)                      // same digest, same DB version: no process
@@ -447,7 +458,7 @@ struct TrivyScanRunnerTests {
         #expect(try await store.allScans().count == 1)
         // A fresh DB is not downloaded again.
         let dbCalls = fake.log.components(separatedBy: "--download-db-only").count
-        let other = ScanQueueItem(id: 2, image: "registry.example.com/team/other:1", isMutable: true, clusters: ["c1"], trigger: .manual)
+        let other = ScanQueueItem(id: 2, image: "registry.example.com/team/other:1", isMutable: true, clusters: ["c1"])
         _ = try await runner.scan(other, trigger: .manual)
         #expect(fake.log.components(separatedBy: "--download-db-only").count == dbCalls)
     }
@@ -460,7 +471,7 @@ struct TrivyScanRunnerTests {
         let tried = Box<[String]>([])
         let runner = TrivyScanRunner(cli: fake.cli, options: fake.options, store: store, paths: fake.paths,
                                      cloudEnvironment: { c in tried.set(tried.get + [c]); return [:] })
-        let item = ScanQueueItem(id: 1, image: "registry.example.com/unauth:1", isMutable: true, clusters: ["c1", "c2"], trigger: .manual)
+        let item = ScanQueueItem(id: 1, image: "registry.example.com/unauth:1", isMutable: true, clusters: ["c1", "c2"])
         await #expect(throws: TrivyError.unauthorized(registry: "registry.example.com")) { _ = try await runner.scan(item, trigger: .manual) }
         #expect(tried.get == ["c1", "c2"])
     }
@@ -473,7 +484,7 @@ struct TrivyScanRunnerTests {
         let secret = #"{"auths":{"registry.example.com":{"auth":"dTpw"}}}"#
         let runner = TrivyScanRunner(cli: fake.cli, options: fake.options, store: store, paths: fake.paths,
                                      pullSecretConfig: { _, ref in DockerConfigBuilder.minimalConfig(fromDockerConfigJSON: Data(secret.utf8), registry: ref.registry) })
-        let item = ScanQueueItem(id: 1, image: "registry.example.com/team/web:1", isMutable: true, clusters: ["c1"], trigger: .manual)
+        let item = ScanQueueItem(id: 1, image: "registry.example.com/team/web:1", isMutable: true, clusters: ["c1"])
         _ = try await runner.scan(item, trigger: .manual)
         #expect(fake.log.contains("DIRMODE 700"))
         let left = (try? FileManager.default.contentsOfDirectory(atPath: fake.paths.sessions.path)) ?? []
@@ -581,7 +592,7 @@ struct ManagedTrivyTests {
     /// Serves the fixture archive from disk (a fake downloader: nothing touches the network).
     private struct FileDownloader: TrivyDownloader {
         var source: URL
-        func download(_ url: URL, to destination: URL) async throws { try FileManager.default.copyItem(at: source, to: destination) }
+        func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws { try FileManager.default.copyItem(at: source, to: destination) }
     }
 
     @Test func consentShowsEverythingBeforeAnyDownload() throws {
@@ -669,19 +680,33 @@ struct ManagedTrivyTests {
         if case .unavailable = TrivyPin.parse(good) { Issue.record("a complete pin must parse") }
     }
 
-    @Test func theRealDownloaderRefusesPlainHTTPAndReadsALocalFixture() async throws {
+    @Test func theRealDownloaderRefusesAnythingButHTTPS() async throws {
         let scratch = try Scratch()
         defer { scratch.cleanup() }
-        await #expect(throws: ManagedTrivyError.insecureURL) {
-            try await URLSessionTrivyDownloader().download(URL(string: "http://example.com/x")!, to: scratch.root.appending(path: "x"))
+        for url in [URL(string: "http://example.com/x")!, URL(fileURLWithPath: "/etc/hosts")] {
+            await #expect(throws: ManagedTrivyError.insecureURL) {
+                try await URLSessionTrivyDownloader().download(url, to: scratch.root.appending(path: "x"), maxBytes: 1_000)
+            }
         }
-        await #expect(throws: ManagedTrivyError.insecureURL) {
-            try await URLSessionTrivyDownloader().download(URL(fileURLWithPath: "/etc/hosts"), to: scratch.root.appending(path: "x"))
+    }
+
+    @Test func anUnsignedProgramIsAcceptedOnItsPinnedHashAndTheSizeCapIsPassedToTheDownloader() async throws {
+        let f = try Fixture()
+        defer { f.scratch.cleanup() }
+        final class Capture: TrivyDownloader, @unchecked Sendable {
+            let source: URL
+            nonisolated(unsafe) var seenMax: Int64 = 0
+            init(_ source: URL) { self.source = source }
+            func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws {
+                seenMax = maxBytes
+                try FileManager.default.copyItem(at: source, to: destination)
+            }
         }
-        let source = try scratch.write("fixture.bin", "payload")
-        let dest = scratch.root.appending(path: "out.bin")
-        try await URLSessionTrivyDownloader(allowFileScheme: true).download(source, to: dest)
-        #expect(try String(contentsOf: dest, encoding: .utf8) == "payload")
+        let capture = Capture(f.archive)
+        let managed = ManagedTrivy(paths: f.paths, pin: .available(f.pin), downloader: capture)
+        _ = try await managed.install()                      // the script is unsigned: the pinned hash is the trust anchor
+        #expect(capture.seenMax == f.pin.archiveSize)
+        #expect(await managed.verifiedExecutableOffMain() != nil)
     }
 }
 #endif

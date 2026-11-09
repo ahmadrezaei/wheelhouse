@@ -23,7 +23,6 @@ public struct ScanQueueItem: Codable, Hashable, Sendable, Identifiable {
     public var isMutable: Bool
     /// Clusters that run it, in the order their credentials are tried.
     public var clusters: [String]
-    public var trigger: ScanTrigger
     /// The node architecture of the cluster that runs it (`arm64` or `amd64`); nil uses the default.
     public var architecture: String?
 }
@@ -33,13 +32,14 @@ public struct ScanQueueItem: Codable, Hashable, Sendable, Identifiable {
 /// launch. The file is 0600; the schema is versioned with `PRAGMA user_version` and only ever grows (additive migrations), so an older
 /// build keeps working on a newer file.
 public actor SurveyStore {
-    public static let schemaVersion: Int32 = 1
+    public static let schemaVersion: Int32 = 2
     private let handle: SurveySQLiteHandle
 
     public init(url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         handle = try SurveySQLiteHandle(path: url.path)
         try Self.migrate(handle)
+        handle.secureSidecars()
     }
 
     private static func migrate(_ db: SurveySQLiteHandle) throws {
@@ -58,31 +58,41 @@ public actor SurveyStore {
                 try db.exec("PRAGMA user_version = 1")
             }
         }
+        if current < 2 {
+            // Additive: the clusters that ran the image, so a relaunch shows a scan only where it belongs.
+            try db.transaction {
+                try db.exec("ALTER TABLE scans ADD COLUMN clusters TEXT")
+                try db.exec("PRAGMA user_version = 2")
+            }
+        }
     }
 
     // MARK: Scans
 
     public func scan(id: String) throws -> ImageScanResult? {
-        try handle.query("SELECT image, digest, mutable, db_version, scanned_at, vulns FROM scans WHERE id = ?", [.text(id)]) { row in
+        try handle.query("SELECT image, digest, mutable, db_version, scanned_at, vulns, clusters FROM scans WHERE id = ?", [.text(id)]) { row in
             ImageScanResult(image: row.text(0) ?? "", digest: row.text(1), isMutable: row.int(2) != 0, dbVersion: row.text(3) ?? "",
                             scannedAt: Date(timeIntervalSince1970: row.double(4)),
-                            vulnerabilities: (try? JSONDecoder().decode([ImageVulnerability].self, from: row.blob(5))) ?? [])
+                            vulnerabilities: (try? JSONDecoder().decode([ImageVulnerability].self, from: row.blob(5))) ?? [],
+                            clusters: (row.text(6).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }) ?? [])
         }.first
     }
 
     public func allScans() throws -> [ImageScanResult] {
-        try handle.query("SELECT image, digest, mutable, db_version, scanned_at, vulns FROM scans ORDER BY scanned_at DESC", []) { row in
+        try handle.query("SELECT image, digest, mutable, db_version, scanned_at, vulns, clusters FROM scans ORDER BY scanned_at DESC", []) { row in
             ImageScanResult(image: row.text(0) ?? "", digest: row.text(1), isMutable: row.int(2) != 0, dbVersion: row.text(3) ?? "",
                             scannedAt: Date(timeIntervalSince1970: row.double(4)),
-                            vulnerabilities: (try? JSONDecoder().decode([ImageVulnerability].self, from: row.blob(5))) ?? [])
+                            vulnerabilities: (try? JSONDecoder().decode([ImageVulnerability].self, from: row.blob(5))) ?? [],
+                            clusters: (row.text(6).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }) ?? [])
         }
     }
 
     public func save(_ scan: ImageScanResult) throws {
         let vulns = try JSONEncoder().encode(scan.vulnerabilities)
-        try handle.run("INSERT OR REPLACE INTO scans (id, image, digest, mutable, db_version, scanned_at, vulns) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        try handle.run("INSERT OR REPLACE INTO scans (id, image, digest, mutable, db_version, scanned_at, vulns, clusters) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        [.text(scan.id), .text(scan.image), scan.digest.map { .text($0) } ?? .null, .int(scan.isMutable ? 1 : 0), .text(scan.dbVersion),
-                        .double(scan.scannedAt.timeIntervalSince1970), .blob(vulns)])
+                        .double(scan.scannedAt.timeIntervalSince1970), .blob(vulns),
+                        .text(String(decoding: try JSONEncoder().encode(scan.clusters), as: UTF8.self))])
     }
 
     /// Drops results older than `age` seconds (kept for the table's size, not for correctness).
@@ -105,7 +115,7 @@ public actor SurveyStore {
         try handle.query("SELECT id, image, mutable, clusters, trigger, arch FROM queue ORDER BY id", []) { row in
             ScanQueueItem(id: row.int(0), image: row.text(1) ?? "", isMutable: row.int(2) != 0,
                           clusters: (row.text(3).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }) ?? [],
-                          trigger: ScanTrigger(rawValue: row.text(4) ?? "") ?? .scheduled, architecture: row.text(5))
+                          architecture: row.text(5))
         }
     }
 
@@ -199,8 +209,10 @@ struct SurveySQLiteRow {
 /// Used only from inside ``SurveyStore`` (an actor), so access is serialized.
 final class SurveySQLiteHandle: @unchecked Sendable {
     private var db: OpaquePointer?
+    private let path: String
 
     init(path: String) throws {
+        self.path = path
         var raw: OpaquePointer?
         guard sqlite3_open_v2(path, &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let raw else {
             let message = raw.map { String(cString: sqlite3_errmsg($0)) } ?? "out of memory"
@@ -214,6 +226,11 @@ final class SurveySQLiteHandle: @unchecked Sendable {
     }
 
     deinit { sqlite3_close(db) }
+
+    /// The write-ahead log and shared-memory files hold the same data as the database: owner only.
+    func secureSidecars() {
+        for suffix in ["-wal", "-shm"] where access(path + suffix, F_OK) == 0 { chmod(path + suffix, 0o600) }
+    }
 
     var lastInsertRowID: Int64 { sqlite3_last_insert_rowid(db) }
     private var message: String { String(cString: sqlite3_errmsg(db)) }

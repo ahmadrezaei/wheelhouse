@@ -92,8 +92,12 @@ public actor ScanQueue {
 
     /// Starts (or resumes) the run. `.manual` overrides the energy rules for this run.
     public func start(trigger: ScanTrigger) {
+        // A run that is already going keeps its trigger, except that a manual request upgrades it (a scheduled one never downgrades it).
+        if loop != nil {
+            if trigger == .manual { runTrigger = .manual }
+            return
+        }
         runTrigger = trigger
-        guard loop == nil else { return }
         progress.scanned = 0
         progress.failed = 0
         progress.lastError = nil
@@ -120,12 +124,15 @@ public actor ScanQueue {
     /// Empties the queue.
     public func cancelAll() async {
         stopLoop()
-        progress = ScanProgress(state: .idle, queued: 0, scanned: progress.scanned, failed: progress.failed)
+        // Items stay queued until the cancelled child has exited; the state blocks an automatic restart meanwhile.
+        progress.state = .userPaused
+        progress.current = nil
         updateObservation()
         let wait = draining
         await wait?.value
         try? await store.clearQueue()
-        progress.queued = (try? await store.queueCount()) ?? 0
+        progress = ScanProgress(state: .idle, queued: 0, scanned: progress.scanned, failed: progress.failed)
+        updateObservation()
     }
 
     /// Called by the observer, and by tests (the "battery" hook): the power source, Low Power Mode or the thermal state changed.
@@ -207,6 +214,12 @@ public actor ScanQueue {
             } catch {
                 if mine != generation || task.isCancelled || error is CancellationError || Task.isCancelled {   // the item stays queued
                     if mine == generation { finish(generation: mine, state: .idle) }
+                    return
+                }
+                if case TrivyError.databaseUnavailable = error {
+                    // The same DB problem would fail every image in turn: end the run and keep the queue for a retry.
+                    progress.lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    finish(generation: mine, state: .idle)
                     return
                 }
                 try? await store.removeFromQueue(id: item.id)

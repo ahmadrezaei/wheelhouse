@@ -67,6 +67,8 @@ public enum ManagedTrivyError: Error, Equatable, Sendable, LocalizedError {
     case checksumMismatch(what: String)
     case extractionFailed(String)
     case notARegularFile
+    case badSignature(String)
+    case tooLarge(limit: Int64)
 
     public var errorDescription: String? {
         switch self {
@@ -76,20 +78,22 @@ public enum ManagedTrivyError: Error, Equatable, Sendable, LocalizedError {
         case .checksumMismatch(let what): "The \(what) does not match its pinned SHA-256. It was discarded."
         case .extractionFailed(let why): "The archive could not be unpacked: \(why)"
         case .notARegularFile: "The archive does not contain a plain trivy file."
+        case .badSignature(let why): "The program's code signature is invalid: \(why)"
+        case .tooLarge(let limit): "The download is larger than the pinned \(limit) bytes and was stopped."
         }
     }
 }
 
 /// Writes a URL's content to a file on disk (not into memory: the archive is large).
 public protocol TrivyDownloader: Sendable {
-    func download(_ url: URL, to destination: URL) async throws
+    /// Writes at most `maxBytes` (more fails with ``ManagedTrivyError/tooLarge(limit:)``).
+    func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws
 }
 
-/// The real downloader: an ephemeral URLSession that refuses any redirect that is not https. Only https (or `file`, for local test
-/// fixtures, when `allowFileScheme` is set) is accepted.
+/// The real downloader: an ephemeral URLSession that accepts only https and refuses any redirect that is not https. The body is
+/// streamed to disk in 1 MB chunks and stopped as soon as it passes `maxBytes`.
 public struct URLSessionTrivyDownloader: TrivyDownloader {
-    public var allowFileScheme: Bool
-    public init(allowFileScheme: Bool = false) { self.allowFileScheme = allowFileScheme }
+    public init() {}
 
     private final class HTTPSOnly: NSObject, URLSessionTaskDelegate, Sendable {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
@@ -98,18 +102,40 @@ public struct URLSessionTrivyDownloader: TrivyDownloader {
         }
     }
 
-    public func download(_ url: URL, to destination: URL) async throws {
-        guard url.scheme == "https" || (allowFileScheme && url.isFileURL) else { throw ManagedTrivyError.insecureURL }
+    public func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws {
+        guard url.scheme == "https" else { throw ManagedTrivyError.insecureURL }
         let session = URLSession(configuration: .ephemeral, delegate: HTTPSOnly(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (temp, response) = try await session.download(from: url)
+        let (bytes, response) = try await session.bytes(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: temp, to: destination)
+        if response.expectedContentLength > maxBytes { throw ManagedTrivyError.tooLarge(limit: maxBytes) }
+        let fm = FileManager.default
+        try? fm.removeItem(at: destination)
+        guard fm.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+        let handle = try FileHandle(forWritingTo: destination)
+        defer { try? handle.close() }
+        var buffer = Data()
+        var total: Int64 = 0
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count >= 1 << 20 {
+                total += Int64(buffer.count)
+                if total > maxBytes { try? fm.removeItem(at: destination); throw ManagedTrivyError.tooLarge(limit: maxBytes) }
+                try handle.write(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        total += Int64(buffer.count)
+        if total > maxBytes { try? fm.removeItem(at: destination); throw ManagedTrivyError.tooLarge(limit: maxBytes) }
+        try handle.write(contentsOf: buffer)
     }
 }
 
-/// The managed, Mac-private Trivy install (ARCHITECTURE-MAC §6.1 item 3): consent first, then download, SHA-256 of the archive,
+/// The managed, Mac-private Trivy install (ARCHITECTURE-MAC §6.1 item 3). DEVIATION from §6.1, which names `Vendor/trivy/VERSION` and
+/// `SHA256SUMS`: the pin is one JSON file in this module's resources (`Resources/trivy/pin.json`), because the Mac-only Desktop module
+/// already ships a resource folder and the pin carries the archive size and the binary hash as well. Same trust model: data inside the app.
+///
+/// Steps: consent first, then download, SHA-256 of the archive,
 /// unpack, SHA-256 of the executable, install at `<AppPaths.root>/tools/trivy/<version>/trivy` (0755). Never auto-updated and never
 /// bundled. Debug and Profile builds use their own isolated root, so a development build never touches the real install.
 public struct ManagedTrivy: Sendable {
@@ -138,13 +164,13 @@ public struct ManagedTrivy: Sendable {
     @discardableResult
     public func install() async throws -> URL {
         guard case .available(let p) = pin, let dir = installDirectory, let target = executableURL else { throw ManagedTrivyError.unavailable }
-        guard p.url.scheme == "https" || p.url.isFileURL else { throw ManagedTrivyError.insecureURL }
+        guard p.url.scheme == "https" else { throw ManagedTrivyError.insecureURL }
         let fm = FileManager.default
         let work = paths.temporaryDirectory.appending(path: "wheelhouse-trivy-\(UUID().uuidString)", directoryHint: .isDirectory)
         try fm.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? fm.removeItem(at: work) }
         let archive = work.appending(path: p.archiveName)
-        try await downloader.download(p.url, to: archive)
+        try await downloader.download(p.url, to: archive, maxBytes: p.archiveSize)
         let size = ((try? fm.attributesOfItem(atPath: archive.path)[.size]) as? NSNumber)?.int64Value ?? -1
         guard size == p.archiveSize else { throw ManagedTrivyError.sizeMismatch(expected: p.archiveSize, actual: size) }
         guard try Self.sha256(of: archive) == p.archiveSHA256 else { throw ManagedTrivyError.checksumMismatch(what: "download") }
@@ -156,6 +182,10 @@ public struct ManagedTrivy: Sendable {
         let binary = out.appending(path: "trivy")
         guard Self.isRegularFile(binary.path) else { throw ManagedTrivyError.notARegularFile }
         guard try Self.sha256(of: binary) == p.binarySHA256 else { throw ManagedTrivyError.checksumMismatch(what: "program") }
+        // If the vendor signs the program the signature must be valid. An unsigned program is allowed: the pinned hash is the trust anchor.
+        let signature = try await Subprocess.run(ProcessSpec(executable: URL(fileURLWithPath: "/usr/bin/codesign"), arguments: ["-v", "--strict", binary.path],
+                                                             environment: ["PATH": "/usr/bin:/bin"], timeout: .seconds(60)))
+        if !signature.exit.succeeded, !signature.stderrString.contains("not signed at all") { throw ManagedTrivyError.badSignature(signature.stderrString) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try? fm.removeItem(at: target)
         try fm.moveItem(at: binary, to: target)
@@ -175,6 +205,13 @@ public struct ManagedTrivy: Sendable {
         guard (try? Self.sha256(of: target)) == p.binarySHA256 else { return nil }
         Self.verified.withLock { $0.insert(key) }
         return target
+    }
+
+    /// ``verifiedExecutable()`` without blocking the caller: hashing a 100 MB program takes a moment, so it runs on a utility queue.
+    public func verifiedExecutableOffMain() async -> URL? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            DispatchQueue.global(qos: .utility).async { continuation.resume(returning: self.verifiedExecutable()) }
+        }
     }
 
     /// Removes the managed install.
