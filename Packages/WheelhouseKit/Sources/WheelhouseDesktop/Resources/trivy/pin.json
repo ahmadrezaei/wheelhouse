@@ -1,0 +1,4 @@
+{
+  "comment": "The pinned Trivy release for the consented managed download (ARCHITECTURE-MAC 6.1). Complete or empty: either every field below is set (version, archiveName, url, archiveSHA256, archiveSize, binarySHA256) or none is, and the app then offers no download. Fill it in when a version is pinned, from the release's published checksums, after checking the release signature.",
+  "version": null
+}

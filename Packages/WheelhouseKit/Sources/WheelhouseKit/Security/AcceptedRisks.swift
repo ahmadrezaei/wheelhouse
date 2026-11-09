@@ -31,6 +31,27 @@ public struct AcceptedRisk: Codable, Hashable, Sendable, Identifiable {
     public var reason: String
     public var createdAt: Date
     public var expiresAt: Date
+    /// Set for an accepted CVE (M8b): the risk covers this CVE in this cluster and `ruleID` is ``AcceptedRisk/cveRuleID``. Absent in
+    /// files written before, which decode unchanged.
+    public var cveID: String?
+
+    public static let cveRuleID = "CVE"
+
+    /// Accepts a CVE for a whole cluster.
+    public init(id: UUID = UUID(), cveID: String, clusterID: ClusterID, reason: String, createdAt: Date = Date(), days: Int) {
+        self.id = id
+        self.ruleID = Self.cveRuleID
+        self.clusterID = clusterID
+        self.scope = .ruleInCluster
+        self.reason = reason
+        self.createdAt = createdAt
+        self.expiresAt = createdAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        self.cveID = cveID
+    }
+
+    public func coversCVE(_ id: String, cluster: ClusterID, now: Date = Date()) -> Bool {
+        cveID == id && clusterID == cluster && !isExpired(now: now)
+    }
 
     public init(id: UUID = UUID(), finding: SecurityFinding, scope: AcceptanceScope, reason: String, createdAt: Date = Date(), days: Int) {
         self.id = id
@@ -76,6 +97,17 @@ public struct AcceptedRiskBook: Codable, Hashable, Sendable {
 
     public mutating func accept(_ finding: SecurityFinding, scope: AcceptanceScope, reason: String, days: Int, now: Date = Date()) {
         risks.append(AcceptedRisk(finding: finding, scope: scope, reason: reason, createdAt: now, days: days))
+    }
+
+    public mutating func acceptCVE(_ cveID: String, clusterID: ClusterID, reason: String, days: Int, now: Date = Date()) {
+        risks.append(AcceptedRisk(cveID: cveID, clusterID: clusterID, reason: reason, createdAt: now, days: days))
+    }
+
+    /// The latest unexpired acceptance of this CVE in this cluster.
+    public func status(ofCVE cveID: String, cluster: ClusterID, now: Date = Date()) -> FindingStatus {
+        let covering = risks.filter { $0.coversCVE(cveID, cluster: cluster, now: now) }.max { $0.expiresAt < $1.expiresAt }
+        guard let covering else { return .open }
+        return .accepted(until: covering.expiresAt, reason: covering.reason)
     }
 
     public mutating func remove(_ id: UUID) { risks.removeAll { $0.id == id } }
