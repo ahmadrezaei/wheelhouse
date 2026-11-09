@@ -8,6 +8,14 @@ struct YAMLEditorView: View {
     @Environment(ClusterRegistry.self) private var registry
 
     var body: some View {
+        #if os(macOS)
+        ManifestEditorView(ref: ref)          // the Mac opens the Manifest Editor through the same Route.yaml
+        #else
+        iosBody
+        #endif
+    }
+
+    @ViewBuilder private var iosBody: some View {
         // Keyed on the cluster's config revision too: the model captures cluster + client, so a settings change rebuilds it.
         if let cluster = registry.config(for: ref.clusterID), let key = registry.screenKey(for: ref.clusterID), let session = registry.session(for: ref.clusterID) {
             YAMLEditorContent(model: YAMLEditorModel(ref: ref, cluster: cluster, client: session.client))
