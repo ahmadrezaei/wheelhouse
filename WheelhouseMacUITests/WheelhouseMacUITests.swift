@@ -121,10 +121,10 @@ final class WheelhouseMacUITests: XCTestCase {
 
     // MARK: Workspace (M4a)
 
+    /// Launch arguments are read by AppKit as `-key value` pairs: a bare flag (`-WHDemoMode`) must come AFTER the pair, or the path
+    /// that follows it is taken as a document to open, which suppresses the first window.
     private func tempWorkspaceFile() -> URL {
-        // Not the runner's own temporary directory: that sits inside another app's container, and reading it from the app under test
-        // raises a privacy prompt that blocks the app before its first window.
-        let dir = URL(fileURLWithPath: "/private/tmp/wh-ui-\(UUID().uuidString)", isDirectory: true)
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wh-ui-\(UUID().uuidString)", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         return dir.appending(path: "workspace.json")
@@ -140,7 +140,7 @@ final class WheelhouseMacUITests: XCTestCase {
 
     /// Split a pane with the menu, then move it into a window of its own with pane ⋯ ▸ Move ▸ New Window (the menu path of R19).
     func testSplitAndMoveAPaneToANewWindow() throws {
-        let app = try launch(["-WHDemoMode", "-WHWorkspaceFile", tempWorkspaceFile().path])
+        let app = try launch(["-WHWorkspaceFile", tempWorkspaceFile().path, "-WHDemoMode"])
         XCTAssertTrue(panes(app).firstMatch.waitForExistence(timeout: 20), "no pane")
         XCTAssertEqual(panes(app).count, 1)
         windowMenu(app, "Split Right")
@@ -157,15 +157,15 @@ final class WheelhouseMacUITests: XCTestCase {
     /// Open a tab and a split, quit, launch again on the same workspace file: the layout is the same.
     func testRestorationAfterARelaunchIsExact() throws {
         let file = tempWorkspaceFile()
-        var app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        var app = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode"])
         XCTAssertTrue(panes(app).firstMatch.waitForExistence(timeout: 20))
         windowMenu(app, "Split Down")
         XCTAssertTrue(waitForCount(panes(app), 2))
         app.typeKey("t", modifierFlags: .command)
         XCTAssertTrue(waitForCount(tabs(app), 2), "the new tab is missing")
-        app.terminate()
+        quit(app)
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "quitting must write the workspace")
-        app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        app = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode"])
         XCTAssertTrue(waitForCount(tabs(app), 2), "the tabs were not restored")
         // The selected tab is the new one (the Fleet): switch to the first, which holds the split.
         tabs(app).element(boundBy: 0).click()
@@ -177,19 +177,25 @@ final class WheelhouseMacUITests: XCTestCase {
         let file = tempWorkspaceFile()
         let json = #"{"version":1,"windows":[{"id":"w1","state":{"tabs":[{"id":"t1","focusedPane":"p-bad","root":{"split":{"axis":"horizontal","fraction":0.5,"first":{"leaf":{"id":"p-bad","stack":[{"case":"holodeck","payload":{"x":1}}]}},"second":{"leaf":{"id":"p-ok","stack":[{"case":"moorings"}]}}}}}],"selectedTab":"t1"}}]}"#
         try json.write(to: file, atomically: true, encoding: .utf8)
-        let app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        let app = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode"])
         let placeholder = app.descendants(matching: .any).matching(identifier: "pane.placeholder").firstMatch
         XCTAssertTrue(placeholder.waitForExistence(timeout: 20), "no placeholder for the unreadable pane")
         XCTAssertTrue(waitForCount(panes(app), 2), "the readable pane must restore next to it")
-        app.terminate()
+        quit(app)
         let saved = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(saved.contains("holodeck"), "the unreadable pane's JSON must be written back")
         // Closing the placeholder discards it.
-        let again = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        let again = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode"])
         again.descendants(matching: .any).matching(identifier: "pane.placeholder.close").firstMatch.click()
         XCTAssertTrue(waitForCount(panes(again), 1))
-        again.terminate()
+        quit(again)
         XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("holodeck"))
+    }
+
+    /// Quits with ⌘Q, which runs the app's terminate path (it writes the workspace); `terminate()` would kill the app first.
+    private func quit(_ app: XCUIApplication) {
+        app.typeKey("q", modifierFlags: .command)
+        _ = app.wait(for: .notRunning, timeout: 15)
     }
 
     private func waitForCount(_ query: XCUIElementQuery, _ count: Int, timeout: TimeInterval = 15) -> Bool {

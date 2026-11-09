@@ -41,6 +41,8 @@ final class WorkspaceStore {
         self.file = file
         self.now = now
         load()
+        // A first window always exists, so the scene's launch value is a plain read (see `launchWindowID`).
+        if windows.isEmpty { createWindow() }
     }
 
     // MARK: Loading
@@ -126,11 +128,14 @@ final class WorkspaceStore {
     /// The window to open at launch (the SwiftUI `defaultValue`): the first saved window, else a new one. The answer is kept until
     /// that window appears, so SwiftUI asking twice never creates a second window.
     func launchWindowID() -> WorkspaceWindowID {
+        // Pure with respect to observed state: SwiftUI calls this while it evaluates the scene body, and a store mutation there
+        // (or any change to `windows` that re-evaluates the body again) aborts in AttributeGraph. The first window is created
+        // when the store loads, never here.
         if let pending = pendingLaunch, !liveWindows.contains(pending), windows[pending] != nil { return pending }
         let id: WorkspaceWindowID
         if !launchQueue.isEmpty { id = launchQueue.removeFirst() }
         else if let saved = windowOrder.first(where: { !liveWindows.contains($0) }) { id = saved }
-        else { id = createWindow() }
+        else { id = windowOrder.last ?? WorkspaceWindowID.new() }
         pendingLaunch = id
         return id
     }

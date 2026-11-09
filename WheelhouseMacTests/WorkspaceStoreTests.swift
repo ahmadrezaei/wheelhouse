@@ -102,8 +102,8 @@ struct WorkspaceStoreTests {
         store.flush()
         let reopened = WorkspaceStore(file: url)
         #expect(reopened.windows[id] == saved)
-        #expect(reopened.windowOrder == [id])
-        #expect(reopened.launchWindowID() == id)
+        #expect(reopened.windowOrder.contains(id))
+        #expect(reopened.windowOrder.count == 2)         // the window the store always creates first, then this one
     }
 
     @Test func savingIsDebouncedAndSkippedWhenNothingChanged() async throws {
@@ -131,7 +131,7 @@ struct WorkspaceStoreTests {
         #expect(store.movedAsideCorruptFile != nil)
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(FileManager.default.fileExists(atPath: try #require(store.movedAsideCorruptFile).path))
-        #expect(store.windows.isEmpty)
+        #expect(store.windows.count == 1)                // a fresh first window
         let id = store.launchWindowID()
         #expect(store.state(for: id).tabs.count == 1)
     }
@@ -166,7 +166,7 @@ struct WorkspaceStoreTests {
         store.windowClosed(a)
         _ = store.state(for: a)                         // a view body running once more
         store.ensureWindow(a)
-        #expect(store.windows[a] == nil && store.windowOrder == [b])
+        #expect(store.windows[a] == nil && !store.windowOrder.contains(a) && store.windowOrder.contains(b))
         store.windowAppeared(a)                          // a stale appearance never makes it live again
         #expect(!store.liveWindows.contains(a))
         let ghost = WorkspaceWindowID.new()

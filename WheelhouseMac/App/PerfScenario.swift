@@ -103,6 +103,9 @@ enum PerfScenarioRunner {
         behavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
         window.collectionBehavior = behavior
         window.level = .floating
+        // A measuring run must not be ended by a stray ⌘M or a click on the yellow button (the verdict would turn to "hidden" and the
+        // run would measure a hidden app): performance windows cannot be miniaturised.
+        window.styleMask.remove(.miniaturizable)
         window.orderOut(nil)
         window.orderFrontRegardless()
     }

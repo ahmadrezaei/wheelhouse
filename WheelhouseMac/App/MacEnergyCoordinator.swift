@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import notify
 import Observation
+import os
 import WheelhouseDesktop
 import WheelhouseKit
 
@@ -100,8 +101,14 @@ final class MacEnergyCoordinator {
         }
     }
 
+    private static let log = Logger(subsystem: "com.ahmadrezaei.wheelhouse", category: "visibility")
+
     func evaluateVisibility() {
         let visible = visibility()
+        if reportsVisibility {
+            let states = WorkspaceWindows.all.map { "\($0.windowNumber):vis=\($0.isVisible),min=\($0.isMiniaturized),occ=\($0.occlusionState.contains(.visible)),main=\($0.canBecomeMain)" }.joined(separator: " ")
+            Self.log.notice("verdict \(visible, privacy: .public) windows=\(WorkspaceWindows.all.count, privacy: .public) \(states, privacy: .public)")
+        }
         periodicTasks.setWindowsVisible(visible)
         if reportsVisibility { VisibilityReport.publish(visible) }
         guard visible != windowsVisible else { return }
