@@ -171,8 +171,10 @@ struct GangwayLiveTests {
         let cm = "matrix-\(tag)"
         func k(_ args: String..., stdin: String? = nil) async throws -> ProcessResult { try await rig.kubectl(bin, args, session: session, stdin: stdin) }
 
-        // get
-        var r = try await k("get", "ns", ns, "-o", "name")
+        // get, and a raw request (which replaces the whole path: it works because the token is the bearer token of the kubeconfig)
+        var r = try await k("get", "--raw", "/version")
+        #expect(r.exitCode == 0 && r.stdoutString.contains("gitVersion"), Comment(rawValue: r.stderrString))
+        r = try await k("get", "ns", ns, "-o", "name")
         #expect(r.exitCode == 0 && r.stdoutString.contains("namespace/\(ns)"), Comment(rawValue: r.stderrString))
         r = try await k("get", "pods", "-A", "--no-headers")
         #expect(r.exitCode == 0, Comment(rawValue: r.stderrString))
@@ -220,6 +222,12 @@ struct GangwayLiveTests {
         #expect(r.exitCode == 0 && r.stdoutString.contains("deleted"), Comment(rawValue: r.stderrString))
         try await Task.sleep(for: .milliseconds(200))
         #expect(rig.activity.entries.contains { $0.verb == "delete" && $0.object == "\(ns)/configmaps/\(cm)" && $0.result == "HTTP 200" })
+
+        // The session token is not in the kubectl cache (client-go names its discovery cache after the server URL, which no longer holds it).
+        let cache = rig.harness.paths.root.appending(path: "kubectl-cache", directoryHint: .isDirectory)
+        let leaked = ((try? FileManager.default.subpathsOfDirectory(atPath: cache.path)) ?? []).filter { $0.contains("whg_") }
+        #expect(leaked.isEmpty, Comment(rawValue: leaked.joined(separator: "\n")))
+        #expect(FileManager.default.fileExists(atPath: cache.path), "kubectl wrote its cache under the app folder")
 
         // port-forward
         let pf = await rig.kubectlUntil(bin, ["port-forward", "-n", "shop", webPod, ":80"], session: session, needle: "Forwarding from 127.0.0.1:", timeout: .seconds(8))
@@ -376,7 +384,7 @@ struct GangwayLiveTests {
         let users = try #require(token["users"] as? [[String: Any]])
         let bearer = try #require((users[0]["user"] as? [String: String])?["token"])
         let port = try #require(rig.service.port)
-        let client = try await RawClient(port: port)
+        let client = try await RawClient(port: port, certificateDER: try #require(rig.service.context.tlsCertificateDER))
         rig.service.metrics.reset()
         var rtts: [Double] = []
         for i in 0..<400 {

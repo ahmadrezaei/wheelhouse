@@ -81,32 +81,52 @@ struct GangwayServerTests {
         #expect(!FileManager.default.fileExists(atPath: handle.directory.path))
     }
 
-    @Test("the session token can travel in the path (kubectl drops kubeconfig credentials over plain http); it is stripped before forwarding")
-    func tokenInPath() async throws {
-        let rig = try await GangwayRig(basePath: "/base")
+    @Test("the loopback leg is TLS 1.3 with ALPN http/1.1 and this launch's certificate; plain HTTP, TLS 1.2 and h2-only clients are refused")
+    func tlsLeg() async throws {
+        let rig = try await GangwayRig()
         defer { rig.stop() }
         let (handle, token) = try await rig.open()
-        let port = rig.service.port!
-        // The server address in the kubeconfig carries the token.
+        let port = try #require(rig.service.port)
+        let der = try #require(rig.service.context.tlsCertificateDER)
+        // The kubeconfig trusts exactly that certificate and carries the token as the user's bearer token.
         let text = try String(contentsOf: handle.kubeconfig, encoding: .utf8)
-        #expect(text.contains("http://127.0.0.1:\(port)/c/kc-test1/\(token)"))
+        #expect(text.contains("https://127.0.0.1:\(port)/c/kc-test1\""))
+        #expect(!text.contains("/\(token)\""))
+        let c = try await RawClient(port: port, certificateDER: der)
+        try await c.send(rig.request("GET", "/version", token: token))
+        #expect(try #require(await c.readResponse()).status == 200)
+        // Plain HTTP on the TLS port gets nothing usable.
+        let plain = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        let plainStream = NWStream(plain, queue: DispatchQueue(label: "plain"))
+        try await plainStream.start()
+        try await plainStream.send(Data("GET /c/kc-test1/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n".utf8))
+        let reply = try? await plainStream.receive()
+        #expect(reply == nil || !String(decoding: reply ?? Data(), as: UTF8.self).hasPrefix("HTTP/1.1"))
+        plainStream.cancel()
+        // TLS 1.2 only, and an h2-only ALPN, do not get a session.
+        await #expect(throws: (any Error).self) { _ = try await RawClient(port: port, certificateDER: der, maxTLS: .TLSv12) }
+        await #expect(throws: (any Error).self) { _ = try await RawClient(port: port, certificateDER: der, alpn: "h2") }
+        // A client that does not trust this certificate cannot connect either.
+        await #expect(throws: (any Error).self) { _ = try await RawClient(port: port, certificateDER: Data([1, 2, 3])) }
+        #expect(rig.upstream.received.count == 1)
+    }
+
+    @Test("a request without the /c/<id> prefix (kubectl get --raw replaces the path) is the session's cluster; a prefix must match")
+    func prefixOptional() async throws {
+        let rig = try await GangwayRig(basePath: "/base")
+        defer { rig.stop() }
+        let (_, token) = try await rig.open()
+        let port = try #require(rig.service.port)
         let c = try await rig.client()
-        try await c.send("GET /c/kc-test1/\(token)/api/v1/namespaces/a/pods?x=1 HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n")
+        try await c.send("GET /version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nAuthorization: Bearer \(token)\r\n\r\n")
         #expect(try #require(await c.readResponse()).status == 200)
-        let got = try #require(rig.upstream.received.first)
-        #expect(got.path == "/base/api/v1/namespaces/a/pods?x=1")
-        #expect(!got.head.contains("whg_"))
-        try await c.send("GET /c/kc-test1/\(token) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n")
-        #expect(try #require(await c.readResponse()).status == 200)
-        #expect(rig.upstream.received[1].path == "/base/")
-        // A wrong token, a token of another cluster path, and two different tokens.
-        try await c.send("GET /c/kc-test1/whg_wrong/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n")
-        #expect(try #require(await c.readResponse()).status == 401)
-        try await c.send("GET /c/other/\(token)/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n")
+        #expect(rig.upstream.received[0].path == "/base/version")
+        try await c.send("GET /c/other/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nAuthorization: Bearer \(token)\r\n\r\n")
         #expect(try #require(await c.readResponse()).status == 403)
-        try await c.send("GET /c/kc-test1/\(token)/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nAuthorization: Bearer whg_other\r\n\r\n")
-        #expect(try #require(await c.readResponse()).status == 400)
-        #expect(rig.upstream.received.count == 2)
+        // The token in the path is just a path now: it is not a credential.
+        try await c.send("GET /c/kc-test1/\(token)/version HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nAuthorization: Bearer whg_wrong\r\n\r\n")
+        #expect(try #require(await c.readResponse()).status == 401)
+        #expect(rig.upstream.received.count == 1)
     }
 
     @Test("the path prefix must name the session's cluster, on a segment boundary")
@@ -115,7 +135,7 @@ struct GangwayServerTests {
         defer { rig.stop() }
         let (_, token) = try await rig.open()
         let c = try await rig.client()
-        for path in ["/c/other/version", "/c/kc-test1x/version", "/version", "/c/kc-test1/../x"] {
+        for path in ["/c/other/version", "/c/kc-test1x/version", "/c/kc-test1/../x"] {
             try await c.send("GET \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(rig.service.port!)\r\nAuthorization: Bearer \(token)\r\n\r\n")
             let r = try #require(await c.readResponse())
             #expect(r.status == 403 || r.status == 400, Comment(rawValue: path))
@@ -348,8 +368,9 @@ struct GangwayServerTests {
         let d = try await dev.client()
         try await d.send(dev.request("GET", "/api/v1/namespaces/a/pods", token: devToken, extra: "Impersonate-User: alice\r\n"))
         #expect(try #require(await d.readResponse()).status == 200)
-        #expect(dev.activity.entries.count == 1)
-        #expect(dev.activity.entries[0].result.contains("Impersonate-User=alice"))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(dev.activity.entries.count == 2)                      // forwarded, then the response status
+        #expect(dev.activity.entries.allSatisfy { $0.result.contains("Impersonate-User=alice") })
         #expect(dev.upstream.received[0].headers["impersonate-user"] == "alice")
     }
 
@@ -365,10 +386,9 @@ struct GangwayServerTests {
         try await c.send(rig.request("GET", "/api/v1/namespaces/a/pods/p/proxy/metrics", token: token)); _ = await c.readResponse()
         try await Task.sleep(for: .milliseconds(100))
         let entries = rig.activity.entries
-        #expect(entries.map(\.verb) == ["delete", "proxy"])
-        #expect(entries[0].result == "HTTP 404")
+        #expect(entries.map(\.verb) == ["delete", "delete", "proxy", "proxy"])
+        #expect(entries.map(\.result) == ["forwarded", "HTTP 404", "forwarded", "HTTP 200"])
         #expect(entries[0].object == "a/pods/gone")
-        #expect(entries[1].result == "HTTP 200")
         // Bodies are never recorded.
         #expect(!entries.contains { ($0.object ?? "").contains("gracePeriod") || $0.result.contains("gracePeriod") })
     }
@@ -643,6 +663,54 @@ struct GangwayServerTests {
         #expect(confirmer.sheets.all.count == 2)
     }
 
+    @Test("a mutation is audited when it is forwarded, even if the next request is pipelined behind it or the client leaves at once")
+    func auditAtForwardTime() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let (_, token) = try await rig.open()
+        rig.upstream.handler = { $0.method == "PATCH" ? .silent : .json(200, "{}") }
+        // 1. A mutation whose response never comes, followed by the client closing at once.
+        let a = try await rig.client()
+        try await a.send(rig.request("PATCH", "/apis/apps/v1/namespaces/a/deployments/web", token: token, body: "{}"))
+        for _ in 0..<100 where rig.upstream.received.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        a.close()
+        try await Task.sleep(for: .milliseconds(300))
+        let first = rig.activity.entries.filter { $0.verb == "patch" }
+        #expect(first.first?.result == "forwarded")
+        #expect(first.contains { $0.result.hasPrefix("forwarded, no response") })
+        // 2. A second request on the same connection while the first has no status yet: the first is closed out, not overwritten.
+        let mark = rig.activity.entries.count
+        rig.upstream.reset()
+        rig.upstream.handler = { $0.method == "PATCH" ? .silent : .json(200, "{}") }
+        let b = try await rig.client()
+        try await b.send(rig.request("PATCH", "/apis/apps/v1/namespaces/a/deployments/web", token: token, body: "{}"))
+        for _ in 0..<100 where rig.upstream.received.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        try await b.send(rig.request("DELETE", "/api/v1/namespaces/a/configmaps/c", token: token, body: #"{"gracePeriodSeconds":0}"#))
+        try await Task.sleep(for: .milliseconds(300))
+        let entries = Array(rig.activity.entries.dropFirst(mark))
+        #expect(entries.contains { $0.verb == "patch" && $0.result == "forwarded" })
+        #expect(entries.contains { $0.verb == "patch" && $0.result.hasPrefix("forwarded, response status not seen") })
+        #expect(entries.contains { $0.verb == "delete" && $0.result == "forwarded" })
+        b.close()
+    }
+
+    @Test("a replaced credential, or a changed server, ends the sessions of that cluster; a read-only toggle does not")
+    func credentialChangeRevokes() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open()
+        let c = try await rig.client()
+        try await c.send(rig.request("GET", "/version", token: token))
+        _ = try #require(await c.readResponse())
+        rig.setCluster { $0.readOnly = true }
+        #expect(!handle.session.isRevoked)
+        rig.setCluster { $0.readOnly = false }
+        #expect(!handle.session.isRevoked)
+        rig.setCluster { $0.server = URL(string: "http://127.0.0.1:1")! }
+        #expect(handle.session.isRevoked)
+        #expect(await c.isClosedByPeer())
+    }
+
     @Test("an idle keep-alive connection is closed after the idle timeout; active ones are not")
     func idleTimeout() async throws {
         let rig = try await GangwayRig(idleTimeout: .seconds(1))
@@ -678,7 +746,7 @@ struct GangwayServerTests {
         defer { second.stop() }
         let file = rig.paths.root.appending(path: "gangway.json")
         let other = GangwayServer(context: second.service.context, portFile: file)
-        let secondPort = try await other.start()
+        let secondPort = try await other.start(identity: try LoopbackIdentity.make())
         defer { other.stop() }
         #expect(secondPort != port)
         #expect(GangwayServer.persistedPort(file) == secondPort)
@@ -687,7 +755,7 @@ struct GangwayServerTests {
         try await Task.sleep(for: .milliseconds(500))      // the listener releases its port asynchronously
         let again = GangwayServer(context: second.service.context, portFile: file)
         defer { again.stop() }
-        #expect(try await again.start() == secondPort)
+        #expect(try await again.start(identity: try LoopbackIdentity.make()) == secondPort)
         // Plain TCP bind on the port fails while Gangway holds it.
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         defer { close(fd) }

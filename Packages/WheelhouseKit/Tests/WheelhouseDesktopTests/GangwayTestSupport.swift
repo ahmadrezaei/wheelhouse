@@ -23,6 +23,8 @@ final class FakeUpstream: @unchecked Sendable {
         case hang
         /// Close without answering.
         case close
+        /// Read the request and never answer (the connection stays open).
+        case silent
     }
 
     private let state = Mutex<[Received]>([])
@@ -110,6 +112,9 @@ final class FakeUpstream: @unchecked Sendable {
                 case .close:
                     stream.cancel()
                     return
+                case .silent:
+                    while let _ = try? await stream.receive() {}
+                    return
                 }
             }
         }
@@ -121,8 +126,20 @@ final class RawClient: @unchecked Sendable {
     let stream: NWStream
     private var buffer = Data()
 
-    init(port: UInt16) async throws {
-        let nw = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+    /// Gangway's loopback leg is TLS: the client trusts exactly the certificate of this launch (what a session kubeconfig carries), and
+    /// asks for TLS 1.3 with ALPN http/1.1 like kubectl does.
+    init(port: UInt16, certificateDER: Data, maxTLS: tls_protocol_version_t = .TLSv13, alpn: String = "http/1.1") async throws {
+        let tls = NWProtocolTLS.Options()
+        let sec = tls.securityProtocolOptions
+        sec_protocol_options_set_max_tls_protocol_version(sec, maxTLS)
+        sec_protocol_options_add_tls_application_protocol(sec, alpn)
+        sec_protocol_options_set_peer_authentication_required(sec, true)
+        sec_protocol_options_set_verify_block(sec, { _, trust, complete in
+            let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+            let leaf = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate])?.first
+            complete(leaf.map { SecCertificateCopyData($0) as Data == certificateDER } ?? false)
+        }, DispatchQueue(label: "raw-client-tls"))
+        let nw = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: NWParameters(tls: tls, tcp: NWProtocolTCP.Options()))
         stream = NWStream(nw, queue: DispatchQueue(label: "raw-client"))
         try await stream.start()
     }
@@ -278,7 +295,7 @@ final class GangwayRig: @unchecked Sendable {
         return (handle, token)
     }
 
-    func client() async throws -> RawClient { try await RawClient(port: try #require(service.port)) }
+    func client() async throws -> RawClient { try await RawClient(port: try #require(service.port), certificateDER: try #require(service.context.tlsCertificateDER)) }
 
     func request(_ method: String, _ path: String, token: String, extra: String = "", body: String? = nil, host: String? = nil) -> String {
         let port = service.port ?? 0

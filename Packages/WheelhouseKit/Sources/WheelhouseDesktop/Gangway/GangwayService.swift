@@ -8,13 +8,18 @@ import WheelhouseKit
 public final class SnapshotClusterProvider: GangwayClusterProviding {
     public typealias UpstreamResolver = @Sendable (ClusterConfig) async throws -> GangwayUpstream
     private let configs = Mutex<[ClusterID: ClusterConfig]>([:])
+    private let digests = Mutex<[ClusterID: String]>([:])
     private let resolver: UpstreamResolver
 
     public init(upstream: @escaping UpstreamResolver) { self.resolver = upstream }
 
-    public func update(_ clusters: [ClusterConfig]) {
+    public func update(_ clusters: [ClusterConfig], credentialDigests: [ClusterID: String] = [:]) {
         configs.withLock { $0 = Dictionary(clusters.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new }) }
+        digests.withLock { $0 = credentialDigests }
     }
+    public func credentialDigest(for id: ClusterID) -> String? { digests.withLock { $0[id] } }
+    /// Every cluster id in the snapshot.
+    public var knownIDs: Set<ClusterID> { configs.withLock { Set($0.keys) } }
     public func set(_ cluster: ClusterConfig) { configs.withLock { $0[cluster.id] = cluster } }
     public func remove(_ id: ClusterID) { configs.withLock { $0[id] = nil } }
 
@@ -41,6 +46,7 @@ public final class GangwayService: Sendable {
     private let server: GangwayServer
     private let writer: SessionKubeconfigWriter
     private let observesEvents: Bool
+    private let loopback = Mutex<LoopbackIdentity?>(nil)
     private final class ObserverBox: @unchecked Sendable {
         let token: any NSObjectProtocol
         init(_ token: any NSObjectProtocol) { self.token = token }
@@ -73,7 +79,14 @@ public final class GangwayService: Sendable {
     @discardableResult
     public func start() async throws -> UInt16 {
         let wasRunning = server.isRunning
-        let port = try await server.start()
+        let identity = try loopback.withLock { current -> LoopbackIdentity in
+            if let current { return current }
+            let made = try LoopbackIdentity.make()
+            current = made
+            return made
+        }
+        context.tlsCertificateDER = identity.certificateDER
+        let port = try await server.start(identity: identity)
         if !wasRunning { sweepStaleSessions() }
         if observesEvents, observers.withLock({ $0.isEmpty }) { observeClusterEvents() }
         return port
@@ -96,10 +109,12 @@ public final class GangwayService: Sendable {
                             namespace: String? = nil) async throws -> GangwaySessionHandle {
         guard let cluster = context.clusters.config(for: clusterID) else { throw GangwaySessionError.invalidCluster }
         let port = try await start()
+        guard let identity = loopback.withLock({ $0 }) else { throw GangwaySessionError.invalidCluster }
         let (session, token) = try context.registry.create(cluster: cluster, origin: origin, scope: scope, binding: binding)
         do {
-            let written = try writer.write(sessionID: session.id, port: port, clusterID: cluster.id, clusterName: cluster.name, token: token, namespace: namespace)
+            let written = try writer.write(sessionID: session.id, port: port, clusterID: cluster.id, clusterName: cluster.name, token: token, namespace: namespace, certificateDER: identity.certificateDER)
             session.kubeconfigHash = written.hash
+            session.clusterFingerprint = Self.fingerprint(cluster, digest: context.clusters.credentialDigest(for: cluster.id))
             context.registry.attach(directory: written.directory, to: session)
             return GangwaySessionHandle(session: session, kubeconfig: written.file, directory: written.directory, kubeconfigHash: written.hash)
         } catch {
@@ -137,6 +152,12 @@ public final class GangwayService: Sendable {
         context.registry.revokeAll(reason: "the app locked")
     }
 
+    /// The parts of a cluster a session depends on to reach it: where it is, how it authenticates, how TLS is checked, and a digest of its
+    /// credentials. Read-only, Production and exec permission are not in it (they change streams and grants, not who the session is).
+    public static func fingerprint(_ config: ClusterConfig, digest: String?) -> String {
+        [config.server.absoluteString, config.authKind.rawValue, config.tlsServerName ?? "", config.skipTLSVerify ? "skip" : "verify", digest ?? ""].joined(separator: "\u{1F}")
+    }
+
     /// A cluster's configuration changed. Streams that are no longer allowed close; grants end when the cluster became read-only or
     /// Production; sessions of a removed cluster are revoked.
     public func clusterChanged(_ id: ClusterID, removed: Bool = false) {
@@ -144,6 +165,14 @@ public final class GangwayService: Sendable {
             context.closeStreams(reason: "the cluster was removed") { $0.clusterID == id }
             context.registry.revokeSessions(forCluster: id, reason: "the cluster was removed or its credentials changed")
             return
+        }
+        // The server, the authentication or the credentials changed: the sessions end, and with them their upstream connections.
+        let now = Self.fingerprint(config, digest: context.clusters.credentialDigest(for: id))
+        for session in context.registry.sessions where session.clusterID == id {
+            if let was = session.clusterFingerprint, was != now {
+                context.grants.revoke(session: session)
+                context.registry.revoke(session, reason: "the cluster's server, authentication or credentials changed")
+            }
         }
         let production = config.environment.requiresTypeToConfirm
         context.closeStreams(reason: config.readOnly ? "the cluster became read-only" : "the cluster became Production") { record in

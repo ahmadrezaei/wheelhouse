@@ -43,6 +43,10 @@ struct CommandEligibilityTests {
         "k delete pod x", "k9s", "tmux", "kubectl proxy", "kubectl port-forward pod/web 8080:80", "kubectl exec -it web -- sh", "kubectl attach web", "kubectl cp web:/a ./a",
         "kubectl debug web -it --image=busybox", "kubectl neat get pods", "kubectl krew install x", "", "kubectl", "kubectl 'unterminated", "helm  --kubeconfig x list",
         "kubectl -n shop", "./kubectl delete pod x", "kubectl-foo get",
+        // an editor's shell escape would inherit the grant
+        "kubectl edit deploy web", "kubectl -n shop edit cm a", "kubectl create -f x.yaml --edit", "kubectl apply edit-last-applied deploy/web",
+        // the short server flag in its attached forms
+        "kubectl -shttps://evil get pods", "kubectl -s=https://evil get pods", "kubectl get pods -shttps://evil",
     ])
     func notEligible(line: String) { #expect(!CommandEligibility.isEligible(line), Comment(rawValue: line)) }
 
@@ -63,10 +67,17 @@ struct GrantScopeTests {
 
     private let shell = ReportedCommand(id: "c1", line: "kubectl rollout restart deployment/web")
 
+    /// A session whose shell currently reports `shell` (a command grant applies only while its command is the running one).
+    private func shellSession(foreground: pid_t = 700) throws -> GangwaySession {
+        let s = try session(binding: .pty(device: 0, session: 500, foreground: { foreground }))
+        s.reportedCommand = shell
+        return s
+    }
+
     @Test("a command grant covers mutations from the bound foreground job until its OSC 133 D")
     func commandGrantUntilEnd() throws {
         let (grants, _) = rig()
-        let s = try session(binding: .pty(device: 0, session: 500, foreground: { 700 }))
+        let s = try shellSession()
         let job = PeerProcess(pid: 701, session: 500, group: 700)
         #expect(!grants.covers(try mutation(), session: s, peer: job))
         #expect(grants.grantCommand(session: s, command: shell))
@@ -79,7 +90,7 @@ struct GrantScopeTests {
     @Test("the end of another command does not end the grant, and the grant never moves to the next command")
     func endOfOtherCommand() throws {
         let (grants, _) = rig()
-        let s = try session(binding: .pty(device: 0, session: 500, foreground: { 700 }))
+        let s = try shellSession()
         let job = PeerProcess(pid: 701, session: 500, group: 700)
         grants.grantCommand(session: s, command: shell)
         grants.endCommand(session: s, commandID: "other")
@@ -93,7 +104,7 @@ struct GrantScopeTests {
     @Test("a command grant expires after 10 minutes, whatever the command is doing")
     func tenMinuteCap() throws {
         let (grants, clock) = rig()
-        let s = try session(binding: .pty(device: 0, session: 500, foreground: { 700 }))
+        let s = try shellSession()
         let job = PeerProcess(pid: 701, session: 500, group: 700)
         grants.grantCommand(session: s, command: shell)
         clock.advance(599)
@@ -117,6 +128,7 @@ struct GrantScopeTests {
         let (grants, _) = rig()
         let foreground = Mutex<pid_t>(700)
         let s = try session(binding: .pty(device: 0, session: 500, foreground: { foreground.withLock { $0 } }))
+        s.reportedCommand = shell
         grants.grantCommand(session: s, command: shell)
         #expect(!grants.covers(try mutation(), session: s, peer: nil))                                                           // no peer found
         #expect(!grants.covers(try mutation(), session: s, peer: PeerProcess(pid: 9, session: 501, group: 700)))                // another session
@@ -129,13 +141,26 @@ struct GrantScopeTests {
     @Test("a command grant never covers streams, proxy requests or another session")
     func notStreams() throws {
         let (grants, _) = rig()
-        let s = try session(binding: .pty(device: 0, session: 500, foreground: { 700 }))
-        let other = try session(binding: .pty(device: 0, session: 500, foreground: { 700 }))
+        let s = try shellSession()
+        let other = try shellSession()
         let job = PeerProcess(pid: 701, session: 500, group: 700)
         grants.grantCommand(session: s, command: shell)
         #expect(!grants.covers(try mutation("/api/v1/namespaces/shop/pods/web/exec", method: "POST", kind: .stream(.exec(interactive: false))), session: s, peer: job))
         #expect(!grants.covers(try mutation("/api/v1/namespaces/shop/pods/web/proxy", method: "POST", kind: .proxy(method: "POST")), session: s, peer: job))
         #expect(!grants.covers(try mutation(), session: other, peer: job))
+    }
+
+    @Test("a command grant ends when the shell reports another command (or none), even if its D mark was never seen")
+    func grantFollowsTheRunningCommand() throws {
+        let (grants, _) = rig()
+        let s = try shellSession()
+        let job = PeerProcess(pid: 701, session: 500, group: 700)
+        grants.grantCommand(session: s, command: shell)
+        #expect(grants.covers(try mutation(), session: s, peer: job))
+        s.reportedCommand = ReportedCommand(id: "c2", line: "kubectl delete ns prod")
+        #expect(!grants.covers(try mutation(), session: s, peer: job))
+        s.reportedCommand = nil
+        #expect(!grants.covers(try mutation(), session: s, peer: job))
     }
 
     @Test("a batch approval covers exactly the listed requests, once")
@@ -179,7 +204,7 @@ struct GrantScopeTests {
         let s = try session(scope: .objects, binding: .processGroup(4242))
         grants.setObjects(session: s, objects: [
             GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web"),
-            GrantedObject(resource: "configmaps", namespace: "shop"),
+            GrantedObject(resource: "configmaps", namespace: "shop", name: "base", createAnyName: true),
             GrantedObject(resource: "secrets", namespace: "shop", namePrefix: "sh.helm.release.v1.web.v"),
         ])
         func covers(_ path: String, _ method: String) throws -> Bool { grants.covers(try mutation(path, method: method), session: s, peer: nil) }
@@ -188,7 +213,9 @@ struct GrantScopeTests {
         #expect(try !covers("/apis/apps/v1/namespaces/other/deployments/web", "PATCH"))
         #expect(try !covers("/apis/apps/v1/namespaces/shop/statefulsets/web", "PATCH"))
         #expect(try covers("/api/v1/namespaces/shop/configmaps", "POST"))
-        #expect(try covers("/api/v1/namespaces/shop/configmaps/anything", "DELETE"))
+        #expect(try covers("/api/v1/namespaces/shop/configmaps/base", "DELETE"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps/anything", "DELETE"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps/anything", "PATCH"))
         #expect(try covers("/api/v1/namespaces/shop/secrets/sh.helm.release.v1.web.v3", "PUT"))
         #expect(try !covers("/api/v1/namespaces/shop/secrets/other", "PUT"))
         #expect(try covers("/api/v1/namespaces/shop/secrets/sh.helm.release.v1.web.v3/status", "PUT"))
@@ -200,16 +227,38 @@ struct GrantScopeTests {
         grants.revoke(session: s)
     }
 
+    @Test("an item without a name is not a wildcard: deletecollection, PUT, PATCH and DELETE by any name are refused, and a create needs the explicit flag")
+    func noWildcards() throws {
+        let (grants, _) = rig()
+        let s = try session(scope: .objects, binding: .processGroup(4242))
+        grants.setObjects(session: s, objects: [GrantedObject(resource: "configmaps", namespace: "shop")])
+        func covers(_ path: String, _ method: String) throws -> Bool { grants.covers(try mutation(path, method: method), session: s, peer: nil) }
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps", "DELETE"))               // deletecollection
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "DELETE"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "PUT"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "PATCH"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps", "POST"), "a create of an unlisted name is refused until the body is matched (M6b)")
+        grants.setObjects(session: s, objects: [GrantedObject(resource: "configmaps", namespace: "shop", createAnyName: true)])
+        #expect(try covers("/api/v1/namespaces/shop/configmaps", "POST"))
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps", "DELETE"))
+    }
+
+    @Test("M6b: a create is matched by metadata.name from a bounded buffered body", .disabled("M6b: Gangway does not read the body of a Helm create yet; createAnyName is the explicit stand-in"))
+    func createByBodyName() {
+        // M6b contract: POST /api/v1/namespaces/shop/configmaps with {"metadata":{"name":"unlisted"}} is refused when the grant lists
+        // name "listed"; with {"metadata":{"name":"listed"}} it passes; the grant ends when the helm process exits.
+    }
+
     @Test("an object grant never covers a stream or proxy class")
     func objectGrantClass() throws {
         let (grants, _) = rig()
         let s = try session(scope: .objects, binding: .processGroup(4242))
-        grants.setObjects(session: s, objects: [GrantedObject(resource: "pods", namespace: "shop")])
+        grants.setObjects(session: s, objects: [GrantedObject(resource: "pods", namespace: "shop", name: "a")])
         #expect(!grants.covers(try mutation("/api/v1/namespaces/shop/pods/a", method: "POST", kind: .stream(.otherUpgrade)), session: s, peer: nil))
         #expect(grants.covers(try mutation("/api/v1/namespaces/shop/pods/a", method: "DELETE"), session: s, peer: nil))
     }
 
-    @Test("process-group binding for Helm and flux runs")
+    @Test("a Helm or flux run's requests must come from its spawned process group")
     func processGroupBinding() {
         #expect(GrantStore.peerIsBound(PeerProcess(pid: 5, session: 1, group: 4242), to: .processGroup(4242)))
         #expect(!GrantStore.peerIsBound(PeerProcess(pid: 5, session: 1, group: 4243), to: .processGroup(4242)))

@@ -163,6 +163,10 @@ public enum RequestClassifier {
         public var fixed: GangwayClass?
         public var needsBody: Bool { fixed == nil }
         public var isEviction: Bool
+        /// A dry-run is only credited where it is purely a dry-run: the resource itself, `status` or `scale`. A subresource such as
+        /// `serviceaccounts/<name>/token` (TokenRequest) or `pods/ephemeralcontainers` acts even with `dryRun=All` (the API server
+        /// returns a real token), so it stays a mutation.
+        public var dryRunEligible = false
     }
 
     public static func analyze(method: String, rawPath: String, rawQuery: String?, headers: [HTTPRequestHead.Header]) throws -> Analysis {
@@ -202,11 +206,13 @@ public enum RequestClassifier {
             analysis.fixed = .review
         case "POST" where sub == "eviction" && shape.resource == "pods":
             analysis.isEviction = true
+            analysis.dryRunEligible = true
         case "POST", "PUT", "PATCH":
             let values = query.filter { $0.key == "dryRun" }
-            analysis.fixed = values.count == 1 && values[0].value == "All" ? .dryRun : .mutation
+            analysis.dryRunEligible = shape.isResourcePath && (sub == nil || sub == "status" || sub == "scale")
+            analysis.fixed = values.count == 1 && values[0].value == "All" && analysis.dryRunEligible ? .dryRun : .mutation
         case "DELETE":
-            break
+            analysis.dryRunEligible = shape.isResourcePath && sub == nil
         default:
             analysis.fixed = .mutation
         }
@@ -226,12 +232,15 @@ public enum RequestClassifier {
 
     public static func finish(_ analysis: Analysis, headers: [HTTPRequestHead.Header], body: Data?) -> GangwayRequestClass {
         if let fixed = analysis.fixed { return GangwayRequestClass(kind: fixed, impersonation: analysis.impersonation) }
-        let isDryRun = bodyIsDryRun(body, headers: headers, eviction: analysis.isEviction)
+        let isDryRun = analysis.dryRunEligible && bodyIsDryRun(body, headers: headers, eviction: analysis.isEviction)
         return GangwayRequestClass(kind: isDryRun ? .dryRun : .mutation, impersonation: analysis.impersonation)
     }
 
     /// True only for a JSON body whose `DeleteOptions` (for an eviction, its `deleteOptions`) says `dryRun: ["All"]`, with Go's duplicate-key
     /// and case rules applied so that no other reading of the same bytes could be a real delete.
+    /// Case folding that also maps `ſ` (U+017F) to `s` and the Kelvin sign to `k`, as Go's JSON key matching does.
+    static func fold(_ key: String) -> String { key.uppercased().lowercased() }
+
     static func bodyIsDryRun(_ body: Data?, headers: [HTTPRequestHead.Header], eviction: Bool) -> Bool {
         guard let body, !body.isEmpty, body.count <= maxDeleteBody else { return false }
         if headers.contains(where: { $0.name.lowercased() == "content-encoding" }) { return false }
@@ -241,11 +250,11 @@ public enum RequestClassifier {
         guard case .object(var members)? = StrictJSON.parse(body) else { return false }
         if eviction {
             let matches = members.filter { $0.key == "deleteOptions" }
-            guard matches.count == 1, members.allSatisfy({ $0.key.lowercased() != "deleteoptions" || $0.key == "deleteOptions" }),
+            guard matches.count == 1, members.allSatisfy({ fold($0.key) != "deleteoptions" || $0.key == "deleteOptions" }),
                   case .object(let inner) = matches[0].value else { return false }
             members = inner
         }
-        guard members.filter({ $0.key.lowercased() == "dryrun" }).count == 1,
+        guard members.filter({ fold($0.key) == "dryrun" }).count == 1,
               let entry = members.first(where: { $0.key == "dryRun" }),
               case .array(let items) = entry.value, items.count == 1, case .string("All") = items[0] else { return false }
         // Any duplicate key at this level means the last one could win.

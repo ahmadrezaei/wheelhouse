@@ -52,7 +52,7 @@ public final class GangwayServer: Sendable {
     }
 
     @discardableResult
-    public func start() async throws -> UInt16 {
+    public func start(identity: LoopbackIdentity) async throws -> UInt16 {
         if let port = listener.withLock({ $0?.port?.rawValue }) { return port }
         var candidates: [UInt16] = []
         if let fixedPort { candidates = [fixedPort] } else {
@@ -62,7 +62,7 @@ public final class GangwayServer: Sendable {
         var lastError = "no candidate port"
         for port in candidates {
             do {
-                let bound = try await listen(on: port)
+                let bound = try await listen(on: port, identity: identity)
                 if fixedPort == nil, Self.persistedPort(portFile) != bound { persist(bound) }
                 context.listenerPort = bound
                 return bound
@@ -71,8 +71,17 @@ public final class GangwayServer: Sendable {
         throw fixedPort != nil ? GangwayServerError.listenFailed(lastError) : GangwayServerError.noFreePort
     }
 
-    private func listen(on port: UInt16) async throws -> UInt16 {
-        let parameters = NWParameters.tcp
+    private func listen(on port: UInt16, identity: LoopbackIdentity) async throws -> UInt16 {
+        // TLS 1.3 only, ALPN http/1.1 only, this launch's identity.
+        let tls = NWProtocolTLS.Options()
+        let options = tls.securityProtocolOptions
+        sec_protocol_options_set_min_tls_protocol_version(options, .TLSv13)
+        sec_protocol_options_add_tls_application_protocol(options, "http/1.1")
+        guard let secIdentity = sec_identity_create(identity.identity) else { throw GangwayServerError.listenFailed("identity") }
+        sec_protocol_options_set_local_identity(options, secIdentity)
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.allowLocalEndpointReuse = false
         parameters.acceptLocalOnly = true
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { throw GangwayServerError.listenFailed("bad port") }

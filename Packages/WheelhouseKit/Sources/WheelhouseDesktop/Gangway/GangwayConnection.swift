@@ -102,12 +102,26 @@ final class GangwayConnection: @unchecked Sendable {
         closeAll()
     }
 
+    /// Records "forwarded, no response" for a request whose first response line never arrived.
+    private func flushPendingAudit(reason: String) {
+        let pending = shared.withLock { s -> ActivityEntry? in
+            defer { s.awaiting = nil }
+            return s.awaiting?.audit.map { entry in
+                var e = entry
+                e.result = reason + (s.awaiting?.suffix ?? "")
+                return e
+            }
+        }
+        if let pending { ctx.audit(pending) }
+    }
+
     private func closeAll() {
         let already = shared.withLock { s -> Bool in
             defer { s.closed = true }
             return s.closed
         }
         guard !already else { return }
+        flushPendingAudit(reason: "forwarded, no response")
         shared.withLock { $0.upstream }?.stream.cancel()
         downstream.cancel()
         status.fulfill(-1)
@@ -147,6 +161,7 @@ final class GangwayConnection: @unchecked Sendable {
             guard !s.idleArmed, !s.closed else { return }
             s.idleArmed = true
             let timeout = ctx.idleTimeout
+            ctx.countIdleTask()
             s.idleTask = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self else { return }
@@ -156,7 +171,7 @@ final class GangwayConnection: @unchecked Sendable {
                         if stillArmed { self.closeAll() }
                         return
                     }
-                    try? await Task.sleep(until: deadline, tolerance: .seconds(5), clock: .continuous)
+                    try? await Task.sleep(until: deadline, tolerance: min(.seconds(5), timeout / 10), clock: .continuous)
                 }
             }
         }
@@ -230,35 +245,12 @@ final class GangwayConnection: @unchecked Sendable {
             throw GangwayRejection(status: 400, reason: "Wheelhouse: unexpected Host or Origin header")
         }
 
-        // 2. authenticate (every request) and pin the connection to its first session.
-        // kubectl, helm and every client-go tool DROP kubeconfig credentials when the server is plain http (clientcmd only reads the user's
-        // credentials for a TLS transport), so the session token travels in the path: /c/<clusterID>/<token>/<api path>. A client that does
-        // send `Authorization: Bearer whg_...` (curl, a tool with its own client) is accepted too; the two must agree.
-        let rawPath = head.rawPath
-        let parts = rawPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        var urlToken: String?
-        var prefix = rawPath
-        var urlCluster = ""
-        if parts.count >= 3, parts[0].isEmpty, parts[1] == "c" {
-            urlCluster = parts[2]
-            prefix = "/c/\(urlCluster)"
-            if parts.count > 3, parts[3].hasPrefix("whg_") {
-                urlToken = parts[3]
-                prefix += "/\(parts[3])"
-            }
+        // 2. authenticate (every request) and pin the connection to its first session. The token is the bearer token of the session
+        // kubeconfig; the loopback leg is TLS (a plain-http server makes kubectl drop kubeconfig credentials).
+        guard let authorization = head.value("Authorization"), authorization.lowercased().hasPrefix("bearer ") else {
+            return try await refuse(head, framing: framing, code: 401, message: "Wheelhouse: no session token in this request")
         }
-        var headerToken: String?
-        if let authorization = head.value("Authorization"), authorization.lowercased().hasPrefix("bearer ") {
-            let value = String(authorization.dropFirst(7)).trimmingCharacters(in: .whitespaces)
-            if value.hasPrefix("whg_") { headerToken = value }
-        }
-        if let urlToken, let headerToken, urlToken != headerToken { throw GangwayRejection(status: 400, reason: "Wheelhouse: two different session tokens") }
-        guard let token = urlToken ?? headerToken else {
-            // `kubectl get --raw` replaces the whole path, so the token in the server address is lost: say so.
-            return try await refuse(head, framing: framing, code: 401,
-                                    message: "Wheelhouse: no session token in this request (tools that replace the server path, such as kubectl get --raw, can't use a guarded session)")
-        }
-        guard let found = ctx.registry.session(forToken: token) else {
+        guard let found = ctx.registry.session(forToken: String(authorization.dropFirst(7)).trimmingCharacters(in: .whitespaces)) else {
             return try await refuse(head, framing: framing, code: 401, message: "Wheelhouse: session ended")
         }
         if let pinned = session, pinned.id != found.id { throw GangwayRejection(status: 400, reason: "Wheelhouse: a connection serves one session") }
@@ -269,12 +261,17 @@ final class GangwayConnection: @unchecked Sendable {
         let session = found
         if session.isRevoked { return try await refuse(head, framing: framing, code: 401, message: "Wheelhouse: session ended") }
 
-        // Strip /c/<clusterID>[/<token>] on a segment boundary.
+        // /c/<clusterID> is the server path of the session kubeconfig. Tools that replace the whole path (`kubectl get --raw`) send none:
+        // the token already names the cluster, so a request without the prefix is that cluster's. With a prefix it must be this session's.
+        let rawPath = head.rawPath
+        let prefix = "/c/\(session.clusterID)"
         let path: String
-        if urlCluster == session.clusterID, rawPath == prefix { path = "/" } else if urlCluster == session.clusterID, rawPath.hasPrefix(prefix + "/") {
-            path = String(rawPath.dropFirst(prefix.count))
+        if rawPath == "/c" || rawPath.hasPrefix("/c/") {
+            if rawPath == prefix { path = "/" } else if rawPath.hasPrefix(prefix + "/") { path = String(rawPath.dropFirst(prefix.count)) } else {
+                return try await refuse(head, framing: framing, code: 403, message: "Wheelhouse: this session belongs to another cluster")
+            }
         } else {
-            return try await refuse(head, framing: framing, code: 403, message: "Wheelhouse: this session belongs to another cluster")
+            path = rawPath
         }
 
         // 3. canonicalise and classify.
@@ -439,35 +436,21 @@ final class GangwayConnection: @unchecked Sendable {
             }
             return body
         case .chunked:
-            var decoded = Data()
-            var parser = ChunkedBodyReencoder()
-            var raw = Data()
+            var parser = ChunkedBodyReencoder(decode: true)
+            var body = Data()
             while !parser.isFinished {
                 if buffer.isEmpty {
                     guard let data = try await downstream.receive() else { throw GangwayRejection(status: 400, reason: "Wheelhouse: the request body ended early") }
                     buffer.append(data)
                 }
-                let chunk = buffer
                 do {
-                    let (out, used) = try parser.feed(chunk)
-                    raw.append(out)
+                    let (out, used) = try parser.feed(buffer)
+                    body.append(out)
                     buffer.removeFirst(used)
                 } catch let e as HTTPParseError { throw GangwayRejection(status: 400, reason: "Wheelhouse: \(e.reason)") }
-                if raw.count > limit * 2 + 64 { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit 64 KB)") }
+                if body.count > limit { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit 64 KB)") }
             }
-            decoded = Data()
-            // Decode the re-encoded form back into plain bytes.
-            var rest = raw[...]
-            while let crlf = rest.range(of: Data("\r\n".utf8)) {
-                let sizeText = String(decoding: rest[rest.startIndex..<crlf.lowerBound], as: UTF8.self)
-                guard let size = Int(sizeText, radix: 16) else { break }
-                if size == 0 { break }
-                let start = crlf.upperBound
-                decoded.append(rest[start..<(start + size)])
-                rest = rest[(start + size + 2)...]
-            }
-            guard decoded.count <= limit else { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit 64 KB)") }
-            return decoded
+            return body
         }
     }
 
@@ -542,12 +525,14 @@ final class GangwayConnection: @unchecked Sendable {
             } catch {
                 var entry = audit
                 entry.result = "failed: \(error.localizedDescription)"
-                if needsAudit(classified) { ctx.audit(entry) }
+                ctx.audit(entry)
+                // The client gets a generic message (an exec plugin's stderr can hold account details); the detail is in the audit entry.
+                let generic = "Wheelhouse could not reach the cluster or get credentials for it. See Activity for details."
                 if bufferedBody != nil || framing == .none {
-                    try await respond(502, error.localizedDescription, close: false)
+                    try await respond(502, generic, close: false)
                     return .keepGoing
                 }
-                try await respond(502, error.localizedDescription, close: true)
+                try await respond(502, generic, close: true)
                 return .close
             }
             let stored = shared.withLock { s -> Bool in
@@ -590,11 +575,15 @@ final class GangwayConnection: @unchecked Sendable {
         }
         out += "\r\n"
 
+        // Every change, stream, proxy request and impersonation attempt is recorded when it is forwarded, before any response; the status
+        // follows as a second entry, or "no response" when the connection ends first.
+        flushPendingAudit(reason: "forwarded, response status not seen")
         var entry = audit
-        entry.result = "forwarded"
+        let suffix = impersonationNote(classified) + (classified.kind == .dryRun ? " · dry-run" : "")
+        entry.result = "forwarded" + suffix
+        if needsAudit(classified) { ctx.audit(entry) }
         shared.withLock { s in
-            s.awaiting = Awaiting(audit: needsAudit(classified) ? entry : nil, upgrade: isUpgrade, overheadMicroseconds: 0,
-                                  suffix: impersonationNote(classified) + (classified.kind == .dryRun ? " · dry-run" : ""))
+            s.awaiting = Awaiting(audit: needsAudit(classified) ? audit : nil, upgrade: isUpgrade, overheadMicroseconds: 0, suffix: suffix)
         }
         status.reset()
         if isUpgrade || (classified.kind == .read && head.rawQuery?.contains("watch") == true) || isLongRunning(classified, analysis: analysis) {
@@ -729,6 +718,13 @@ final class GangwayConnection: @unchecked Sendable {
             self?.cancel()
         }))
         defer { ctx.unregister(stream: id) }
+        // The lock or the policy may have changed between the decision and this registration (a closer that ran earlier did not see this
+        // stream): check once more, now that it can be closed.
+        if ctx.isLocked { cancel(); return .close }
+        if let live = ctx.clusters.config(for: cluster.id) {
+            if case .refuse = MutationPolicy.decide(gangway: classified, cluster: live, origin: session.origin.changeOrigin) { cancel(); return .close }
+            if live.environment.requiresTypeToConfirm, !cluster.environment.requiresTypeToConfirm { cancel(); return .close }
+        } else { cancel(); return .close }
         if !buffer.isEmpty {
             try await link.stream.send(buffer)
             buffer.removeAll()

@@ -133,6 +133,15 @@ struct ChunkedBodyTests {
         #expect(used == input.utf8.count)
     }
 
+    @Test("decode mode yields the plain body")
+    func decodeMode() throws {
+        var r = ChunkedBodyReencoder(decode: true)
+        let (out, used) = try r.feed(Data("5;x=1\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".utf8))
+        #expect(String(decoding: out, as: UTF8.self) == "hello world")
+        #expect(r.isFinished)
+        #expect(used == "5;x=1\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".utf8.count)
+    }
+
     @Test("byte-by-byte input gives the same output")
     func split() throws {
         let (out, _, done) = try run("3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n", splitting: 1)
@@ -167,7 +176,8 @@ struct SessionKubeconfigTests {
         let (writer, scratch) = try rig()
         defer { scratch.cleanup() }
         let id = UUID()
-        let w = try writer.write(sessionID: id, port: 51234, clusterID: "kc-abc123", clusterName: "prod: \"eu\" # west", token: "whg_secret", namespace: "shop")
+        let cert = Data("not-a-real-certificate".utf8)
+        let w = try writer.write(sessionID: id, port: 51234, clusterID: "kc-abc123", clusterName: "prod: \"eu\" # west", token: "whg_secret", namespace: "shop", certificateDER: cert)
         #expect(w.file.path.contains("wheelhouse-debug/sessions/\(id.uuidString.lowercased())/kubeconfig"))
         #expect(!w.file.path.contains("/.kube/"))
         var st = stat()
@@ -179,7 +189,16 @@ struct SessionKubeconfigTests {
         // The text is JSON that names the loopback address, the cluster path and the token; hostile names stay inside their strings.
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: w.file)) as? [String: Any])
         let clusters = try #require(object["clusters"] as? [[String: Any]])
-        #expect((clusters[0]["cluster"] as? [String: String])?["server"] == "http://127.0.0.1:51234/c/kc-abc123/whg_secret")
+        let cluster = try #require(clusters[0]["cluster"] as? [String: String])
+        #expect(cluster["server"] == "https://127.0.0.1:51234/c/kc-abc123", "no token in the server address: client-go writes it into its discovery cache path")
+        #expect(!(cluster["server"] ?? "").contains("whg_"))
+        // The CA is this launch's certificate, as the base64 of a PEM text.
+        let caText = try #require(cluster["certificate-authority-data"])
+        let caData = try #require(Data(base64Encoded: caText))
+        let pem = String(decoding: caData, as: UTF8.self)
+        #expect(pem.hasPrefix("-----BEGIN CERTIFICATE-----\n") && pem.hasSuffix("-----END CERTIFICATE-----\n"))
+        let users = try #require(object["users"] as? [[String: Any]])
+        #expect((users[0]["user"] as? [String: String])?["token"] == "whg_secret")
         #expect(object["current-context"] as? String == "prod: \"eu\" # west")
         let contexts = try #require(object["contexts"] as? [[String: Any]])
         #expect((contexts[0]["context"] as? [String: String])?["namespace"] == "shop")
@@ -187,7 +206,7 @@ struct SessionKubeconfigTests {
         let yaml = try String(contentsOf: w.file, encoding: .utf8)
         #expect(!yaml.contains("\\/"))
         let parsed = try KubeconfigParser.parse(yaml, environment: .desktop(baseDirectory: w.directory))
-        #expect(parsed.contexts.first?.server?.absoluteString == "http://127.0.0.1:51234/c/kc-abc123/whg_secret")
+        #expect(parsed.contexts.first?.server?.absoluteString == "https://127.0.0.1:51234/c/kc-abc123")
         #expect(parsed.contexts.first?.name == "prod: \"eu\" # west")
         // Nothing else is left in the folder.
         #expect(try FileManager.default.contentsOfDirectory(atPath: w.directory.path) == ["kubeconfig"])
@@ -197,7 +216,7 @@ struct SessionKubeconfigTests {
     func integrity() throws {
         let (writer, scratch) = try rig()
         defer { scratch.cleanup() }
-        let w = try writer.write(sessionID: UUID(), port: 51234, clusterID: "c1", clusterName: "c", token: "whg_t", namespace: nil)
+        let w = try writer.write(sessionID: UUID(), port: 51234, clusterID: "c1", clusterName: "c", token: "whg_t", namespace: nil, certificateDER: Data())
         chmod(w.file.path, 0o600)
         #expect(SessionKubeconfigWriter.verify(file: w.file, hash: w.hash) == .modeChanged)
         try Data("changed".utf8).write(to: w.file)

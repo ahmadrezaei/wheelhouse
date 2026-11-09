@@ -165,7 +165,9 @@ public struct ChunkedBodyReencoder: Sendable {
     }
     private var state: State = .size(line: [])
     public static let maxSizeLine = 64
-    public init() {}
+    private let decode: Bool
+    /// `decode: true` yields the plain body bytes; otherwise each chunk is written again (extensions dropped) for forwarding.
+    public init(decode: Bool = false) { self.decode = decode }
 
     public var isFinished: Bool { if case .finished = state { true } else { false } }
 
@@ -189,7 +191,7 @@ public struct ChunkedBodyReencoder: Sendable {
                           hexPart.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x46) || ($0 >= 0x61 && $0 <= 0x66) }),
                           let size = Int(String(decoding: hexPart, as: UTF8.self), radix: 16) else { throw HTTPParseError("invalid chunk size") }
                     if size == 0 { state = .lastLine(seen: 0) } else {
-                        out.append(Data("\(String(size, radix: 16))\r\n".utf8))
+                        if !decode { out.append(Data("\(String(size, radix: 16))\r\n".utf8)) }
                         state = .data(remaining: size)
                     }
                 } else {
@@ -207,7 +209,7 @@ public struct ChunkedBodyReencoder: Sendable {
                 guard input[i] == expected else { throw HTTPParseError("chunk not terminated by CRLF") }
                 i += 1
                 if seen == 1 {
-                    out.append(Data("\r\n".utf8))
+                    if !decode { out.append(Data("\r\n".utf8)) }
                     state = .size(line: [])
                 } else { state = .dataEnd(seen: 1) }
             case .lastLine(let seen):
@@ -216,7 +218,7 @@ public struct ChunkedBodyReencoder: Sendable {
                 guard input[i] == expected else { throw HTTPParseError("trailers are not allowed") }
                 i += 1
                 if seen == 1 {
-                    out.append(Data("0\r\n\r\n".utf8))
+                    if !decode { out.append(Data("0\r\n\r\n".utf8)) }
                     state = .finished
                 } else { state = .lastLine(seen: 1) }
             }

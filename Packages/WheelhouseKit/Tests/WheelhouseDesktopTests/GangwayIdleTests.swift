@@ -43,11 +43,34 @@ struct GangwayIdleTests {
         let with = try await measure(seconds: seconds)
         print("GANGWAY-IDLE baseline interrupt/s=\(base.interrupt) idle/s=\(base.idle); with 4 sessions interrupt/s=\(with.interrupt) idle/s=\(with.idle)")
         // Each connection holds one single-shot deadline (120 s), re-slept on wake: nothing fires in an 8 s window. Allow the runner's noise.
-        // The rest of the suite runs in this process at the same time, so the bound is loose; run alone this measures 0.1 per second more.
-        // A repeating timer per connection would add at least 4 per second at the smallest interval Gangway could plausibly use.
+        // The exact bound is structural: 4 connections hold exactly 4 deadline tasks, started once and never again while idle (a polling
+        // task or a repeating timer would keep starting them or keep waking). The rusage numbers above are the isolated measurement
+        // (perf/baselines/M5a.json); this suite runs next to others in one process, so they only get a loose bound here.
+        #expect(rig.service.context.idleTasksStarted == 4, "one deadline task per connection, none re-created while idle")
         #expect(with.interrupt <= base.interrupt + 5.0, "4 idle sessions added \(with.interrupt - base.interrupt) interrupt wakeups per second")
         #expect(with.idle <= base.idle + 5.0, "4 idle sessions added \(with.idle - base.idle) idle wakeups per second")
         clients.forEach { $0.close() }
+    }
+
+    @Test("the cost of the TLS handshake on the loopback leg (a new connection and its first request) is small and recorded")
+    func handshakeCost() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let (_, token) = try await rig.open()
+        let port = try #require(rig.service.port)
+        let der = try #require(rig.service.context.tlsCertificateDER)
+        var millis: [Double] = []
+        for i in 0..<60 {
+            let start = ContinuousClock.now
+            let c = try await RawClient(port: port, certificateDER: der)
+            try await c.send(rig.request("GET", "/version", token: token))
+            _ = try #require(await c.readResponse())
+            if i >= 5 { millis.append((ContinuousClock.now - start).microseconds / 1000) }
+            c.close()
+        }
+        millis.sort()
+        print("GANGWAY-HANDSHAKE new TLS connection + first request p50_ms=\(millis[millis.count / 2]) p95_ms=\(millis[millis.count * 95 / 100]) samples=\(millis.count)")
+        #expect(millis[millis.count / 2] < 50)
     }
 
     @Test("each idle connection holds at most one deadline task, and a connection that sees traffic does not create more")
@@ -60,9 +83,9 @@ struct GangwayIdleTests {
             try await c.send(rig.request("GET", "/version", token: token))
             _ = try #require(await c.readResponse())
         }
-        // 200 requests on one connection: still one connection, one upstream; the deadline is re-slept, not re-created per request.
-        #expect(rig.service.context.openStreamCount == 0)
+        // 200 requests on one connection: one upstream, and ONE deadline task. The deadline is re-slept for the remainder, never re-created.
         #expect(rig.upstream.connections == 1)
+        #expect(rig.service.context.idleTasksStarted == 1)
     }
 }
 #endif

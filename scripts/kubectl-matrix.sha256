@@ -1,0 +1,9 @@
+# Pinned sha256 of the official kubectl darwin/arm64 binaries used by the Gangway live matrix (verified against dl.k8s.io's own .sha256 files
+# when they were first fetched, 2026-11-09). scripts/fetch-kubectl-matrix.sh refuses any binary that does not match this file.
+v1.30.14 af47a6a5f25630aa2bd68e56d21110b46aa1595a2d99f936637c75bc6bb65016
+v1.31.14 ee72e65cc206edc9b0d878e6d896fa31683dc1ba4c04944984efa07eebfc4725
+v1.33.13 17e3d0a6d9908914c67370b329b6aa9489de7ca035ecd5b7773456cdbe318bbd
+v1.34.13 c246beefae38db97fd82977864fe9253cd14a3f66325827e56082747bd72143d
+v1.35.10 77ec066f3404edb81760865c9cd812d03c25e9a89aa0349fd3c1aa60bd5fb068
+v1.36.6 1cf735c3d35ccfec28d0618784cb06a4614d2c42aade28b6be0eab76a2ffb623
+v1.37.2 55701af0d51815ee335f240e48acf0959c3c23017ed3fa816e880c4a92bae581

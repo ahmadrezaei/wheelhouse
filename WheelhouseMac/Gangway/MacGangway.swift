@@ -1,10 +1,12 @@
+import AppKit
+import CryptoKit
 import Foundation
 import Observation
 import WheelhouseDesktop
 import WheelhouseKit
 
 /// Hosts Gangway in the Mac app (ARCHITECTURE-MAC section 3.6). Nothing listens until a consumer (the Deck Terminal, a Chart Room helm
-/// run, `flux diff`) asks for the service: creating this object only registers one notification observer, so an app without a guarded
+/// run, `flux diff`) asks for the service: creating this object only registers notification observers, so an app without a guarded
 /// session has no listener, no socket and no timer.
 @MainActor
 final class MacGangway {
@@ -13,7 +15,8 @@ final class MacGangway {
     private let provider: SnapshotClusterProvider
     private var service: GangwayService?
     private var starting: Task<GangwayService, Error>?
-    private var clusterObserver: (any NSObjectProtocol)?
+    private var sync: ClusterSnapshotSync?
+    private var terminateObserver: (any NSObjectProtocol)?
     private var locked = false
     /// Shows the confirmation sheets. M5b installs the real one; until then every held request is declined.
     var confirmer: any GangwayConfirming = DecliningConfirmer()
@@ -28,19 +31,19 @@ final class MacGangway {
             let secrets = (try? credentials.load(clusterID: config.id)) ?? ClusterSecrets()
             return factory.gangwayUpstream(config: config, secrets: secrets, contactHeld: state.isContactHeld(config.id))
         }
-        provider.update(registry.clusters)
-        // The snapshot is refreshed first, then the service re-evaluates its streams and grants against it (one observer, no ordering to rely on).
-        clusterObserver = NotificationCenter.default.addObserver(forName: ClusterEvents.invalidated, object: nil, queue: .main) { [weak self] note in
-            let id = ClusterEvents.clusterID(from: note), removed = ClusterEvents.wasRemoved(note)
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.refreshClusters()
-                if let id { self.service?.clusterChanged(id, removed: removed) }
-            }
+        sync = ClusterSnapshotSync(registry: registry, provider: provider, digest: { config in
+            // A digest of the credentials, never the credentials themselves.
+            guard let secrets = try? credentials.load(clusterID: config.id), let data = try? JSONEncoder().encode(secrets) else { return nil }
+            return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }, service: { [weak self] in self?.service })
+        sync?.start()
+        // The app is quitting: sessions end and their kubeconfig folders go (the launch's token and certificate die with the process anyway).
+        terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.shutdown() }
         }
     }
 
-    private func refreshClusters() { provider.update(registry.clusters) }
+    private func refreshClusters() { sync?.refresh() }
 
     /// The running service, started on first use.
     func service() async throws -> GangwayService {
@@ -83,7 +86,8 @@ final class MacGangway {
     func shutdown() {
         service?.stop()
         service = nil
-        if let clusterObserver { NotificationCenter.default.removeObserver(clusterObserver) }
-        clusterObserver = nil
+        sync?.stop()
+        if let terminateObserver { NotificationCenter.default.removeObserver(terminateObserver) }
+        terminateObserver = nil
     }
 }

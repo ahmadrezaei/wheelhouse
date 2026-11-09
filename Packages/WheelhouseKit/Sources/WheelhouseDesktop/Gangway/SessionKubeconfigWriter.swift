@@ -35,7 +35,13 @@ public struct SessionKubeconfigWriter: Sendable {
             && clusterID.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x5A) || ($0 >= 0x61 && $0 <= 0x7A) || $0 == 0x2E || $0 == 0x5F || $0 == 0x2D }
     }
 
-    public static func contents(port: UInt16, clusterID: ClusterID, clusterName: String, token: String, namespace: String?) throws -> Data {
+    /// kubeconfig wants the base64 of a PEM text.
+    static func pemBase64(_ der: Data) -> String {
+        let body = der.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed])
+        return Data("-----BEGIN CERTIFICATE-----\n\(body)\n-----END CERTIFICATE-----\n".utf8).base64EncodedString()
+    }
+
+    public static func contents(port: UInt16, clusterID: ClusterID, clusterName: String, token: String, namespace: String?, certificateDER: Data) throws -> Data {
         guard isValid(clusterID: clusterID) else { throw SessionKubeconfigError.invalidClusterID }
         let short = "wh-" + String(clusterID.prefix(8))
         var context: [String: Any] = ["cluster": short, "user": "wh-session"]
@@ -43,7 +49,7 @@ public struct SessionKubeconfigWriter: Sendable {
         let config: [String: Any] = [
             "apiVersion": "v1",
             "kind": "Config",
-            "clusters": [["name": short, "cluster": ["server": "http://127.0.0.1:\(port)/c/\(clusterID)/\(token)"]]],
+            "clusters": [["name": short, "cluster": ["server": "https://127.0.0.1:\(port)/c/\(clusterID)", "certificate-authority-data": pemBase64(certificateDER)]]],
             "users": [["name": "wh-session", "user": ["token": token]]],
             "contexts": [["name": clusterName, "context": context]],
             "current-context": clusterName,
@@ -51,8 +57,8 @@ public struct SessionKubeconfigWriter: Sendable {
         return try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
-    public func write(sessionID: UUID, port: UInt16, clusterID: ClusterID, clusterName: String, token: String, namespace: String?) throws -> Written {
-        let data = try Self.contents(port: port, clusterID: clusterID, clusterName: clusterName, token: token, namespace: namespace)
+    public func write(sessionID: UUID, port: UInt16, clusterID: ClusterID, clusterName: String, token: String, namespace: String?, certificateDER: Data) throws -> Written {
+        let data = try Self.contents(port: port, clusterID: clusterID, clusterName: clusterName, token: token, namespace: namespace, certificateDER: certificateDER)
         let directory = paths.sessions.appending(path: sessionID.uuidString.lowercased(), directoryHint: .isDirectory)
         // Parents (…/wheelhouse[-debug]/sessions) are created 0700 too.
         let parent = paths.sessions

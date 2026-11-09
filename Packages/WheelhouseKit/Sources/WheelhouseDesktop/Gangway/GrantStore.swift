@@ -11,9 +11,10 @@ public enum CommandEligibility {
         "run", "autoscale", "taint", "cordon", "uncordon", "drain", "top", "logs", "diff", "wait", "auth", "api-resources", "api-versions",
         "config", "explain", "version", "cluster-info", "certificate", "events", "kustomize", "options", "plugin", "completion", "help",
     ]
-    static let neverEligible: Set<String> = ["proxy", "port-forward", "exec", "attach", "cp", "debug"]
+    // `edit` (and `--edit`) start an editor whose shell escape would inherit the grant.
+    static let neverEligible: Set<String> = ["proxy", "port-forward", "exec", "attach", "cp", "debug", "edit", "edit-last-applied"]
     static let flagsWithValue: Set<String> = ["-n", "--namespace", "--context", "--cluster", "--user", "--as", "--as-group", "--request-timeout", "-v", "--v"]
-    static let bannedWords: Set<String> = ["xargs", "eval", "exec", "watch", "for", "while", "until", "do", "if", "then", "fi", "done"]
+    static let bannedWords: Set<String> = ["edit-last-applied", "xargs", "eval", "exec", "watch", "for", "while", "until", "do", "if", "then", "fi", "done"]
     static let bannedFragments = [";", "&", "|", "$(", "`", "<(", ">(", "\n", "\r"]
 
     /// A shell-words split without any expansion. nil for an unterminated quote.
@@ -52,7 +53,8 @@ public enum CommandEligibility {
         // The bypass flags of the Deck Terminal (section 3.4).
         for token in tokens.dropFirst() {
             for flag in ["--kubeconfig", "--server", "--token"] where token == flag || token.hasPrefix(flag + "=") { return false }
-            if token == "-s" { return false }
+            if token == "-s" || token.hasPrefix("-s=") || (token.hasPrefix("-s") && !token.hasPrefix("--") && token.count > 2) { return false }   // -s<server>, -s=<server>
+            if token == "--edit" || token.hasPrefix("--edit=") { return false }
         }
         guard name == "kubectl" else { return true }
         var index = 1
@@ -73,11 +75,15 @@ public struct GrantedObject: Hashable, Sendable {
     public var group: String
     public var resource: String
     public var namespace: String?
-    /// nil matches any name in the collection (a create, whose name is in the body).
+    /// nil: no exact name. Never a wildcard for PUT, PATCH, DELETE or deletecollection.
     public var name: String?
     /// Matches names that start with this prefix (Helm release Secrets: `sh.helm.release.v1.<release>.v`).
     public var namePrefix: String?
-    public init(group: String = "", resource: String, namespace: String? = nil, name: String? = nil, namePrefix: String? = nil) {
+    /// A POST (create) names its object in the body, which Gangway does not read yet. Until it does (M6b: bounded buffered body, match
+    /// `metadata.name`), a create is only covered when the review flow says so explicitly with this flag. Fail closed by default.
+    public var createAnyName: Bool
+    public init(group: String = "", resource: String, namespace: String? = nil, name: String? = nil, namePrefix: String? = nil, createAnyName: Bool = false) {
+        self.createAnyName = createAnyName
         self.group = group
         self.resource = resource
         self.namespace = namespace
@@ -169,7 +175,10 @@ public final class GrantStore: Sendable {
 
     // MARK: Objects and dry-run-only
 
-    public func setObjects(session: GangwaySession, objects: Set<GrantedObject>, lifetime: TimeInterval = 3600) {
+    // M6b contract for Helm runs (the grant is only as good as its binding): (1) the session is bound to the spawned helm process group
+    // (`PeerBinding.processGroup`) and the peer is checked per request; (2) a POST is matched by `metadata.name` from a bounded (64 KB)
+    // buffered body against the reviewed manifest, replacing `createAnyName`; (3) the grant ends when the helm process exits, not on a timer.
+    public func setObjects(session: GangwaySession, objects: Set<GrantedObject>, lifetime: TimeInterval = 600) {
         let expiry = now().addingTimeInterval(lifetime)
         state.withLock { $0.objects[session.id] = (objects, expiry) }
     }
@@ -183,11 +192,11 @@ public final class GrantStore: Sendable {
         guard shape.isResourcePath, shape.legacyVerb == nil, shape.subresource == nil || shape.subresource == "status" else { return false }
         return grant.items.contains { item in
             guard item.group == shape.group, item.resource == shape.resource, item.namespace == shape.namespace else { return false }
-            if request.method == "POST", shape.name == nil { return true }
-            guard let name = shape.name else { return request.method == "DELETE" && item.name == nil && item.namePrefix == nil }
+            if request.method == "POST", shape.name == nil { return item.createAnyName }
+            guard let name = shape.name else { return false }                    // deletecollection and list-shaped writes are never covered
             if let exact = item.name { return exact == name }
             if let prefix = item.namePrefix { return name.hasPrefix(prefix) }
-            return true
+            return false
         }
     }
 
@@ -204,7 +213,8 @@ public final class GrantStore: Sendable {
         return state.withLock { s in
             guard let grant = s.commands[session.id] else { return false }
             if grant.expiry <= now() { s.commands[session.id] = nil; return false }
-            return true
+            // The grant belongs to the command it was given for: once the shell reports another one (or none), it does not apply.
+            return session.reportedCommand?.id == grant.commandID
         }
     }
 

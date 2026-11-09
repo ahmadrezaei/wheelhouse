@@ -53,9 +53,15 @@ public final class GangwaySession: Sendable {
     public let binding: PeerBinding
     public let createdAt: Date
     let tokenDigest: String
+    /// What the session was opened against (server, auth, TLS settings, credential digest). A change ends the session.
+    public var clusterFingerprint: String? {
+        get { state.withLock { $0.fingerprint } }
+        set { state.withLock { $0.fingerprint = newValue } }
+    }
 
     private struct State {
         var kubeconfigHash: String?
+        var fingerprint: String?
         var revoked = false
         var revokedReason: String?
         var reportedCommand: ReportedCommand?
@@ -147,6 +153,12 @@ public protocol GangwayClusterProviding: Sendable {
     func config(for id: ClusterID) -> ClusterConfig?
     /// Credentials and token source, resolved when an upstream connection is opened.
     func upstream(for id: ClusterID) async throws -> GangwayUpstream
+    /// A digest of the cluster's credentials (never the credentials), so a replaced credential can end the sessions that used the old one.
+    func credentialDigest(for id: ClusterID) -> String?
+}
+
+public extension GangwayClusterProviding {
+    func credentialDigest(for id: ClusterID) -> String? { nil }
 }
 
 /// One request waiting for a person's decision.

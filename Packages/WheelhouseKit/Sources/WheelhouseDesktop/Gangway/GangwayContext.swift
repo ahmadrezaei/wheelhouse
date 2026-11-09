@@ -25,6 +25,8 @@ public final class GangwayContext: Sendable {
     let streams = Mutex<[UUID: StreamRecord]>([:])
     private let lockedFlag = Mutex(false)
     private let port = Mutex<UInt16>(0)
+    private let certificate = Mutex<Data?>(nil)
+    private let idleTasks = Mutex(0)
     /// Idle keep-alive timeout (ARCHITECTURE-MAC 3.6 step 10).
     let idleTimeout: Duration
 
@@ -47,6 +49,14 @@ public final class GangwayContext: Sendable {
         get { port.withLock { $0 } }
         set { port.withLock { $0 = newValue } }
     }
+    /// The DER of this launch's loopback certificate (what a session kubeconfig trusts).
+    public var tlsCertificateDER: Data? {
+        get { certificate.withLock { $0 } }
+        set { certificate.withLock { $0 = newValue } }
+    }
+    func countIdleTask() { idleTasks.withLock { $0 += 1 } }
+    /// How many idle-deadline tasks were ever started (one per connection that has an idle deadline).
+    public var idleTasksStarted: Int { idleTasks.withLock { $0 } }
     public var isLocked: Bool { lockedFlag.withLock { $0 } }
     public func setLocked(_ locked: Bool) { lockedFlag.withLock { $0 = locked } }
 
@@ -150,7 +160,10 @@ actor HoldCoordinator {
         guard let session = registry.session(id: sessionID), !session.isRevoked else { return .declined }
         let holds = batch.map(\.hold)
         var kind: GangwaySheet.Kind = batch[0].hold.isStream ? .stream : .requests
-        if kind == .requests, batch.allSatisfy(\.peerBound), let command = session.reportedCommand, CommandEligibility.isEligible(command.line) {
+        // The command the sheet shows is the one that gets the grant, and only while it is still the running one (the shell may report
+        // another command while the sheet is open).
+        let captured = session.reportedCommand
+        if kind == .requests, batch.allSatisfy(\.peerBound), let command = captured, CommandEligibility.isEligible(command.line) {
             kind = .command(line: command.line)
         }
         let sheet = GangwaySheet(kind: kind, holds: holds)
@@ -172,7 +185,7 @@ actor HoldCoordinator {
         switch kind {
         case .stream: break
         case .command:
-            if let command = session.reportedCommand { grants.grantCommand(session: session, command: command) }
+            if let command = captured, session.reportedCommand?.id == command.id { grants.grantCommand(session: session, command: command) }
             // Requests of the sheet that the command grant does not cover (not the foreground job) still need their own approval.
             grants.approveBatch(session: session, holdIDs: holds.map(\.id))
         case .requests: grants.approveBatch(session: session, holdIDs: holds.map(\.id))
