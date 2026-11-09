@@ -150,6 +150,7 @@
 		843946699357D494F9F59BEE /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880B90623F4A1A1A37B3D59F /* SessionsView.swift */; };
 		852158A06D2CDAAB2C8FC351 /* ClustersPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2713DE052490928090B44C /* ClustersPane.swift */; };
 		85D6FB7ECC1E5A8DD98FFE18 /* TidesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97456D4FE7478655C3B21B3D /* TidesModel.swift */; };
+		870D80CFCB11DE4B3513F26A /* GangwayTestHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166984FE9106E528F020B771 /* GangwayTestHooks.swift */; };
 		873844BC564255BE7D82185A /* SurveyPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D9A6F860BFB18BDE3F3CCDB /* SurveyPane.swift */; };
 		876F43FAB6291060D2827625 /* RailFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA7288578A361AC0DBD52E6 /* RailFeature.swift */; };
 		88D9FCEB45A99988F4F9A37C /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = CF20029430BC08857F7AC4D9 /* WheelhouseUI */; };
@@ -245,6 +246,7 @@
 		DCC66D7775FA277338BB3FBE /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = 232D035F499F84A794B0EC68 /* WheelhouseUI */; };
 		DEFF68112A5ACF3051748C20 /* MacAppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F48152520311B2144B42D8 /* MacAppEnvironment.swift */; };
 		DF315D7E31A5FE615B0263E5 /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
+		DF3B0CCFB70A6260A4E37283 /* MacGangway.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */; };
 		E01E0309129F97B081507F13 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
 		E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D69759772CB358A9BC5703 /* ActionSheets.swift */; };
 		E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
@@ -394,6 +396,7 @@
 		154E3E63CDDD3FE3693DD62C /* LockWindowManager+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LockWindowManager+iOS.swift"; sourceTree = "<group>"; };
 		15B01F58EFE269038200722A /* MacImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportCoordinator.swift; sourceTree = "<group>"; };
 		15B66C59008AFD229769E23F /* DashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardComponents.swift; sourceTree = "<group>"; };
+		166984FE9106E528F020B771 /* GangwayTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GangwayTestHooks.swift; sourceTree = "<group>"; };
 		18E629946671A1519BEFD10D /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
 		194E572C05497A3D3C488831 /* TidesConfirmations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesConfirmations.swift; sourceTree = "<group>"; };
 		1A704C901EBD79BFF4AEB47A /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
@@ -518,6 +521,7 @@
 		B37F25F490316C4D766FC85D /* WheelhouseMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WheelhouseMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5305FABCD1583085D1278F4 /* RootView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView+iOS.swift"; sourceTree = "<group>"; };
 		B5830746258110C64A63B1FE /* PerfScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfScenario.swift; sourceTree = "<group>"; };
+		B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacGangway.swift; sourceTree = "<group>"; };
 		B6D6CEB1D55B12F7AE3BD204 /* SurveyModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyModelTests.swift; sourceTree = "<group>"; };
 		B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterClientFactoryKey.swift; sourceTree = "<group>"; };
 		B92939BAB81753820027D51F /* TidesOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesOverviewView.swift; sourceTree = "<group>"; };
@@ -838,6 +842,7 @@
 				3CA0813BD72C7395A48715F0 /* CrowsNest */,
 				5E036ED8B31CABA146B57771 /* DeckTerminal */,
 				EA7F0EB9918C7B411D8AD5BF /* FirstMate */,
+				E1D101DCF32E0665EDCA9EA8 /* Gangway */,
 				0FFCD10EA1CB69BCF2DD0B9E /* Import */,
 				99AAE072E290CA9C1D205971 /* Landfall */,
 				0F40020C0EF308BF94C8BA3F /* Moorings */,
@@ -1170,6 +1175,15 @@
 				F48AF98D23880D5FAC860DFF /* WheelhouseKit */,
 			);
 			path = Packages;
+			sourceTree = "<group>";
+		};
+		E1D101DCF32E0665EDCA9EA8 /* Gangway */ = {
+			isa = PBXGroup;
+			children = (
+				166984FE9106E528F020B771 /* GangwayTestHooks.swift */,
+				B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */,
+			);
+			path = Gangway;
 			sourceTree = "<group>";
 		};
 		EA7F0EB9918C7B411D8AD5BF /* FirstMate */ = {
@@ -1699,6 +1713,7 @@
 				C9A2A781E09873B3D02FD3DF /* FirstMatePane.swift in Sources */,
 				3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */,
 				4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */,
+				870D80CFCB11DE4B3513F26A /* GangwayTestHooks.swift in Sources */,
 				14BEFAA11F49757B563200AF /* GeneralPane.swift in Sources */,
 				7530D2CE52F321690788A5AD /* ICloudPane.swift in Sources */,
 				B607829F5B89295DA4C0B437 /* KubeTable+Diff.swift in Sources */,
@@ -1721,6 +1736,7 @@
 				DB4B9B5939F1F8087389A62F /* MacCommands.swift in Sources */,
 				DC798BC1F5D45537625A68DC /* MacContent.swift in Sources */,
 				F2D0F0F1438A767D8D95E95D /* MacEnergyCoordinator.swift in Sources */,
+				DF3B0CCFB70A6260A4E37283 /* MacGangway.swift in Sources */,
 				B3A5E14508AF4B593932DDE7 /* MacImportCoordinator.swift in Sources */,
 				A0909F6327B43105F8D5DCEB /* MacImportPolicy.swift in Sources */,
 				A0AC8600177AB365A7A78377 /* MacLockCoordinator.swift in Sources */,
