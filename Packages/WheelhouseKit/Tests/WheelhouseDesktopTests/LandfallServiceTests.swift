@@ -452,9 +452,43 @@ struct LandfallServiceTests {
         #expect(o.environment == .production)                      // never lowered
         #expect(o.readOnly && !o.contactApproved && !o.environmentChosen)
         #expect(h.state.isContactHeld(ctx.id))
-        let notice = await h.service.issues[ctx.key.definingFile]
+        let notice = await h.service.changeNotices[ctx.id]
         #expect(notice?.contains("different server") == true)
         #expect(h.clients.total == 0)
+    }
+
+    @Test func aCheckedProductionClusterIsHeldAgainWhenItsServerChanges() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", "current-context: prod-eu\nclusters:\n- {name: c, cluster: {server: \"https://prod-eu.example.test:6443\"}}\nusers:\n- {name: u, user: {token: t}}\ncontexts:\n- {name: prod-eu, context: {cluster: c, user: u}}\n")
+        let h = try MooringsHarness(files: [file], firstRunCompleted: true, scratch: s)
+        await h.service.rescan()
+        let ctx = try #require(h.state.contexts.first)
+        try await h.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .production, environmentPicked: true)])
+        #expect(h.state.isContactHeld(ctx.id))
+        _ = await h.service.check(ctx.id)                                   // the user presses Check: contact approved for this session
+        #expect(!h.state.isContactHeld(ctx.id))
+        let before = h.clients.total
+        #expect(before >= 1)
+        try s.write("kc.yaml", try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "prod-eu.example.test", with: "elsewhere.example.test"))
+        await h.service.rescan()
+        #expect(h.state.isContactHeld(ctx.id))                              // the Check was for the old server
+        let o = try #require(h.state.overrides.override(for: ctx.id))
+        #expect(o.readOnly && !o.contactApproved && o.environment == .production)
+        #expect(h.clients.total == before)                                  // nothing built for the new server
+        #expect(await h.service.changeNotices[ctx.id] != nil)
+        _ = await h.service.check(ctx.id)                                   // a new Check releases it and clears the notice
+        #expect(!h.state.isContactHeld(ctx.id))
+        #expect(await h.service.changeNotices[ctx.id] == nil)
+    }
+
+    @Test func aLandfallYamlWithNoContextsDoesNotBlockAdds() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        try FileManager.default.createDirectory(at: h.landfallFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "apiVersion: v1\nkind: Config\nclusters: []\nusers: []\ncontexts: []\n".write(to: h.landfallFile, atomically: true, encoding: .utf8)
+        let outcome = try await h.service.add([scan.clusters[0]])
+        #expect(outcome.added.count == 1)
     }
 
     @Test func aChangedServerOfALocalClusterGoesBackToItsSuggestion() async throws {

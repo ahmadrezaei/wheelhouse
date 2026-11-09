@@ -117,7 +117,9 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public private(set) var issues: [String: String] = [:]
     public private(set) var scanCount = 0
     /// Added clusters whose context now points at another server (shown with the file issues until the cluster is checked or opened).
-    private var serverNotices: [ClusterID: (path: String, text: String)] = [:]
+    private var serverNotices: [ClusterID: String] = [:]
+    /// One notice per cluster whose context now points at another server (separate from the file issues).
+    public var changeNotices: [ClusterID: String] { serverNotices }
 
     public init(config: MooringsConfiguration, state: MooringsState, clients: any MooringsClientMaking, broker: ExecCredentialBroker? = nil,
                 authorizer: any ChangeAuthorizing = DenyingChangeAuthorizer(), now: @escaping @Sendable () -> Date = { Date() },
@@ -300,7 +302,6 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             return MooringsChange()
         }
         let change = apply(outcome)
-        for n in serverNotices.values { issues[n.path] = n.text }
         updateWatcher(files: outcome.files, folders: outcome.folders)
         if !change.isEmpty { onChange(change) }
         return change
@@ -341,7 +342,8 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                     updated.environmentChosen = false
                     // Production is never lowered here (that needs the owner): only the suggestion replaces a lower environment.
                     updated.environment = existing.environment == .production ? .production : ctx.suggestion?.environment
-                    serverNotices[id] = (ctx.key.definingFile, "\(ctx.displayName) now points at a different server. It is read-only and has to be checked again.")
+                    state.revokeContact(id)
+                    serverNotices[id] = ("\(ctx.displayName) now points at a different server. It is read-only and has to be checked again.")
                 }
                 updated.lastKnown = lastKnown(ctx)
                 if updated != existing { overrideChanges[id] = updated }
@@ -462,7 +464,8 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                 o.contactApproved = false
                 o.environmentChosen = false
                 o.environment = before?.environment == .production ? .production : nil
-                serverNotices[id] = (row.key.definingFile, "\(row.key.contextName) now points at a different server. It is read-only and has to be checked again.")
+                state.revokeContact(id)
+                serverNotices[id] = ("\(row.key.contextName) now points at a different server. It is read-only and has to be checked again.")
             }
             o.added = true
             o.hidden = false
@@ -532,6 +535,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             throw MooringsError.authorizationDenied
         }
         guard var o = state.overrides.override(for: id), o.added else { throw MooringsError.notAvailable }
+        serverNotices[id] = nil
         o.environment = environment
         o.environmentChosen = true
         o.readOnly = false

@@ -43,6 +43,8 @@ public final class MooringsState: Sendable {
     /// False until the first scan finished: until then every added cluster is only a stand-in built from its last-known values.
     public var hasScanned: Bool { state.withLock { $0.scanned } }
     func markScanned() { state.withLock { $0.scanned = true } }
+    /// Takes back the contact approval of an explicit Check (the cluster now points at another server).
+    func revokeContact(_ id: ClusterID) { state.withLock { _ = $0.approved.remove(id) } }
     func approveContact(_ id: ClusterID) { state.withLock { _ = $0.approved.insert(id) } }
     func setDuplicates(_ d: [ClusterID: ClusterID]) { state.withLock { $0.duplicates = d } }
     func setCheck(_ c: ClusterCheckState, for id: ClusterID) { state.withLock { $0.checks[id] = c } }

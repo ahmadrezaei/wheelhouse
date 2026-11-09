@@ -296,7 +296,8 @@ public actor LandfallService {
         // A landfall.yaml that cannot be read is not overwritten: the add is refused.
         guard let text = try? String(contentsOf: landfallFile, encoding: .utf8) else { throw LandfallError.unreadableFile(landfallFile.lastPathComponent) }
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [:] }
-        guard let config = try? KubeconfigParser.parse(text, environment: .desktop(baseDirectory: landfallFile.deletingLastPathComponent())) else {
+        let config: Kubeconfig
+        do { config = try KubeconfigParser.parse(text, environment: .desktop(baseDirectory: landfallFile.deletingLastPathComponent())) } catch KubeconfigError.empty { return [:] } catch {
             throw LandfallError.unreadableFile(landfallFile.lastPathComponent)
         }
         return Dictionary(config.contexts.compactMap { c in c.server.map { (c.name, ServerURL.normalized($0)) } }, uniquingKeysWith: { a, _ in a })
