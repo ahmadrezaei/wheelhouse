@@ -15,6 +15,11 @@ struct MooringsPane: View {
         let controller: MooringsController
         var body: some View {
             if let banner = controller.shellBanner { Section { Label(banner, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) } }
+            if !controller.serverNotices.isEmpty {
+                Section("Changed servers") {
+                    ForEach(controller.serverNotices.sorted(by: { $0.key < $1.key }), id: \.key) { _, text in Label(text, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                }
+            }
             Section("Sources") {
                 ForEach(controller.contexts.map(\.fileName).uniqued(), id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }
                 ForEach(controller.issues.sorted(by: { $0.key < $1.key }), id: \.key) { path, why in

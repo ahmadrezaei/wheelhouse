@@ -45,6 +45,7 @@
 		2069C9F94BBAFFF02F92F96E /* Route.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05850A5A2F03124AD8641A6D /* Route.swift */; };
 		206A718C545F283BFE894007 /* WheelhouseMacPerfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F13DCEB437CE6A298E9C69F /* WheelhouseMacPerfTests.swift */; };
 		20D58BCF8DADAFBC8F9748D9 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60B2D3A3F138EC3D2CA018FA /* NetworkMonitor.swift */; };
+		20ED3F3A272827BE3BE0ECF3 /* LandfallModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */; };
 		210AA3728CC12AA81BDBC053 /* BasicTerminalSurface+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED31BF9841DCBEB1A867B06 /* BasicTerminalSurface+iOS.swift */; };
 		21145216806B71625C53402B /* LandfallPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A023E423619E813328039D2C /* LandfallPane.swift */; };
 		21E8463FE6F0EFA33EFD4BAB /* SessionsHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309FD722690ACE35D393E993 /* SessionsHub.swift */; };
@@ -85,6 +86,7 @@
 		45C724EC10C8E75EDE1E4164 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0E1FCC5A5CAD9D59C6D4EA95 /* Sparkle */; };
 		4735A30485A65CCF1090BB65 /* SafetySecurityPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C14EF51971AAA1713E5FE851 /* SafetySecurityPane.swift */; };
 		47985620F9EF9CA8FBB91391 /* ShareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBC751A1BF54E213DE968EA /* ShareModel.swift */; };
+		48B1EF47DE41E2B644FA5714 /* LandfallModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 521678ECBDFD2713442D0807 /* LandfallModel.swift */; };
 		49CC7FBAC423D0619956F232 /* KubeconfigImportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E288B89CF351561D932D450 /* KubeconfigImportPolicy.swift */; };
 		4A23802C93DEDD9A19A563C3 /* BeaconPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB9B4B53B1781036C80C12A4 /* BeaconPane.swift */; };
 		4A7D4239BCA77080F016445E /* AppKitPortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */; };
@@ -200,6 +202,7 @@
 		B9AADF6A86E6EE9D581003CD /* ScanReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */; };
 		B9BFA268BCF0F61B0E3E42DE /* SurveyModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5800E827B175B44600EA63 /* SurveyModel.swift */; };
 		BA52BDE96A7D2874D29AC462 /* EditorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C471D8B9EB6F75F07865BF90 /* EditorPane.swift */; };
+		BADECE44B6462E05F0F14E56 /* LandfallViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB1FCD66D34C4F2F592D7BA /* LandfallViews.swift */; };
 		BBE9A51DD5C7A91FDEA8453D /* KubeconfigImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBEB32ACB248A15C67DE849 /* KubeconfigImportView.swift */; };
 		BBE9F0B13CA4FD8A0CDB96B1 /* KubeconfigFileInliner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3720896A00597F1D024CEC76 /* KubeconfigFileInliner.swift */; };
 		BCC9E607F364FA125F8DE808 /* CodeEditor+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F7FD7A255DE280B727A491A /* CodeEditor+macOS.swift */; };
@@ -224,6 +227,7 @@
 		C9F1B88BD4DA99DDF8F23C91 /* ResourceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */; };
 		CA1CF824D8AAFAD24EE0F132 /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 45A6EC26313B04879530B78A /* WheelhouseKit */; };
 		CB7F42F0B529CA95BE15AD9C /* ExecTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D464A53678083F853141E5EC /* ExecTerminalView.swift */; };
+		CC32488B9762B039BB3CF34D /* LandfallSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */; };
 		CE637FE0DA3F31DE78392BFB /* AlertNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */; };
 		CF1D6127D2A0D7A1F4FD8447 /* ResourceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6FD1419CECD7C9E8F7F106 /* ResourceListView.swift */; };
 		CF5CE69243E4D89B69338CA2 /* VulnerabilitiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F756D86F9AA69A8B3EA0A20E /* VulnerabilitiesView.swift */; };
@@ -422,6 +426,7 @@
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
 		3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesDetailView.swift; sourceTree = "<group>"; };
 		3FB8C8FF29952189955D7D92 /* SignInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInSheet.swift; sourceTree = "<group>"; };
+		4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallModelTests.swift; sourceTree = "<group>"; };
 		4271F087BBF30B039F71536D /* ClusterDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashModel.swift; sourceTree = "<group>"; };
 		43D00A40858D143534756846 /* SidebarRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRows.swift; sourceTree = "<group>"; };
 		46F48152520311B2144B42D8 /* MacAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppEnvironment.swift; sourceTree = "<group>"; };
@@ -431,10 +436,12 @@
 		4FAA412529D59CBC7707DC77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
 		5059A2198553AB06D391E97A /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
+		521678ECBDFD2713442D0807 /* LandfallModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallModel.swift; sourceTree = "<group>"; };
 		53995759C6782852A5AF1FCC /* LockScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenView.swift; sourceTree = "<group>"; };
 		555250EC97224ADB83551896 /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
 		595E05758EBAA172D428E075 /* ShellRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellRegressionTests.swift; sourceTree = "<group>"; };
 		5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanReviewTests.swift; sourceTree = "<group>"; };
+		5BB1FCD66D34C4F2F592D7BA /* LandfallViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallViews.swift; sourceTree = "<group>"; };
 		5BC31A097551011978189FEA /* UpdatesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesPane.swift; sourceTree = "<group>"; };
 		5F968D0AB8E05455F90F499A /* ChartRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomView.swift; sourceTree = "<group>"; };
 		5FCEDBB89271DC053053A7B7 /* DeckTerminalFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalFeature.swift; sourceTree = "<group>"; };
@@ -534,6 +541,7 @@
 		CB9B4B53B1781036C80C12A4 /* BeaconPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconPane.swift; sourceTree = "<group>"; };
 		CBC1C9A08BAA202CA06E9326 /* KubeTable+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KubeTable+macOS.swift"; sourceTree = "<group>"; };
 		CC32D39307D690CC2810013B /* CrowsNestFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowsNestFeature.swift; sourceTree = "<group>"; };
+		CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallSafetyTests.swift; sourceTree = "<group>"; };
 		CEE7C5F2FC25097D61E73CCB /* WheelhouseShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WheelhouseShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CEEE6C98949A283A36151700 /* ScreenKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenKey.swift; sourceTree = "<group>"; };
 		D15F2210A620D0A4F4D81294 /* AddClusterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddClusterView.swift; sourceTree = "<group>"; };
@@ -663,6 +671,8 @@
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */,
 				2FB1CC652EB53E4DFCF4D504 /* KubeTableDiffTests.swift */,
+				4108069EC4DBDACAD8B62475 /* LandfallModelTests.swift */,
+				CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */,
 				6C7BAF4AFA921DEF8FCD1930 /* LaunchPathTests.swift */,
 				63C86BF66B2F9F6B71625516 /* LiveClusterTests.swift */,
 				EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */,
@@ -1030,6 +1040,8 @@
 			isa = PBXGroup;
 			children = (
 				1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */,
+				521678ECBDFD2713442D0807 /* LandfallModel.swift */,
+				5BB1FCD66D34C4F2F592D7BA /* LandfallViews.swift */,
 			);
 			path = Landfall;
 			sourceTree = "<group>";
@@ -1695,7 +1707,9 @@
 				49CC7FBAC423D0619956F232 /* KubeconfigImportPolicy.swift in Sources */,
 				BBE9A51DD5C7A91FDEA8453D /* KubeconfigImportView.swift in Sources */,
 				62484535320095FD0116E076 /* LandfallFeature.swift in Sources */,
+				48B1EF47DE41E2B644FA5714 /* LandfallModel.swift in Sources */,
 				21145216806B71625C53402B /* LandfallPane.swift in Sources */,
+				BADECE44B6462E05F0F14E56 /* LandfallViews.swift in Sources */,
 				D26B5EDEC0A30B265148E5FB /* ListSupport.swift in Sources */,
 				7CCCFB7058902092FAE82C14 /* LockScreenView.swift in Sources */,
 				986C75C08A97B39AFD41A86A /* LogsModel.swift in Sources */,
@@ -1904,6 +1918,8 @@
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */,
 				9F2169A48127E89417F810D3 /* KubeTableDiffTests.swift in Sources */,
+				20ED3F3A272827BE3BE0ECF3 /* LandfallModelTests.swift in Sources */,
+				CC32488B9762B039BB3CF34D /* LandfallSafetyTests.swift in Sources */,
 				4C65B0FFF0A23AE7C7829917 /* LaunchPathTests.swift in Sources */,
 				7A98F9D04C58726C6F21C3ED /* LiveClusterTests.swift in Sources */,
 				564E3EF8F74CC68C53388CBC /* LockCoordinatorTests.swift in Sources */,

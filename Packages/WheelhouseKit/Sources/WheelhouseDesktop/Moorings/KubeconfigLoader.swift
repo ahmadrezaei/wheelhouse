@@ -158,7 +158,7 @@ public struct KubeconfigLoader: Sendable {
     }
 
     public static func isIgnoredName(_ name: String) -> Bool {
-        name.hasSuffix(".lock") || name.hasPrefix(".#") || name.hasSuffix("~") || name.hasSuffix(".swp") || name.hasSuffix(".tmp")
+        name.hasSuffix(".lock") || name.contains(".wheelhouse-backup-") || name.contains(".wheelhouse-tmp-") || name.hasPrefix(".#") || name.hasSuffix("~") || name.hasSuffix(".swp") || name.hasSuffix(".tmp")
             || name == ".DS_Store"
     }
 
