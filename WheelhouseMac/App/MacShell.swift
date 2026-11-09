@@ -154,8 +154,19 @@ struct WorkspaceWindowContent: View {
                 Divider()
                 ZStack {
                     ForEach(hosted, id: \.id) { tab in
-                        PaneSplitView(env: env, model: model, tab: tab, isSelected: tab.id == state.selectedTab)
-                            .accessibilityHidden(tab.id != state.selectedTab)
+                        // One pane: the window hosts it directly, so the screens' toolbars and search fields reach the window
+                        // toolbar as they always did. Several panes: the split view (nested hosting views).
+                        Group {
+                            if tab.panes.count == 1, let only = tab.panes.first {
+                                PaneHost(env: env, model: model, paneID: only.id)
+                                    .id(only.id)
+                                    .opacity(tab.id == state.selectedTab ? 1 : 0)
+                                    .allowsHitTesting(tab.id == state.selectedTab)
+                            } else {
+                                PaneSplitView(env: env, model: model, tab: tab, isSelected: tab.id == state.selectedTab)
+                            }
+                        }
+                        .accessibilityHidden(tab.id != state.selectedTab)
                     }
                 }
                 Divider()

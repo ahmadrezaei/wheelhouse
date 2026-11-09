@@ -172,7 +172,8 @@ final class WorkspaceWindowModel {
     enum Scope: Hashable { case window(WorkspaceWindowID), detached(PaneID) }
 
     let scope: Scope
-    unowned let controller: WorkspaceController
+    /// Strong: the controller drops the model when its window closes, which ends the cycle.
+    let controller: WorkspaceController
     let sidebar: SidebarModel
     /// False while the window is miniaturised or covered: nothing draws.
     private(set) var isVisible = true
@@ -341,7 +342,8 @@ final class WorkspaceWindowModel {
 
     /// Keeps the registry's current cluster and the sidebar's focus on the focused pane's cluster.
     func focusedPaneChanged() {
-        guard let cluster = focusedPane?.context.clusterID ?? focusedPane?.stack.lazy.compactMap(\.clusterID).first else { return }
+        // A pane with no cluster of its own (the Fleet) leaves the registry's current cluster as the focus (the sidebar opens it).
+        guard let cluster = focusedPane?.context.clusterID ?? focusedPane?.stack.lazy.compactMap(\.clusterID).first ?? registry.currentClusterID else { return }
         if registry.currentClusterID != cluster, registry.config(for: cluster) != nil { registry.select(cluster) }
         sidebar.focus(cluster: cluster)
     }

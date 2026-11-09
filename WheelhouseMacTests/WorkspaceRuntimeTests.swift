@@ -256,15 +256,22 @@ struct WorkspaceRuntimeTests {
         let model = f.controller.model(for: f.controller.store.createWindow())
         let tabID = model.selectedTab.id
         let view = PaneTreeView(env: f.env, model: model, tabID: tabID)
-        view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.orderBack(nil)
+        defer { window.close() }
         model.split(.horizontal)
-        model.setFraction(0.3, tab: tabID, path: [])
+        model.setFraction(0.4, tab: tabID, path: [])   // above the 320 pt minimum of a 1,000 pt split
         view.apply(root: model.selectedTab.root, focused: model.focusedPaneID)
+        window.layoutIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        view.needsLayout = true
         view.layoutSubtreeIfNeeded()
         let split = try #require(view.splitViews.first)
         let first = split.subviews[0].frame.width
         let total = split.bounds.width - split.dividerThickness
-        #expect(abs(first / total - 0.3) < 0.02)
+        #expect(abs(first / total - 0.4) < 0.02)
     }
 
     // MARK: Scenarios

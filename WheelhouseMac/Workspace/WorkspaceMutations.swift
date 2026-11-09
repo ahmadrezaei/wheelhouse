@@ -192,6 +192,7 @@ extension WorkspaceWindowState {
 
     mutating func setRoot(_ destination: WorkspaceDestination, in pane: PaneID) {
         updatePane(pane) {
+            $0.raw = nil          // a placeholder the user navigates away from becomes a real pane
             $0.stack = [destination]
             if let cluster = destination.clusterID { $0.context.clusterID = cluster }
         }
@@ -199,6 +200,7 @@ extension WorkspaceWindowState {
 
     mutating func push(_ destination: WorkspaceDestination, in pane: PaneID) {
         updatePane(pane) {
+            $0.raw = nil
             $0.stack.append(destination)
             if let cluster = destination.clusterID { $0.context.clusterID = cluster }
         }

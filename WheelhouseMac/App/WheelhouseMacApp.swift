@@ -34,7 +34,6 @@ struct WheelhouseMacApp: App {
         }
         .defaultSize(width: 1_280, height: 780)
         .restorationBehavior(.disabled)
-        .handlesExternalEvents(matching: [])
         .commands { MacCommands(env: env) }
         // A pane torn off into its own window.
         WindowGroup("Pane", id: "pane", for: PaneID.self) { $id in

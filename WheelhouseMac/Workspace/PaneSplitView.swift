@@ -147,18 +147,21 @@ final class PaneTreeView: NSView, NSSplitViewDelegate {
     override func layout() {
         super.layout()
         guard needsFractions, bounds.width > 1 else { return }
-        needsFractions = false
         applyingFractions = true
         defer { applyingFractions = false }
+        var complete = true
         // Outer splits first: an outer divider changes the size the inner ones divide.
         for split in splitViews.sorted(by: { $0.path.count < $1.path.count }) {
             guard let want = stateFraction(at: split.path), split.subviews.count == 2 else { continue }
             split.layoutSubtreeIfNeeded()
             let total = split.isVertical ? split.bounds.width : split.bounds.height
+            // A split that has no size yet (the window is still being laid out) is done on a later pass.
+            guard total > split.dividerThickness + 1 else { complete = false; continue }
             let position = (total - split.dividerThickness) * CGFloat(want)
             if abs(fraction(of: split) - want) > 0.005 { split.setPosition(position, ofDividerAt: 0) }
             split.layoutSubtreeIfNeeded()
         }
+        needsFractions = !complete
     }
 
     /// Called when a divider drag ends: the new fractions go to the store.
@@ -199,16 +202,13 @@ final class PaneSplitNSView: NSSplitView {
 final class PaneLeafView: NSView {
     let paneID: PaneID
     private let hosting: NSHostingView<PaneHost>
-    unowned let model: WorkspaceWindowModel
+    let model: WorkspaceWindowModel
     let dropOverlay = PaneDropOverlay(frame: .zero)
 
-    /// Only the focused pane bridges its toolbar items and title to the window (several panes would fight over the toolbar).
-    var isFocused = false {
-        didSet {
-            guard isFocused != oldValue else { return }
-            hosting.sceneBridgingOptions = isFocused ? [.toolbars] : []
-        }
-    }
+    /// Whether this is the focused pane (the tree draws the focus ring in SwiftUI). Bridging a leaf's toolbar items to the window
+    /// toolbar was tried and crashes SwiftUI while it lays out the bridged toolbar images, so a split pane's own `.toolbar` and
+    /// `.searchable` items are not shown (a tab with ONE pane is hosted directly by the window and keeps them; see `MacShell`).
+    var isFocused = false
 
     init(env: MacAppEnvironment, model: WorkspaceWindowModel, paneID: PaneID) {
         self.paneID = paneID

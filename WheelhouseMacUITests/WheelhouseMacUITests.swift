@@ -122,7 +122,9 @@ final class WheelhouseMacUITests: XCTestCase {
     // MARK: Workspace (M4a)
 
     private func tempWorkspaceFile() -> URL {
-        let dir = FileManager.default.temporaryDirectory.appending(path: "wh-ui-\(UUID().uuidString)", directoryHint: .isDirectory)
+        // Not the runner's own temporary directory: that sits inside another app's container, and reading it from the app under test
+        // raises a privacy prompt that blocks the app before its first window.
+        let dir = URL(fileURLWithPath: "/private/tmp/wh-ui-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         return dir.appending(path: "workspace.json")

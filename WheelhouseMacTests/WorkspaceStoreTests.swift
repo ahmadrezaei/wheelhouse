@@ -187,7 +187,8 @@ struct WorkspaceStoreTests {
         #expect(back.tabs[0].raw != nil)                 // the unreadable one is still kept until its pane is closed
         let pane = state.tabs[0].focusedPane
         state.setRoot(.route(.fleet), in: pane)
-        #expect(state.tabs[0].raw == nil && state.pane(pane)?.isPlaceholder == false || state.pane(pane)?.raw == nil)
+        #expect(state.tabs[0].raw == nil)
+        #expect(state.pane(pane)?.raw == nil)
     }
 
     @Test func aFileFromANewerBuildIsReadButNeverOverwritten() throws {

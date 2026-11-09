@@ -39,7 +39,7 @@ struct WorkspaceWindowMarker: NSViewRepresentable {
 @MainActor
 final class WindowObserver {
     private(set) weak var window: NSWindow?
-    private unowned let model: WorkspaceWindowModel
+    private let model: WorkspaceWindowModel
     private var tokens: [NSObjectProtocol] = []
 
     init(window: NSWindow, model: WorkspaceWindowModel) {
