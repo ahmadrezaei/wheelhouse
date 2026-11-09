@@ -1,13 +1,9 @@
 import Foundation
-import Observation
 import WheelhouseKit
 
-/// What the content column shows (M1b: one window; M4a replaces it with `WorkspaceStore` tabs and panes). Sidebar clicks set it
-/// directly; deep links and notification taps go through `AppRouter` and are mapped here by `MacShell`.
-@MainActor @Observable
-final class MacNavigation {
-    var selection: SidebarDestination = .fleet
-
+/// Helpers for what a sidebar row or a deep link opens. The selection itself lives in the focused pane
+/// (`WorkspaceWindowModel`, M4a): a row sets the pane's root destination, and the sidebar highlights the focused pane's root.
+enum MacNavigation {
     /// The kind list a sidebar section opens when only the section is known (deep links into a section).
     static func destination(for item: SidebarItem) -> SidebarDestination {
         switch item {
@@ -20,17 +16,6 @@ final class MacNavigation {
             ResourceKind.builtIn(in: section).first.map { .kind(id, $0) } ?? .workloadSummary(id)
         }
     }
-
-    /// Opens a destination from a command or a link: clears both stacks (like a sidebar click) and selects the cluster it belongs to.
-    func go(_ destination: SidebarDestination, router: AppRouter, registry: ClusterRegistry) {
-        router.contentPath = []
-        router.detailPath = []
-        if let id = destination.clusterID { registry.select(id) }
-        selection = destination
-    }
-
-    /// The cluster the current selection belongs to (for the focused cluster's auto-expansion).
-    var clusterID: ClusterID? { selection.clusterID }
 
     /// `kubectl get` for a kind, with the context, as the menu copies it.
     static func kubectlCommand(kind: ResourceKind, namespace: String?, context: String) -> String {

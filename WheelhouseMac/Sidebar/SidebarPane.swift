@@ -6,11 +6,13 @@ import WheelhouseUI
 /// The sidebar column: filter field, the resource tree, and the footer with the Add Cluster menu and the ⋯ menu.
 struct SidebarPane: View {
     @Environment(MacAppEnvironment.self) private var env
-    @Environment(AppRouter.self) private var router
     @Environment(ClusterRegistry.self) private var registry
     @FocusState private var filterFocused: Bool
+    /// This window's runtime: its sidebar state, the focused pane and the router that actions go to.
+    let window: WorkspaceWindowModel
 
-    private var model: SidebarModel { env.sidebar }
+    private var model: SidebarModel { window.sidebar }
+    private var router: AppRouter { window.focusedRouter }
 
     var body: some View {
         @Bindable var model = model
@@ -34,7 +36,7 @@ struct SidebarPane: View {
             .background(Palette.fieldFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
 
-            SidebarTree(model: model, selectedRowID: model.rowID(for: env.navigation.selection), token: statuses.joined(separator: ","),
+            SidebarTree(model: model, selectedRowID: window.selectedSidebarDestination.flatMap { model.rowID(for: $0) }, token: statuses.joined(separator: ","),
                         decor: { row, expanded in decor(row, expanded: expanded) }, onSelect: select, menu: menu)
                 .accessibilityIdentifier("sidebar.tree")
                 .accessibilityElement(children: .contain)
@@ -78,10 +80,8 @@ struct SidebarPane: View {
 
     private func select(_ row: SidebarRow) {
         guard let destination = row.destination else { return }
-        router.contentPath = []
-        router.detailPath = []
-        if let id = destination.clusterID { registry.select(id) }
-        env.navigation.selection = destination
+        // A click opens the row in the focused pane; ⌘-click opens a new tab.
+        window.selectSidebar(destination, newTab: NSEvent.modifierFlags.contains(.command))
     }
 
     private func openFirstMatch() {

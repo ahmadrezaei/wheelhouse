@@ -25,6 +25,7 @@ extension WorkspaceWindowState {
 
     /// Opens a tab after the selected one and selects it.
     mutating func addTab(_ tab: TabState, select: Bool = true) {
+        raw = nil
         tabs.insert(tab, at: min(selectedIndex + 1, tabs.count))
         if select { selectedTab = tab.id }
     }
@@ -62,6 +63,9 @@ extension WorkspaceWindowState {
 
     mutating func updatePane(_ id: PaneID, _ change: (inout PaneState) -> Void) {
         guard let i = tabIndex(containing: id) else { return }
+        // Editing a pane of a tab that could not be read starts a new tab from what the user does: the saved JSON is let go.
+        tabs[i].raw = nil
+        raw = nil
         tabs[i].root = tabs[i].root.updating(pane: id, change)
     }
 
@@ -87,6 +91,8 @@ extension WorkspaceWindowState {
         guard let i = tabIndex(containing: target), let source = tabs[i].root.pane(target) else { return nil }
         var fresh = PaneState(context: source.context, stack: destination.map { [$0] } ?? source.stack.prefix(1).map { $0 })
         if destination == nil, source.isPlaceholder { fresh.stack = [] }
+        tabs[i].raw = nil
+        raw = nil
         tabs[i].root = tabs[i].root.splitting(target, axis: axis, inserting: fresh)
         tabs[i].focusedPane = fresh.id
         tabs[i].zoomedPane = nil
@@ -126,6 +132,8 @@ extension WorkspaceWindowState {
     /// Move ▸ Left / Right / Up / Down: the pane goes to that outer edge of its tab.
     mutating func movePane(_ id: PaneID, _ direction: MoveDirection) {
         guard let i = tabIndex(containing: id), tabs[i].root.leaves.count > 1, let pane = tabs[i].root.pane(id), let rest = tabs[i].root.removing(pane: id) else { return }
+        tabs[i].raw = nil
+        raw = nil
         tabs[i].root = rest.wrapping(pane, direction: direction)
         tabs[i].focusedPane = id
         tabs[i].zoomedPane = nil
@@ -154,6 +162,20 @@ extension WorkspaceWindowState {
         tabs[ti].zoomedPane = nil
         selectedTab = targetTab
         raw = nil
+    }
+
+    /// A pane that comes from another window lands on `target` at `zone`.
+    mutating func insertForeign(_ pane: PaneState, onto target: PaneID, zone: DropZone) {
+        guard let i = tabIndex(containing: target) else { return }
+        var carried = pane
+        carried.link = nil
+        carried.linkedView = nil
+        tabs[i].raw = nil
+        raw = nil
+        tabs[i].root = tabs[i].root.inserting(carried, at: target, zone: zone)
+        tabs[i].focusedPane = carried.id
+        tabs[i].zoomedPane = nil
+        selectedTab = tabs[i].id
     }
 
     /// Adds a pane to the selected tab (re-attach of a detached pane): split off the focused pane to the right.

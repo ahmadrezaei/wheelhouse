@@ -34,6 +34,19 @@ final class AppRouter {
     /// Set by the shell so `push` knows which layout is on screen.
     var isCompact = true
 
+    /// Mac workspace: every pane owns a router whose navigation belongs to the pane (a stack of destinations). When set, a pushed
+    /// route and an absolute `open` go to these closures instead of the stacks above. Sheets still present on this router.
+    /// Always nil on iOS and for the Mac's window-level router, so their behaviour is unchanged.
+    struct PaneNavigation {
+        var push: @MainActor (Route, RouteColumn) -> Void
+        var open: @MainActor (Route) -> Void
+        var openChain: @MainActor ([Route]) -> Void
+        init(push: @escaping @MainActor (Route, RouteColumn) -> Void, open: @escaping @MainActor (Route) -> Void, openChain: @escaping @MainActor ([Route]) -> Void) {
+            self.push = push; self.open = open; self.openChain = openChain
+        }
+    }
+    @ObservationIgnored var paneNavigation: PaneNavigation?
+
     /// User-initiated sidebar selection: switching sections clears both columns' stacks. Programmatic navigation
     /// (`open`) sets `sidebarSelection` directly and keeps the detail path it just built.
     func selectSidebar(_ item: SidebarItem?) {
@@ -60,6 +73,7 @@ final class AppRouter {
     /// REPLACES the detail stack; from the detail column it is pushed (drill-down). Ignored on iPhone.
     func push(_ route: Route, from column: RouteColumn = .detail) {
         if route.isSheet { sheet = PresentedRoute(route: route); return }
+        if let paneNavigation { paneNavigation.push(route, column); return }
         if isCompact {
             switch selectedTab {
             case .fleet: fleetPath.append(route)
@@ -87,6 +101,7 @@ final class AppRouter {
     func open(_ route: Route, registry: ClusterRegistry) {
         if let id = route.clusterID { registry.select(id) }
         if route.isSheet { sheet = PresentedRoute(route: route); return }
+        if let paneNavigation { paneNavigation.open(route); return }
         switch route {
         case .fleet: showFleet()
         case .alerts: selectedTab = .fleet; fleetPath = [.alerts]; sidebarSelection = .alerts; contentPath = []; detailPath = []
@@ -113,6 +128,7 @@ final class AppRouter {
 
     /// Lands on the last route with the earlier ones beneath it (detail → logs).
     private func open(chain: [Route], registry: ClusterRegistry) {
+        if let paneNavigation { paneNavigation.openChain(chain); return }
         if isCompact {
             selectedTab = .resources
             resourcesPath = chain

@@ -118,4 +118,84 @@ final class WheelhouseMacUITests: XCTestCase {
         sleep(3)
         attach(app, "test-cluster-pods")
     }
+
+    // MARK: Workspace (M4a)
+
+    private func tempWorkspaceFile() -> URL {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wh-ui-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return dir.appending(path: "workspace.json")
+    }
+
+    private func panes(_ app: XCUIApplication) -> XCUIElementQuery { app.descendants(matching: .any).matching(identifier: "pane") }
+    private func tabs(_ app: XCUIApplication) -> XCUIElementQuery { app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tab.'")) }
+
+    private func windowMenu(_ app: XCUIApplication, _ item: String) {
+        app.menuBars.menuBarItems["Window"].click()
+        app.menuBars.menuItems[item].click()
+    }
+
+    /// Split a pane with the menu, then move it into a window of its own with pane ⋯ ▸ Move ▸ New Window (the menu path of R19).
+    func testSplitAndMoveAPaneToANewWindow() throws {
+        let app = try launch(["-WHDemoMode", "-WHWorkspaceFile", tempWorkspaceFile().path])
+        XCTAssertTrue(panes(app).firstMatch.waitForExistence(timeout: 20), "no pane")
+        XCTAssertEqual(panes(app).count, 1)
+        windowMenu(app, "Split Right")
+        XCTAssertTrue(waitForCount(panes(app), 2), "the split did not produce a second pane")
+        // Move the focused (new) pane to a new window from the Window menu.
+        app.menuBars.menuBarItems["Window"].click()
+        app.menuBars.menuItems["Move Pane"].click()
+        app.menuBars.menuItems["Move Pane"].menuItems["New Window"].click()
+        XCTAssertTrue(waitForCount(app.windows.matching(NSPredicate(format: "title != ''")), 2), "the pane did not open in its own window")
+        XCTAssertTrue(waitForCount(panes(app), 2) , "both panes should still exist (one per window)")
+        dump(app, "after-detach")
+    }
+
+    /// Open a tab and a split, quit, launch again on the same workspace file: the layout is the same.
+    func testRestorationAfterARelaunchIsExact() throws {
+        let file = tempWorkspaceFile()
+        var app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        XCTAssertTrue(panes(app).firstMatch.waitForExistence(timeout: 20))
+        windowMenu(app, "Split Down")
+        XCTAssertTrue(waitForCount(panes(app), 2))
+        app.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(waitForCount(tabs(app), 2), "the new tab is missing")
+        app.terminate()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "quitting must write the workspace")
+        app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        XCTAssertTrue(waitForCount(tabs(app), 2), "the tabs were not restored")
+        // The selected tab is the new one (the Fleet): switch to the first, which holds the split.
+        tabs(app).element(boundBy: 0).click()
+        XCTAssertTrue(waitForCount(panes(app), 2), "the split was not restored")
+    }
+
+    /// A pane saved in a form this build cannot read shows the placeholder, and its JSON survives a quit until the pane is closed.
+    func testAnUnreadablePaneRestoresAsAPlaceholderAndKeepsItsJSON() throws {
+        let file = tempWorkspaceFile()
+        let json = #"{"version":1,"windows":[{"id":"w1","state":{"tabs":[{"id":"t1","focusedPane":"p-bad","root":{"split":{"axis":"horizontal","fraction":0.5,"first":{"leaf":{"id":"p-bad","stack":[{"case":"holodeck","payload":{"x":1}}]}},"second":{"leaf":{"id":"p-ok","stack":[{"case":"moorings"}]}}}}}],"selectedTab":"t1"}}]}"#
+        try json.write(to: file, atomically: true, encoding: .utf8)
+        let app = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        let placeholder = app.descendants(matching: .any).matching(identifier: "pane.placeholder").firstMatch
+        XCTAssertTrue(placeholder.waitForExistence(timeout: 20), "no placeholder for the unreadable pane")
+        XCTAssertTrue(waitForCount(panes(app), 2), "the readable pane must restore next to it")
+        app.terminate()
+        let saved = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(saved.contains("holodeck"), "the unreadable pane's JSON must be written back")
+        // Closing the placeholder discards it.
+        let again = try launch(["-WHDemoMode", "-WHWorkspaceFile", file.path])
+        again.descendants(matching: .any).matching(identifier: "pane.placeholder.close").firstMatch.click()
+        XCTAssertTrue(waitForCount(panes(again), 1))
+        again.terminate()
+        XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("holodeck"))
+    }
+
+    private func waitForCount(_ query: XCUIElementQuery, _ count: Int, timeout: TimeInterval = 15) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if query.count == count { return true }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return query.count == count
+    }
 }

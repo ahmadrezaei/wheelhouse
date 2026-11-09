@@ -62,7 +62,7 @@ struct PerfScenario: Codable, Equatable {
 /// M1b applies the cluster set (imported from the performance kubeconfig THROUGH `MacImportPolicy`: the same checks as a user
 /// import, read-only, environment Development, never `~/.kube`), the sidebar disclosure, the selected screen (the last pane of the
 /// scenario that M1b can show), a log follow for scenarios that name one, a 5-minute navigation cycle for soak runs, and hiding.
-/// Tabs, splits, windows and the Deck Terminal arrive with M4a and M5b.
+/// M4a adds windows and tabs (`PerfLayout`); the Deck Terminal arrives with M5b (its pane descriptions are skipped until then).
 @MainActor
 enum PerfScenarioRunner {
     private(set) static var keepsRunningWithoutWindows = false
@@ -146,8 +146,8 @@ enum PerfScenarioRunner {
         }
         guard let first = wanted.first.flatMap({ ids[$0.name] }) else { return }
         registry.select(first)
-        env.sidebar.focus(cluster: first)
-        for pane in scenario.panes ?? [] { apply(pane: pane, ids: ids, env: env) }
+        let ordered = wanted.compactMap { ctx in ids[ctx.name].map { (name: ctx.name, id: $0) } }
+        PerfLayout.apply(scenario, clusters: ordered, workspace: env.workspace)
         if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
     }
 
@@ -169,43 +169,99 @@ enum PerfScenarioRunner {
         return (config, refreshedSecrets)
     }
 
-    /// One pane description of a scenario, as far as M1b can show it. Later panes replace earlier ones (one window, one screen).
-    private static func apply(pane: String, ids: [String: ClusterID], env: MacAppEnvironment) {
-        let parts = pane.split(separator: ":", maxSplits: 1).map(String.init)
-        let key = parts[0], arg = parts.count > 1 ? parts[1] : ""
-        switch key {
-        case "fleet": env.navigation.selection = .fleet
-        case "cluster-overview":
-            if let id = ids[arg] { env.navigation.selection = .clusterOverview(id) }
-        case "pods":
-            let ctx = arg.split(separator: "/").first.map(String.init) ?? arg
-            if let id = ids[ctx] { env.navigation.selection = .kind(id, .pod) }
-        case "logs":
-            if let id = ids.sorted(by: { $0.key < $1.key }).first?.value {
-                env.launchRoutes.append(.logs(ResourceRef(clusterID: id, kind: .pod, namespace: "wh-perf", name: arg), container: nil, previous: false))
-                env.navigation.selection = .kind(id, .pod)
-            }
-        default: break
-        }
-    }
-
-    /// Soak runs: every 5 minutes the content column visits the ConfigMaps (2,000 rows), Deployments and Pods lists and returns,
-    /// so stores are released and re-acquired and the tables rebuilt, exactly the churn the soak budgets are about.
+    /// Soak runs: every cycle the active window opens four tabs (the ConfigMaps list with 2,000 rows, Deployments, Pods and the Fleet),
+    /// splits a pane, then closes the tabs and the split again, so stores are released and re-acquired and the tables, panes and
+    /// routers are built and torn down, exactly the churn the soak budgets are about. (Compass joins the cycle in M4b.)
     private static func startCycle(ids: [String: ClusterID], env: MacAppEnvironment, cycleSeconds: TimeInterval) {
         guard cycle == nil, let id = ids.sorted(by: { $0.key < $1.key }).first?.value else { return }
         let t = PeriodicTask(name: "perf.cycle", interval: cycleSeconds, hiddenInterval: nil, tolerance: 1) {
             await MainActor.run {
-                let start = env.navigation.selection
-                Task { @MainActor in
-                    for kind in [ResourceKind.configMap, .deployment, .pod] {
-                        env.navigation.selection = .kind(id, kind)
-                        try? await Task.sleep(for: .seconds(8))
-                    }
-                    env.navigation.selection = start
-                }
+                guard let model = env.workspace.activeModel ?? env.workspace.models.values.first else { return }
+                Task { @MainActor in await runCycle(model: model, cluster: id) }
             }
         }
         cycle = t
         t.start()
+    }
+
+    static func runCycle(model: WorkspaceWindowModel, cluster id: ClusterID, pause: Duration = .seconds(8)) async {
+        let original = model.selectedTab.id
+        var opened: [TabID] = []
+        for kind in [ResourceKind.configMap, .deployment, .pod] {
+            model.openInNewTab(.route(.resourceList(id, kind, namespace: nil)))
+            opened.append(model.selectedTab.id)
+            try? await Task.sleep(for: pause)
+        }
+        model.openInNewTab(.route(.fleet))
+        opened.append(model.selectedTab.id)
+        model.split(.horizontal)
+        try? await Task.sleep(for: pause / 2)
+        if let split = model.selectedTab.panes.last?.id { model.closePane(split) }
+        for tab in opened { model.closeTab(tab) }
+        model.select(tab: original)
+    }
+}
+
+/// How a scenario's pane list becomes windows and tabs. The single-window, single-tab scenarios (`idle-1`) keep the M1b behaviour: the
+/// last pane the app can show wins. Larger scenarios (`busy-10`, `soak-5`) get `windows x tabs` tabs, one pane description each in
+/// order (cluster `n` for the n-th tab), padded with cluster overviews when the list is short. Deck Terminal descriptions are
+/// skipped until M5b.
+@MainActor
+enum PerfLayout {
+    /// Windows, each a list of the destinations of its tabs.
+    static func plan(_ scenario: PerfScenario, clusters: [(name: String, id: ClusterID)]) -> [[WorkspaceDestination]] {
+        guard !clusters.isEmpty else { return [] }
+        var cursor = 0
+        func nextCluster() -> (name: String, id: ClusterID) { defer { cursor += 1 }; return clusters[cursor % clusters.count] }
+        let parsed: [WorkspaceDestination] = (scenario.panes ?? []).compactMap { spec in destination(for: spec, clusters: clusters, nextCluster: nextCluster) }
+        if scenario.windows <= 1 && scenario.tabs <= 1 { return [[parsed.last ?? .route(.fleet)]] }
+        let total = max(1, scenario.windows) * max(1, scenario.tabs)
+        var all = Array(parsed.prefix(total))
+        while all.count < total { all.append(.route(.cluster(nextCluster().id))) }
+        let perWindow = max(1, scenario.tabs)
+        return stride(from: 0, to: all.count, by: perWindow).map { Array(all[$0..<min($0 + perWindow, all.count)]) }
+    }
+
+    private static func destination(for spec: String, clusters: [(name: String, id: ClusterID)], nextCluster: () -> (name: String, id: ClusterID)) -> WorkspaceDestination? {
+        let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+        let key = parts[0], arg = parts.count > 1 ? parts[1] : ""
+        func cluster(named name: String) -> ClusterID? { clusters.first { $0.name == name }?.id }
+        switch key {
+        case "fleet": return .route(.fleet)
+        case "cluster-overview", "overview": return .route(.cluster(cluster(named: arg) ?? nextCluster().id))
+        case "pods":
+            let ctx = arg.split(separator: "/").first.map(String.init) ?? arg
+            return .route(.resourceList(cluster(named: ctx) ?? nextCluster().id, .pod, namespace: nil))
+        case "deployments": return .route(.resourceList(cluster(named: arg) ?? nextCluster().id, .deployment, namespace: nil))
+        case "configmaps", "configmaps-2000": return .route(.resourceList(cluster(named: arg) ?? nextCluster().id, .configMap, namespace: nil))
+        case "logs":
+            let id = clusters.sorted { $0.name < $1.name }.first?.id ?? nextCluster().id
+            return .route(.logs(ResourceRef(clusterID: id, kind: .pod, namespace: "wh-perf", name: arg), container: nil, previous: false))
+        default: return nil          // deck-terminal: M5b
+        }
+    }
+
+    /// Builds the scenario's windows: the first window is the one that exists; the others open cascaded (never fully covering each
+    /// other, so every window counts as visible).
+    static func apply(_ scenario: PerfScenario, clusters: [(name: String, id: ClusterID)], workspace: WorkspaceController) {
+        let windows = plan(scenario, clusters: clusters)
+        guard !windows.isEmpty else { return }
+        let expanded = clusters.prefix(3).map(\.id)
+        let firstID = workspace.models.keys.first
+        for (index, destinations) in windows.enumerated() {
+            let tabs = destinations.map { TabState(showing: $0) }
+            var state = WorkspaceWindowState(tabs: tabs)
+            state.sidebar.expandedClusters = Array(expanded)
+            if index == 0, let firstID {
+                let previous = workspace.store.state(for: firstID)
+                state.inspector = previous.inspector
+                workspace.store.mutate(firstID) { $0 = state }
+                workspace.models[firstID]?.sidebar.restore(state.sidebar.persisted)
+                workspace.models[firstID]?.focusedPaneChanged()
+            } else {
+                state.frame = [Double(80 + index * 60), Double(80 + index * 40), 1_100, 720]
+                workspace.newWindow(state)
+            }
+        }
     }
 }

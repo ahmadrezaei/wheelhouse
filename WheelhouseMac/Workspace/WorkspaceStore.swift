@@ -29,6 +29,7 @@ final class WorkspaceStore {
     @ObservationIgnored private var launchQueue: [WorkspaceWindowID] = []
     @ObservationIgnored private var detachedQueue: [PaneID] = []
     @ObservationIgnored private let file: URL?
+    @ObservationIgnored private(set) var writesDisabled = false
     @ObservationIgnored private var lastWritten: Data?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -51,6 +52,8 @@ final class WorkspaceStore {
         }
         do {
             let decoded = try JSONDecoder().decode(WorkspaceFile.self, from: data)
+            // A file written by a newer build may hold fields this one does not know: it is read, never overwritten.
+            writesDisabled = decoded.version > WorkspaceFile.currentVersion
             apply(decoded)
             lastWritten = nil
         } catch {
@@ -107,7 +110,7 @@ final class WorkspaceStore {
     /// Writes the file now (quit, tests). Nothing is written when the bytes are the same as the last write.
     func flush() {
         saveTask?.cancel(); saveTask = nil
-        guard let file else { return }
+        guard let file, !writesDisabled else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(snapshot), data != lastWritten else { return }
@@ -120,12 +123,19 @@ final class WorkspaceStore {
 
     // MARK: Window lifecycle
 
-    /// The window to open at launch (the SwiftUI `defaultValue`): the first saved window, else a new one.
+    /// The window to open at launch (the SwiftUI `defaultValue`): the first saved window, else a new one. The answer is kept until
+    /// that window appears, so SwiftUI asking twice never creates a second window.
     func launchWindowID() -> WorkspaceWindowID {
-        if !launchQueue.isEmpty { return launchQueue.removeFirst() }
-        if let saved = windowOrder.first(where: { !liveWindows.contains($0) }) { return saved }
-        return createWindow()
+        if let pending = pendingLaunch, !liveWindows.contains(pending), windows[pending] != nil { return pending }
+        let id: WorkspaceWindowID
+        if !launchQueue.isEmpty { id = launchQueue.removeFirst() }
+        else if let saved = windowOrder.first(where: { !liveWindows.contains($0) }) { id = saved }
+        else { id = createWindow() }
+        pendingLaunch = id
+        return id
     }
+
+    @ObservationIgnored private var pendingLaunch: WorkspaceWindowID?
 
     /// Windows saved by the last run that have not been opened yet; call once the first window exists.
     func takeRestorableWindows() -> (windows: [WorkspaceWindowID], panes: [PaneID]) {
@@ -142,16 +152,26 @@ final class WorkspaceStore {
         return id
     }
 
-    /// The state of a window, creating a fresh one for an identifier the file does not know.
-    func state(for id: WorkspaceWindowID) -> WorkspaceWindowState {
-        if let s = windows[id] { return s }
+    /// The state of a window. A pure read: it never creates anything (a closed window whose view body runs once more must not come
+    /// back). Unknown or closed identifiers read as a fresh, unsaved window.
+    func state(for id: WorkspaceWindowID) -> WorkspaceWindowState { windows[id] ?? .fresh() }
+
+    /// Makes sure a window the scenes ask for has a state (a restored identifier the file does not know), unless it was closed.
+    func ensureWindow(_ id: WorkspaceWindowID) {
+        guard windows[id] == nil, !closedWindows.contains(id) else { return }
         windows[id] = .fresh()
         windowOrder.append(id)
         scheduleSave()
-        return windows[id]!
     }
 
-    func windowAppeared(_ id: WorkspaceWindowID) { liveWindows.insert(id) }
+    func isClosed(_ id: WorkspaceWindowID) -> Bool { closedWindows.contains(id) }
+    @ObservationIgnored private var closedWindows: Set<WorkspaceWindowID> = []
+
+    func windowAppeared(_ id: WorkspaceWindowID) {
+        guard !closedWindows.contains(id) else { return }
+        liveWindows.insert(id)
+        if pendingLaunch == id { pendingLaunch = nil }
+    }
 
     /// A window closed. Its state is removed unless the app is quitting or it was the last workspace window (closing the last
     /// window quits the app, and the workspace must survive that).
@@ -159,6 +179,7 @@ final class WorkspaceStore {
         let wasLast = liveWindows == [id] && liveDetached.isEmpty
         liveWindows.remove(id)
         guard !isTerminating, !wasLast else { return }
+        closedWindows.insert(id)
         windows[id] = nil
         windowOrder.removeAll { $0 == id }
         scheduleSave()
@@ -180,7 +201,7 @@ final class WorkspaceStore {
     /// Applies `change` to a window's state and schedules a save when something changed.
     @discardableResult
     func mutate<T>(_ id: WorkspaceWindowID, _ change: (inout WorkspaceWindowState) -> T) -> T {
-        var state = self.state(for: id)
+        guard var state = windows[id] else { var scratch = WorkspaceWindowState.fresh(); return change(&scratch) }
         let result = change(&state)
         if windows[id] != state {
             windows[id] = state
@@ -204,6 +225,12 @@ final class WorkspaceStore {
     }
 
     func detachedPane(_ id: PaneID) -> PaneState? { detached[id]?.pane }
+
+    func mutateDetachedFrame(_ id: PaneID, _ frame: [Double]) {
+        guard detached[id] != nil, detached[id]?.frame != frame else { return }
+        detached[id]?.frame = frame
+        scheduleSave()
+    }
 
     func mutateDetached(_ id: PaneID, _ change: (inout PaneState) -> Void) {
         guard var entry = detached[id] else { return }

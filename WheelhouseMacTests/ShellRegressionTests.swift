@@ -56,28 +56,25 @@ struct ShellRegressionTests {
         #expect(!model.rows.isEmpty)       // reaching here means no exclusivity violation was reported
     }
 
-    @Test func theShellColumnsResolveTheirEnvironmentInsideAHostingView() throws {
+    /// A pane's hosting view starts with an EMPTY environment (nothing crosses an NSHostingView boundary): the pane host must inject
+    /// everything its screens read, or a screen that reads `ClusterRegistry` or `AppRouter` would crash when it builds.
+    @Test func aPaneHostResolvesItsEnvironmentInsideAHostingView() throws {
         let env = MacAppEnvironment.live()
         env.registry.enterDemoMode(persist: false)
-        let router = AppRouter()
-        func host<V: View>(_ v: V) -> NSHostingView<some View> {
-            let h = NSHostingView(rootView: v
-                .environment(env).environment(env.registry).environment(env.preferences).environment(router)
-                .environment(env.lock.controller).environment(NetworkMonitor()).environment(env.sidebar))
-            h.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-            h.layoutSubtreeIfNeeded()
-            return h
-        }
-        // Each column is its own view, created by the hierarchy (never with `MacContent()` in a builder).
-        _ = host(MacContentColumn())
-        _ = host(MacDetailColumn())
+        let window = env.workspace.store.createWindow()
+        let model = env.workspace.model(for: window)
+        let pane = model.focusedPaneID
+        let h = NSHostingView(rootView: PaneHost(env: env, model: model, paneID: pane))
+        h.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        h.layoutSubtreeIfNeeded()
         env.registry.exitDemoMode()
     }
 
     @Test func theWholeShellBuildsInAHostingView() throws {
         let env = MacAppEnvironment.live()
         env.registry.enterDemoMode(persist: false)
-        let h = NSHostingView(rootView: MacShell().environment(env))
+        let window = env.workspace.store.createWindow()
+        let h = NSHostingView(rootView: MacShell(windowID: window).environment(env))
         h.frame = NSRect(x: 0, y: 0, width: 1_280, height: 780)
         h.layoutSubtreeIfNeeded()
         env.registry.exitDemoMode()

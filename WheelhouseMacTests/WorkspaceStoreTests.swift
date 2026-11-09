@@ -159,6 +159,66 @@ struct WorkspaceStoreTests {
         #expect(store.windows[c] != nil)
     }
 
+    @Test func readingStateNeverCreatesAWindowAndAClosedWindowStaysClosed() {
+        let store = WorkspaceStore(file: nil)
+        let a = store.createWindow(), b = store.createWindow()
+        store.windowAppeared(a); store.windowAppeared(b)
+        store.windowClosed(a)
+        _ = store.state(for: a)                         // a view body running once more
+        store.ensureWindow(a)
+        #expect(store.windows[a] == nil && store.windowOrder == [b])
+        store.windowAppeared(a)                          // a stale appearance never makes it live again
+        #expect(!store.liveWindows.contains(a))
+        let ghost = WorkspaceWindowID.new()
+        _ = store.state(for: ghost)
+        #expect(store.windows[ghost] == nil)
+        store.ensureWindow(ghost)                        // a restored identifier the file did not know gets a state
+        #expect(store.windows[ghost] != nil)
+    }
+
+    @Test func editingAPlaceholderTabLetsItsJSONGoAndKeepsTheRestOfTheWindow() throws {
+        let file = #"{"version":1,"windows":[{"id":"w","state":{"tabs":[{"id":"bad","root":{"nonsense":1}}],"selectedTab":"bad"}}]}"#
+        var state = try #require(JSONDecoder().decode(WorkspaceFile.self, from: Data(file.utf8)).windows.first?.state)
+        #expect(state.raw == nil && state.tabs[0].raw != nil)
+        state.addTab(TabState(showing: .route(.fleet)))
+        let encoded = try encode(state)
+        let back = try JSONDecoder().decode(WorkspaceWindowState.self, from: encoded)
+        #expect(back.tabs.count == 2)                    // the new tab is saved
+        #expect(back.tabs[0].raw != nil)                 // the unreadable one is still kept until its pane is closed
+        let pane = state.tabs[0].focusedPane
+        state.setRoot(.route(.fleet), in: pane)
+        #expect(state.tabs[0].raw == nil && state.pane(pane)?.isPlaceholder == false || state.pane(pane)?.raw == nil)
+    }
+
+    @Test func aFileFromANewerBuildIsReadButNeverOverwritten() throws {
+        let url = tempFile()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let text = #"{"version":2,"futureKey":true,"windows":[{"id":"w","state":{"tabs":[{"id":"t","root":{"leaf":{"id":"p","stack":[{"case":"moorings"}],"newField":1}},"focusedPane":"p"}],"selectedTab":"t"}}]}"#
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        let store = WorkspaceStore(file: url)
+        #expect(store.windows.count == 1)
+        store.mutate(store.windowOrder[0]) { $0.sidebarWidth = 300 }
+        store.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8) == text)
+        #expect(store.writeCount == 0)
+    }
+
+    @Test func linksWaitWhileLockedAndBeforeAnyWindowExists() {
+        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: UserDefaults(suiteName: "wh.links.\(UUID().uuidString)")!)
+        let c = WorkspaceController(store: WorkspaceStore(file: nil), registry: registry, sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
+        let url = URL(string: "wheelhouse://cluster/x")!
+        c.handle(url: url)
+        #expect(c.pendingURL == url)                     // no window yet
+        c.pendingURL = nil
+        let id = c.store.createWindow()
+        _ = c.model(for: id)
+        c.becameActive(id)
+        c.isLocked = { true }
+        c.handle(url: url)
+        #expect(c.pendingURL == url)                     // locked
+    }
+
     // MARK: Layout rules
 
     @Test func splitInheritsTheContextAndFocusesTheNewPane() throws {
