@@ -575,6 +575,12 @@ final class GangwayConnection: @unchecked Sendable {
         }
         out += "\r\n"
 
+        // Last look before anything reaches the API server (and before it is logged as forwarded): revoked, closed or locked while we waited.
+        if shared.withLock({ $0.closed }) || session.isRevoked || (ctx.isLocked && !isHarmless(classified.kind)) {
+            try? await respond(401, "Wheelhouse: session ended", close: true)
+            return .close
+        }
+
         // Every change, stream, proxy request and impersonation attempt is recorded when it is forwarded, before any response; the status
         // follows as a second entry, or "no response" when the connection ends first.
         flushPendingAudit(reason: "forwarded, response status not seen")
@@ -594,11 +600,6 @@ final class GangwayConnection: @unchecked Sendable {
         touch()
         var wire = Data(out.utf8)
         if let bufferedBody { wire.append(bufferedBody) }
-        // Last look before anything reaches the API server: revoked, closed or locked while we waited.
-        if shared.withLock({ $0.closed }) || session.isRevoked || (ctx.isLocked && !isHarmless(classified.kind)) {
-            try? await respond(401, "Wheelhouse: session ended", close: true)
-            return .close
-        }
         try await link.stream.send(wire)
         let overhead = (ContinuousClock.now - parsedAt) - waited - connectTime
         shared.withLock { $0.awaiting?.overheadMicroseconds = max(0, overhead.microseconds) }
@@ -687,7 +688,12 @@ final class GangwayConnection: @unchecked Sendable {
                         }
                         overhead = awaiting.overheadMicroseconds
                         if code == 401, let provider = link.provider { Task { await provider.invalidate() } }
+                        // The first chunk reaches the client BEFORE the status is announced: whoever acts on the status (a refused upgrade
+                        // closes the connection) must not cut the response off.
+                        try await self.downstream.send(data)
                         self.status.fulfill(code)
+                        if let overhead { self.ctx.metrics.record(microseconds: overhead + (ContinuousClock.now - arrived).microseconds) }
+                        continue
                     }
                     try await self.downstream.send(data)
                     if let overhead { self.ctx.metrics.record(microseconds: overhead + (ContinuousClock.now - arrived).microseconds) }

@@ -7,17 +7,41 @@ import WheelhouseKit
 /// would put the UI's load into the 2 ms budget. The app updates it from `ClusterEvents.invalidated` and at start.
 public final class SnapshotClusterProvider: GangwayClusterProviding {
     public typealias UpstreamResolver = @Sendable (ClusterConfig) async throws -> GangwayUpstream
+    /// Digest of a cluster's credentials (never the credentials); nil when they cannot be read right now (a locked Keychain, a missing file).
+    public typealias DigestReader = @Sendable (ClusterConfig) -> String?
     private let configs = Mutex<[ClusterID: ClusterConfig]>([:])
     private let digests = Mutex<[ClusterID: String]>([:])
     private let resolver: UpstreamResolver
+    private let reader: DigestReader?
 
-    public init(upstream: @escaping UpstreamResolver) { self.resolver = upstream }
+    public init(upstream: @escaping UpstreamResolver, digest: DigestReader? = nil) {
+        self.resolver = upstream
+        self.reader = digest
+    }
 
-    public func update(_ clusters: [ClusterConfig], credentialDigests: [ClusterID: String] = [:]) {
+    public func update(_ clusters: [ClusterConfig]) {
+        let ids = Set(clusters.map(\.id))
         configs.withLock { $0 = Dictionary(clusters.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new }) }
-        digests.withLock { $0 = credentialDigests }
+        digests.withLock { $0 = $0.filter { ids.contains($0.key) } }
     }
     public func credentialDigest(for id: ClusterID) -> String? { digests.withLock { $0[id] } }
+
+    /// Reads the credential digest of one cluster (off the main actor: the caller is a nonisolated async function) and stores it. A read
+    /// that fails keeps the last digest. Returns true when a digest that was known before is now different.
+    @discardableResult
+    func refreshDigest(for id: ClusterID) -> Bool {
+        guard let reader, let config = config(for: id), let new = reader(config) else { return false }
+        return digests.withLock { stored in
+            defer { stored[id] = new }
+            guard let old = stored[id] else { return false }
+            return old != new
+        }
+    }
+    public func prepareCredentialDigest(for id: ClusterID) async { refreshDigest(for: id) }
+
+    /// The clusters among `ids` whose credentials changed since the last read. Reads only these (a cluster without a live session is never read).
+    public func refreshDigests(for ids: Set<ClusterID>) async -> [ClusterID] { ids.filter { refreshDigest(for: $0) } }
+
     /// Every cluster id in the snapshot.
     public var knownIDs: Set<ClusterID> { configs.withLock { Set($0.keys) } }
     public func set(_ cluster: ClusterConfig) { configs.withLock { $0[cluster.id] = cluster } }
@@ -108,6 +132,7 @@ public final class GangwayService: Sendable {
     public func openSession(clusterID: ClusterID, origin: GangwayOrigin, scope: GangwayScope = .standard, binding: PeerBinding = .none,
                             namespace: String? = nil) async throws -> GangwaySessionHandle {
         guard let cluster = context.clusters.config(for: clusterID) else { throw GangwaySessionError.invalidCluster }
+        await context.clusters.prepareCredentialDigest(for: clusterID)       // the digest a session is fingerprinted with is read before it opens
         let port = try await start()
         guard let identity = loopback.withLock({ $0 }) else { throw GangwaySessionError.invalidCluster }
         let (session, token) = try context.registry.create(cluster: cluster, origin: origin, scope: scope, binding: binding)

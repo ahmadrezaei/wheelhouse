@@ -155,10 +155,13 @@ public protocol GangwayClusterProviding: Sendable {
     func upstream(for id: ClusterID) async throws -> GangwayUpstream
     /// A digest of the cluster's credentials (never the credentials), so a replaced credential can end the sessions that used the old one.
     func credentialDigest(for id: ClusterID) -> String?
+    /// Reads the digest now (a session opening needs it). Runs off the main actor.
+    func prepareCredentialDigest(for id: ClusterID) async
 }
 
 public extension GangwayClusterProviding {
     func credentialDigest(for id: ClusterID) -> String? { nil }
+    func prepareCredentialDigest(for id: ClusterID) async {}
 }
 
 /// One request waiting for a person's decision.

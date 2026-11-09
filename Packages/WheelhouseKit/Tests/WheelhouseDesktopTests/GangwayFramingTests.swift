@@ -265,4 +265,28 @@ struct SessionKubeconfigTests {
         #expect(throws: Never.self) { try registry.create(cluster: fixture, origin: .harness("x")) }
     }
 }
+
+@Suite("Credential digest")
+struct CredentialDigestTests {
+    @Test("the same secrets give the same digest, different secrets a different one")
+    func deterministic() {
+        let a = ClusterSecrets(token: "t1", caPEM: "ca")
+        #expect(CredentialDigest.make(a) == CredentialDigest.make(a))
+        #expect(CredentialDigest.make(a) != CredentialDigest.make(ClusterSecrets(token: "t2", caPEM: "ca")))
+        var withUnknown = a
+        withUnknown.token = "t1"
+        #expect(CredentialDigest.make(withUnknown) == CredentialDigest.make(a))
+    }
+
+    @Test("a token file is tracked by its path: a rotated token does not change the digest, a different file does")
+    func tokenFile() {
+        let old = ClusterSecrets(token: "token-from-file-v1", caPEM: "ca")
+        let rotated = ClusterSecrets(token: "token-from-file-v2", caPEM: "ca")
+        #expect(CredentialDigest.make(old, tokenFilePath: "/run/token") == CredentialDigest.make(rotated, tokenFilePath: "/run/token"))
+        #expect(CredentialDigest.make(old, tokenFilePath: "/run/token") != CredentialDigest.make(old, tokenFilePath: "/run/other"))
+        #expect(CredentialDigest.make(old, tokenFilePath: "/run/token") != CredentialDigest.make(old))
+        // The digest is never the secret.
+        #expect(!(CredentialDigest.make(old) ?? "").contains("token-from-file"))
+    }
+}
 #endif

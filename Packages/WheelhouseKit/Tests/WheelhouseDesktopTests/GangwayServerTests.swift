@@ -694,6 +694,28 @@ struct GangwayServerTests {
         b.close()
     }
 
+    @Test("a request refused at the last look (the session ended while it waited) is not logged as forwarded")
+    func abortedIsNotForwarded() async throws {
+        let gate = Mutex<CheckedContinuation<Void, Never>?>(nil)
+        let entered = Mutex(false)
+        let confirmer = ScriptedConfirmer { _ in
+            entered.withLock { $0 = true }
+            await withCheckedContinuation { c in gate.withLock { $0 = c } }
+            return true
+        }
+        let rig = try await GangwayRig(environment: .production, confirmer: confirmer)
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open()
+        let c = try await rig.client()
+        try await c.send(rig.request("POST", "/api/v1/namespaces/a/configmaps", token: token, body: "{}"))
+        for _ in 0..<200 where !entered.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(20)) }
+        rig.service.closeSession(handle)
+        gate.withLock { $0 }?.resume()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(rig.upstream.received.isEmpty)
+        #expect(!rig.activity.entries.contains { $0.result.hasPrefix("forwarded") })
+    }
+
     @Test("a replaced credential, or a changed server, ends the sessions of that cluster; a read-only toggle does not")
     func credentialChangeRevokes() async throws {
         let rig = try await GangwayRig()

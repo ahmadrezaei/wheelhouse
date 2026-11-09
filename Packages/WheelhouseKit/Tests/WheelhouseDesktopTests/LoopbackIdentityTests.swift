@@ -29,6 +29,28 @@ struct LoopbackIdentityTests {
         #expect(try LoopbackIdentity.make().certificateDER != made.certificateDER)
     }
 
+    @Test("the certificate is valid for 800 days (inside the 825-day cap of the SSL policy): a launch can run for months, and Go checks validity even for a pinned self-signed root")
+    func validityWindow() throws {
+        let now = Date()
+        let made = try LoopbackIdentity.make(now: now)
+        let certificate = try #require(SecCertificateCreateWithData(nil, made.certificateDER as CFData))
+        let notBefore = try #require(SecCertificateCopyNotValidBeforeDate(certificate)) as Date
+        let notAfter = try #require(SecCertificateCopyNotValidAfterDate(certificate)) as Date
+        #expect(abs(notBefore.timeIntervalSince(now) + 86_400) < 2)
+        #expect(abs(notAfter.timeIntervalSince(now) - 800 * 86_400) < 2)
+        // Still trusted 790 days into the launch, and not trusted after the window.
+        func trusted(at date: Date) -> Bool {
+            var trust: SecTrust?
+            SecTrustCreateWithCertificates(certificate, SecPolicyCreateSSL(true, "127.0.0.1" as CFString), &trust)
+            SecTrustSetAnchorCertificates(trust!, [certificate] as CFArray)
+            SecTrustSetAnchorCertificatesOnly(trust!, true)
+            SecTrustSetVerifyDate(trust!, date as CFDate)
+            return SecTrustEvaluateWithError(trust!, nil)
+        }
+        #expect(trusted(at: now.addingTimeInterval(790 * 86_400)))
+        #expect(!trusted(at: now.addingTimeInterval(810 * 86_400)))
+    }
+
     @Test("the key signs, and nothing was left in a keychain")
     func signs() throws {
         let made = try LoopbackIdentity.make()

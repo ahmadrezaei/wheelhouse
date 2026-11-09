@@ -15,16 +15,13 @@ import WheelhouseKit
 public final class ClusterSnapshotSync {
     private let registry: ClusterRegistry
     private let provider: SnapshotClusterProvider
-    private let digest: @MainActor (ClusterConfig) -> String?
     private let service: @MainActor () -> GangwayService?
     private var observer: (any NSObjectProtocol)?
     private var tracking = false
 
-    public init(registry: ClusterRegistry, provider: SnapshotClusterProvider, digest: @escaping @MainActor (ClusterConfig) -> String? = { _ in nil },
-                service: @escaping @MainActor () -> GangwayService?) {
+    public init(registry: ClusterRegistry, provider: SnapshotClusterProvider, service: @escaping @MainActor () -> GangwayService?) {
         self.registry = registry
         self.provider = provider
-        self.digest = digest
         self.service = service
     }
 
@@ -58,30 +55,24 @@ public final class ClusterSnapshotSync {
         }
     }
 
-    private func snapshot() -> (clusters: [ClusterConfig], digests: [ClusterID: String]) {
-        let clusters = registry.clusters
-        var digests: [ClusterID: String] = [:]
-        for cluster in clusters { if let d = digest(cluster) { digests[cluster.id] = d } }
-        return (clusters, digests)
-    }
+    private func applyWithoutNotifying() { provider.update(registry.clusters) }
 
-    private func applyWithoutNotifying() {
-        let (clusters, digests) = snapshot()
-        provider.update(clusters, credentialDigests: digests)
-    }
-
-    /// Updates the snapshot, then re-evaluates every cluster that changed, appeared or went away.
+    /// Updates the snapshot, then re-evaluates every cluster that changed, appeared or went away. Credential digests are read only for
+    /// clusters with a live session, off the main actor, so an app without guarded sessions does no Keychain or file reads here.
     public func refresh() {
-        let before = Dictionary(registry.clusters.compactMap { c in provider.config(for: c.id).map { (c.id, $0) } }, uniquingKeysWith: { a, _ in a })
-        let oldDigests = Dictionary(registry.clusters.compactMap { c in provider.credentialDigest(for: c.id).map { (c.id, $0) } }, uniquingKeysWith: { a, _ in a })
         let known = provider.knownIDs
-        let (clusters, digests) = snapshot()
-        provider.update(clusters, credentialDigests: digests)
+        let before = Dictionary(registry.clusters.compactMap { c in provider.config(for: c.id).map { (c.id, $0) } }, uniquingKeysWith: { a, _ in a })
+        let clusters = registry.clusters
+        provider.update(clusters)
         guard let service = service() else { return }
         let now = Set(clusters.map(\.id))
         for id in known.subtracting(now) { service.clusterChanged(id, removed: true) }
-        for cluster in clusters where before[cluster.id] != cluster || oldDigests[cluster.id] != digests[cluster.id] {
-            service.clusterChanged(cluster.id)
+        for cluster in clusters where before[cluster.id] != cluster { service.clusterChanged(cluster.id) }
+        let withSessions = Set(service.registry.sessions.map(\.clusterID)).intersection(now)
+        guard !withSessions.isEmpty else { return }
+        Task { @MainActor [provider] in
+            let changed = await provider.refreshDigests(for: withSessions)
+            for id in changed { service.clusterChanged(id) }
         }
     }
 }

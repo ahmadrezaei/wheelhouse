@@ -38,7 +38,7 @@ public final class LoopbackIdentity: @unchecked Sendable {
               let publicBytes = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else {
             throw LoopbackIdentityError.failed("key: \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
         }
-        let tbs = X509.tbsCertificate(publicKeyX963: publicBytes, now: now)
+        let tbs = try X509.tbsCertificate(publicKeyX963: publicBytes, now: now)
         guard let signature = SecKeyCreateSignature(privateKey, .ecdsaSignatureMessageX962SHA256, tbs as CFData, &error) as Data? else {
             throw LoopbackIdentityError.failed("sign: \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
         }
@@ -60,6 +60,9 @@ public final class LoopbackIdentity: @unchecked Sendable {
     }
 }
 
+/// Legacy PBE (3DES + SHA-1) is what the in-memory import accepts today. If a later macOS drops it, `make()` throws (`import <status>`), the
+/// listener does not start and no session is created: it fails closed, never open.
+///
 /// The minimum of a PKCS#12 (RFC 7292) that `SecPKCS12Import` accepts: one shrouded key bag (pbeWithSHAAnd3-KeyTripleDES-CBC), one
 /// certificate bag, and an HMAC-SHA1 MAC, both keyed from the password with the PKCS#12 key derivation.
 enum PKCS12 {
@@ -193,15 +196,20 @@ enum DER {
 }
 
 enum X509 {
-    /// TBSCertificate: self-signed, ECDSA P-256 with SHA-256, valid from a day ago to a week from now (a launch is shorter), SAN
+    /// A launch can run for months and Go checks validity even for a pinned self-signed root, so the window is long; the key never leaves
+    /// memory, so a long window costs nothing.
+    static let notBeforeOffset: TimeInterval = -86_400
+    static let notAfterOffset: TimeInterval = 800 * 86_400
+
+    /// TBSCertificate: self-signed, ECDSA P-256 with SHA-256, valid from a day ago to 800 days from now (Apple's SSL policy rejects a validity over 825 days in total), SAN
     /// `IP:127.0.0.1` and `DNS:localhost`, key usage digitalSignature, extended key usage serverAuth, basic constraints CA:false.
-    static func tbsCertificate(publicKeyX963: Data, now: Date) -> Data {
+    static func tbsCertificate(publicKeyX963: Data, now: Date) throws -> Data {
         var serial = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, serial.count, &serial)
+        guard SecRandomCopyBytes(kSecRandomDefault, serial.count, &serial) == errSecSuccess else { throw LoopbackIdentityError.failed("no random bytes") }
         serial[0] &= 0x7F
         let sigAlg = DER.sequence([DER.oid([1, 2, 840, 10045, 4, 3, 2])])
         let name = DER.sequence([DER.set([DER.sequence([DER.oid([2, 5, 4, 3]), DER.utf8("Wheelhouse Gangway loopback")])])])
-        let validity = DER.sequence([DER.utcTime(now.addingTimeInterval(-86_400)), DER.utcTime(now.addingTimeInterval(7 * 86_400))])
+        let validity = DER.sequence([DER.utcTime(now.addingTimeInterval(notBeforeOffset)), DER.utcTime(now.addingTimeInterval(notAfterOffset))])
         let spki = DER.sequence([DER.sequence([DER.oid([1, 2, 840, 10045, 2, 1]), DER.oid([1, 2, 840, 10045, 3, 1, 7])]), DER.bitString(publicKeyX963)])
         let san = DER.sequence([DER.tlv(0x82, Data("localhost".utf8)), DER.tlv(0x87, Data([127, 0, 0, 1]))])
         func ext(_ oid: [UInt], critical: Bool = false, _ value: Data) -> Data {
