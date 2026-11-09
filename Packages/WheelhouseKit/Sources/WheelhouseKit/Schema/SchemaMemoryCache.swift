@@ -54,3 +54,28 @@ struct SchemaMemoryCache: Sendable {
         order.append(key)
     }
 }
+
+/// One in-memory schema budget shared by every store of an app (ARCHITECTURE-MAC section 12.3: 32 MB in total, not per cluster).
+/// Keys are `cluster:<cluster>|<url>` for a cluster's documents and `bundled:<minor>:<group-version>` for the bundled ones.
+public final class SharedSchemaCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: SchemaMemoryCache
+
+    public init(limit: Int = 32 * 1024 * 1024) { cache = SchemaMemoryCache(limit: limit) }
+
+    public var totalCost: Int { lock.withLock { cache.totalCost } }
+    public var limit: Int { lock.withLock { cache.limit } }
+    public var keys: [String] { lock.withLock { cache.keys } }
+
+    func value(for key: String) -> LoadedSchemaDocument? { lock.withLock { cache.value(for: key) } }
+
+    @discardableResult
+    func insert(_ doc: LoadedSchemaDocument, for key: String) -> Bool { lock.withLock { cache.insert(doc, for: key) } }
+
+    public func removeAll() { lock.withLock { cache.removeAll() } }
+
+    /// Drops every document whose key starts with `prefix` (one cluster's documents).
+    public func remove(prefix: String) {
+        lock.withLock { for key in cache.keys where key.hasPrefix(prefix) { cache.remove(key) } }
+    }
+}

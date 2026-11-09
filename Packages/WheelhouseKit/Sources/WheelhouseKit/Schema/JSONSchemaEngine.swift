@@ -63,6 +63,7 @@ struct FlatObjectSchema {
     var additional: JSONValue?
     var preserveUnknown = false
     var hasObjectShape = false
+    var hasPatternProperties = false
 }
 
 /// JSON Schema (draft 07 and 2020-12 subset) and Kubernetes OpenAPI v3 checks over ``YAMLNode`` trees.
@@ -84,19 +85,19 @@ public struct JSONSchemaEngine: Sendable {
         return out
     }
 
-    private func check(_ node: YAMLNode, _ raw: JSONValue, anchor: YAMLSpan, path: String, depth: Int, into out: inout [SchemaIssue]) {
+    private func check(_ node: YAMLNode, _ raw: JSONValue, anchor: YAMLSpan, path: String, depth: Int, membersOnly: Bool = false, into out: inout [SchemaIssue]) {
         guard depth < Self.maxDepth else { return }
-        if node.isAlias { return }
         let (schema, refName) = document.resolve(raw)
         guard schema.objectValue != nil else { return }
 
         // null means "unset" to the API server and to Helm. Checked first so a oneOf of string and number does not count it twice.
         if node.kind == .scalar, node.scalar.isNull, !node.isQuoted { return }
 
-        // A mapping reads its `allOf` members through `flatten` (properties, required and additionalProperties merge), so walking
-        // the members here too would report every finding below it twice.
-        if node.kind != .mapping, let all = schema["allOf"]?.arrayValue {
-            for sub in all { check(node, sub, anchor: anchor, path: path, depth: depth + 1, into: &out) }
+        // A mapping reads the properties, required and additionalProperties of its `allOf` members through `flatten`, so walking the
+        // members fully would report every finding below it twice. It still walks them for their type, oneOf and anyOf (a mapping
+        // where an IntOrString or a timestamp is expected).
+        if let all = schema["allOf"]?.arrayValue {
+            for sub in all { check(node, sub, anchor: anchor, path: path, depth: depth + 1, membersOnly: membersOnly || node.kind == .mapping, into: &out) }
         }
         if let any = schema["anyOf"]?.arrayValue, !any.isEmpty {
             if !any.contains(where: { matches(node, $0, depth: depth + 1) }) {
@@ -133,6 +134,7 @@ public struct JSONSchemaEngine: Sendable {
             out.append(SchemaIssue(span: node.span, message: "Must be \(const.displayString)", severity: .error, path: path))
         }
 
+        if membersOnly { return }
         switch node.kind {
         case .scalar: checkScalar(node, schema, refName: refName, path: path, into: &out)
         case .mapping: checkMapping(node, schema, anchor: anchor, path: path, depth: depth, into: &out)
@@ -187,12 +189,12 @@ public struct JSONSchemaEngine: Sendable {
 
     private func checkMapping(_ node: YAMLNode, _ schema: JSONValue, anchor: YAMLSpan, path: String, depth: Int, into out: inout [SchemaIssue]) {
         let flat = flatten(schema, depth: 0)
-        guard flat.hasObjectShape || schema["additionalProperties"] != nil else { return }
+        guard flat.hasObjectShape || schema["additionalProperties"] != nil || !flat.required.isEmpty else { return }
         let keys = Set(node.entries.map(\.key))
         for name in flat.required.sorted() where !keys.contains(name) {
             out.append(SchemaIssue(span: anchor, message: "Missing required field “\(name)”", severity: .error, path: path))
         }
-        let closed = options.closedObjects && !flat.properties.isEmpty && flat.additional == nil && !flat.preserveUnknown
+        let closed = options.closedObjects && !flat.properties.isEmpty && flat.additional == nil && !flat.preserveUnknown && !flat.hasPatternProperties
         for entry in node.entries {
             let childPath = path.isEmpty ? entry.key : "\(path).\(entry.key)"
             if let prop = flat.properties[entry.key] {
@@ -200,7 +202,7 @@ public struct JSONSchemaEngine: Sendable {
             } else if let extra = flat.additional {
                 if extra.objectValue != nil {
                     check(entry.value, extra, anchor: entry.keySpan, path: childPath, depth: depth + 1, into: &out)
-                } else if extra.boolValue == false {
+                } else if extra.boolValue == false, !flat.hasPatternProperties {
                     out.append(unknown(entry, in: flat, path: childPath, severity: .error))
                 }
             } else if closed {
@@ -233,6 +235,7 @@ public struct JSONSchemaEngine: Sendable {
         }
         if let req = schema["required"]?.arrayValue { out.required = Set(req.compactMap(\.stringValue)) }
         out.additional = schema["additionalProperties"]
+        out.hasPatternProperties = schema["patternProperties"] != nil
         out.preserveUnknown = schema["x-kubernetes-preserve-unknown-fields"]?.boolValue == true
             || schema["x-kubernetes-embedded-resource"]?.boolValue == true
         if declaredTypes(schema).contains("object") { out.hasObjectShape = true }
@@ -243,6 +246,7 @@ public struct JSONSchemaEngine: Sendable {
             out.additional = out.additional ?? inner.additional
             out.preserveUnknown = out.preserveUnknown || inner.preserveUnknown
             out.hasObjectShape = out.hasObjectShape || inner.hasObjectShape
+            out.hasPatternProperties = out.hasPatternProperties || inner.hasPatternProperties
         }
         return out
     }
@@ -427,11 +431,6 @@ private final class RegexCache: @unchecked Sendable {
         cache[pattern] = re
         return re
     }
-}
-
-extension YAMLNode {
-    /// An alias is kept as an opaque scalar; schema checks skip it.
-    var isAlias: Bool { kind == .scalar && isOpaque }
 }
 
 extension JSONValue {

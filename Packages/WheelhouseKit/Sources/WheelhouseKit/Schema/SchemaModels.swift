@@ -32,7 +32,7 @@ public enum SchemaSource: Sendable, Equatable {
     case bundled(minor: String)
 
     /// The note the editor shows above the text, nil for the cluster's own schema.
-    public func note(serverVersion: String?) -> String? {
+    public var note: String? {
         switch self {
         case .cluster: nil
         case .bundled(let minor): "Schema from Kubernetes \(minor), cluster schema unavailable"

@@ -198,7 +198,7 @@ struct YAMLCursor {
     /// `offset` is a UTF-16 offset into `text`.
     static func make(text: String, offset: Int) -> YAMLCursor {
         let table = TextLineTable(text)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = text.yamlLines
         let cursorLine = min(table.lineIndex(containing: offset), max(0, lines.count - 1))
         let col = offset - table.starts[cursorLine]
 

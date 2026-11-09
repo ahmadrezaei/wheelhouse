@@ -98,8 +98,8 @@ public enum YAMLCodec {
         }
     }
 
-    /// The non-empty `---` separated chunks of a stream: the 1-based line each begins on and its text. Comment-only chunks are dropped.
-    static func chunks(of text: String) -> [(start: Int, text: String)] {
+    /// Splits on `---` lines and parses each non-empty document. Positions in diagnostics are relative to the full text.
+    public static func parseDocuments(_ text: String) -> [YAMLDocument] {
         var chunks: [(start: Int, lines: [Substring])] = [(1, [])]
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)
         for (i, line) in all.enumerated() {
@@ -109,22 +109,17 @@ public enum YAMLCodec {
                 chunks[chunks.count - 1].lines.append(line)
             }
         }
-        return chunks.compactMap { chunk in
+        var docs: [YAMLDocument] = []
+        for chunk in chunks {
+            let body = chunk.lines.joined(separator: "\n")
             let meaningful = chunk.lines.contains { l in
                 let t = l.trimmingCharacters(in: .whitespaces)
                 return !t.isEmpty && !t.hasPrefix("#")
             }
-            return meaningful ? (chunk.start, chunk.lines.joined(separator: "\n")) : nil
-        }
-    }
-
-    /// Splits on `---` lines and parses each non-empty document. Positions in diagnostics are relative to the full text.
-    public static func parseDocuments(_ text: String) -> [YAMLDocument] {
-        var docs: [YAMLDocument] = []
-        for chunk in chunks(of: text) {
-            var doc = YAMLDocument(index: docs.count, startLine: chunk.start, text: chunk.text)
+            guard meaningful else { continue }
+            var doc = YAMLDocument(index: docs.count, startLine: chunk.start, text: body)
             do {
-                doc.value = try parse(chunk.text)
+                doc.value = try parse(body)
             } catch let e as YAMLCodecError {
                 doc.diagnostic = YAMLDiagnostic(line: e.line + chunk.start - 1, column: e.column, message: e.message)
             } catch {

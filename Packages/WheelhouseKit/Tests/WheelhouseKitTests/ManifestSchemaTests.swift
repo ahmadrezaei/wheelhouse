@@ -3,8 +3,13 @@ import Testing
 @testable import WheelhouseKit
 
 /// A store that answers from the schema bundled with the package (Kubernetes 1.32): the fallback path with real schemas.
+private let sharedBundledStore = OpenAPIStore(cluster: "test", serverVersion: "v1.32.0", cacheRoot: nil, fetch: { _ in throw KubeError.unsupported("no openapi") })
+
+/// The default store is shared by every test (parsing the bundled schema once keeps the suite from starving the timing-based tests
+/// that run beside it); a store with another version is built fresh.
 func bundledStore(version: String? = "v1.32.0") -> OpenAPIStore {
-    OpenAPIStore(cluster: "test", serverVersion: version, cacheRoot: nil, fetch: { _ in throw KubeError.unsupported("no openapi") })
+    if version == "v1.32.0" { return sharedBundledStore }
+    return OpenAPIStore(cluster: "test", serverVersion: version, cacheRoot: nil, fetch: { _ in throw KubeError.unsupported("no openapi") })
 }
 
 let validDeployment = """
@@ -83,6 +88,43 @@ struct YAMLNodeMapTests {
         #expect(root.child("list")?.items.count == 2)
         #expect(root.child("copy") != nil)
         #expect(root.entry("list")?.keySpan.line == 4)
+    }
+
+    @Test func mergeKeysJoinTheMapping() throws {
+        let text = "base: &labels\n  app: web\n  tier: be\nlabels:\n  <<: *labels\n  tier: fe\n"
+        let root = try #require(YAMLNodeMap.documents(in: text).first?.root)
+        let labels = try #require(root.child("labels"))
+        #expect(labels.entries.map(\.key).sorted() == ["app", "tier"])
+        #expect(labels.child("tier")?.scalar == .string("fe"))                  // explicit keys win
+        #expect(labels.child("app")?.scalar == .string("web"))
+        #expect(labels.entry("app")?.keySpan.line == 5)                          // the `<<` key, where the alias is used
+        #expect(labels.child("app")?.span.line == 5)
+        let several = try #require(YAMLNodeMap.documents(in: "a: &a {x: 1}\nb: &b {x: 2, y: 3}\nc:\n  <<: [*a, *b]\n").first?.root)
+        #expect(several.child("c")?.child("x")?.scalar == .int(1) && several.child("c")?.child("y")?.scalar == .int(3))
+    }
+
+    @Test func mergeKeysDoNotProduceTypeErrors() async {
+        let text = "apiVersion: v1\nkind: ConfigMap\nx-labels: &l\n  app: web\nmetadata:\n  name: c\n  labels:\n    <<: *l\n    tier: fe\n"
+        let a = await ManifestAnalyzer(schemas: bundledStore()).analyze(text)
+        #expect(a.diagnostics.map(\.message) == ["Unknown field “x-labels”"])
+    }
+
+    @Test func crlfKeepsLineNumbersSpansAndFolds() async throws {
+        let text = "apiVersion: v1\r\nkind: ConfigMap\r\nmetadata:\r\n  name: a\r\n---\r\napiVersion: v1\r\nkind: ConfigMap\r\nmetadata:\r\n  name: b\r\ndata: 5\r\n"
+        let docs = YAMLNodeMap.documents(in: text)
+        #expect(docs.map(\.startLine) == [1, 6])
+        #expect(docs[1].root?.child("data")?.span.line == 10)
+        #expect(docs[1].root?.child("data")?.span.column == 6 && docs[1].root?.child("data")?.span.endColumn == 7)
+        let a = await ManifestAnalyzer(schemas: bundledStore()).analyze(text)
+        #expect(a.diagnostics.first?.span.line == 10)
+        #expect(a.outline.map(\.startLine) == [1, 6] && a.outline[1].endLine == 11)     // the empty line after the final newline belongs to it, as with LF
+        #expect(ManifestFolding.ranges(in: text) == [ManifestFoldRange(startLine: 3, endLine: 4), ManifestFoldRange(startLine: 8, endLine: 9)])
+        let table = TextLineTable(text)
+        #expect(table.lineCount == 11)
+        // Completion with CRLF line ends.
+        let typed = "apiVersion: apps/v1\r\nkind: Deployment\r\nspec:\r\n  repl"
+        let r = await ManifestAssist.completions(text: typed, offset: (typed as NSString).length, schemas: bundledStore())
+        #expect(r.items.map(\.label) == ["replicas"])
     }
 
     @Test func documentsMatchTheCodec() {
@@ -165,9 +207,51 @@ struct SchemaEngineTests {
         #expect(a.diagnostics.map(\.message).contains("kind is required"))
     }
 
-    @Test func aKindWithoutASchemaIsNotAnError() async {
+    @Test func aKindWithoutASchemaIsNotAnErrorButSaysSo() async {
         let a = await analyze("apiVersion: example.com/v1\nkind: Gizmo\nmetadata:\n  name: g\nspec:\n  anything: [1, 2]\n")
         #expect(a.diagnostics.isEmpty)
+        #expect(a.schemaNote == "No schema for Gizmo (example.com/v1): only the YAML is checked")
+    }
+
+    // MARK: structural patterns
+
+    @Test(arguments: [SchemaOptions.kubernetes, SchemaOptions.jsonSchema])
+    func oneOfWithRequiredOnlyMembers(options: SchemaOptions) throws {
+        let root: JSONValue = ["type": "object", "properties": ["a": ["type": "string"], "b": ["type": "string"]],
+                               "oneOf": [["required": ["a"]], ["required": ["b"]]]]
+        let engine = JSONSchemaEngine(document: SchemaDocument(root: root), options: options)
+        func issues(_ text: String) throws -> [SchemaIssue] { engine.validate(try #require(YAMLNodeMap.documents(in: text).first?.root), schema: root) }
+        #expect(try issues("a: x\n").isEmpty)
+        #expect(try issues("b: x\n").isEmpty)
+        #expect(try issues("a: x\nb: y\n").map(\.message) == ["Matches more than one of the allowed shapes"])
+        #expect(try issues("c: z\n").contains { $0.message == "Doesn’t match any of the allowed shapes" })
+    }
+
+    @Test(arguments: [SchemaOptions.kubernetes, SchemaOptions.jsonSchema])
+    func anyOfWithRequiredOnlyMembersCanFail(options: SchemaOptions) throws {
+        let root: JSONValue = ["type": "object", "anyOf": [["required": ["a"]], ["required": ["b"]]]]
+        let engine = JSONSchemaEngine(document: SchemaDocument(root: root), options: options)
+        let bad = try #require(YAMLNodeMap.documents(in: "c: 1\n").first?.root)
+        #expect(engine.validate(bad, schema: root).count == 1)
+        let good = try #require(YAMLNodeMap.documents(in: "b: 1\nc: 2\n").first?.root)
+        #expect(engine.validate(good, schema: root).isEmpty)
+    }
+
+    @Test func patternPropertiesKeepAnObjectOpen() throws {
+        let root: JSONValue = ["type": "object", "properties": ["a": ["type": "integer"]], "additionalProperties": false, "patternProperties": ["^x-": ["type": "string"]]]
+        let node = try #require(YAMLNodeMap.documents(in: "a: 1\nx-extra: y\n").first?.root)
+        #expect(JSONSchemaEngine(document: SchemaDocument(root: root), options: .jsonSchema).validate(node, schema: root).isEmpty)
+        #expect(JSONSchemaEngine(document: SchemaDocument(root: root), options: .kubernetes).validate(node, schema: root).isEmpty)
+    }
+
+    @Test func mappingsWhereAScalarWrapperIsExpectedAreErrors() async {
+        let a = await analyze(validDeployment.replacingOccurrences(of: "port: http", with: "port: {}"))
+        #expect(a.diagnostics.contains { $0.severity == .error })
+        let d = await analyze("apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: d\nspec:\n  strategy:\n    rollingUpdate:\n      maxSurge: {a: 1}\n")
+        #expect(d.diagnostics.contains { $0.span.line == 8 && $0.severity == .error })
+        // And a valid mapping is still read once: no finding is reported twice.
+        let e = await analyze(validDeployment.replacingOccurrences(of: "replicas: 3", with: "replica: 3"))
+        #expect(e.diagnostics.count == 1)
     }
 
     @Test func nullMeansUnset() async {

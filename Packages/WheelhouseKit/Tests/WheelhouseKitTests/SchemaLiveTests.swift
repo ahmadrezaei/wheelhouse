@@ -56,8 +56,8 @@ struct SchemaLiveTests {
 
         let keys = "apiVersion: m7.wheelhouse.test/v1\nkind: Widget\nspec:\n  \n"
         let fields = await ManifestAssist.completions(text: keys, offset: (keys as NSString).length - 1, schemas: store)
-        #expect(Set(fields.items.map(\.label)) == ["replicas", "size", "tags"])
-        #expect(fields.items.first?.detail == "string · required")
+        #expect(Set(fields.items.map(\.label)) == ["replicas", "size", "tags", "tier"])
+        #expect(fields.items.first { $0.label == "size" }?.detail == "string")
 
         let values = "apiVersion: m7.wheelhouse.test/v1\nkind: Widget\nspec:\n  size: \n"
         let sizes = await ManifestAssist.completions(text: values, offset: (values as NSString).length - 1, schemas: store)
@@ -72,6 +72,21 @@ struct SchemaLiveTests {
         #expect(analysis.schemaNote == nil)
         let good = "apiVersion: m7.wheelhouse.test/v1\nkind: Widget\nmetadata:\n  name: w\nspec:\n  size: small\nstatus:\n  anything: [1]\n"
         #expect(await ManifestAnalyzer(schemas: store).analyze(good).diagnostics.isEmpty)
+    }
+
+    @Test func aWholeInstanceIsCheckedAgainstThePublishedSchemaIncludingOneOfRequiredMembers() async throws {
+        let (store, _, dir) = try await store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analyzer = ManifestAnalyzer(schemas: store)
+        func widget(_ spec: String) -> String { "apiVersion: m7.wheelhouse.test/v1\nkind: Widget\nmetadata:\n  name: w\n  labels:\n    app: w\nspec:\n\(spec)status:\n  phase: ok\n" }
+        let bySize = await analyzer.analyze(widget("  size: small\n  replicas: 2\n  tags: [a, b]\n"))
+        #expect(bySize.diagnostics.isEmpty, "\(bySize.diagnostics.map(\.message))")
+        let byTier = await analyzer.analyze(widget("  tier: gold\n"))
+        #expect(byTier.diagnostics.isEmpty, "\(byTier.diagnostics.map(\.message))")
+        let both = await analyzer.analyze(widget("  size: small\n  tier: gold\n"))
+        #expect(both.diagnostics.map(\.message).contains("Matches more than one of the allowed shapes"))
+        let neither = await analyzer.analyze(widget("  replicas: 1\n"))
+        #expect(neither.diagnostics.map(\.message).contains("Doesn’t match any of the allowed shapes"))
     }
 
     @Test func theGitOpsCrdsOfTheFixturesAreFoundAndStayOpen() async throws {

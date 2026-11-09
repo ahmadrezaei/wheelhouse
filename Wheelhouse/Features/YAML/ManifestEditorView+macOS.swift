@@ -65,9 +65,17 @@ private struct ManifestEditorContent: View {
         .navigationBarBackButtonHidden(model.isEditing)
         .toolbar { toolbar }
         .task { await model.load() }
-        .task { assist = await ManifestAssistModel.make(session: session, namespace: model.ref.namespace) }
+        .onAppear {
+            SchemaServices.shared.editorOpened()
+            if assist == nil { assist = ManifestAssistModel(session: session, namespace: model.ref.namespace) }
+        }
+        .onDisappear { SchemaServices.shared.editorClosed() }
         .onChange(of: model.draft) { model.draftChanged(); assist?.textChanged(model.editorText) }
-        .onChange(of: model.isEditing) { assist?.textChanged(model.editorText, immediately: true); segment = .edit }
+        .onChange(of: model.isEditing) {
+            assist?.textChanged(model.editorText, immediately: true)
+            segment = .edit
+            if model.isEditing { Task { await assist?.activate() } }          // schemas load on Edit, not on viewing
+        }
         .onChange(of: model.showServerFields) { assist?.textChanged(model.editorText, immediately: true) }
         .onChange(of: model.live) { assist?.textChanged(model.editorText, immediately: true) }
         .onChange(of: assist != nil) { assist?.textChanged(model.editorText, immediately: true) }
@@ -309,8 +317,7 @@ private struct ManifestEditorContent: View {
                 Button("Find", systemImage: "magnifyingglass") { controller.find() }
                     .keyboardShortcut("f", modifiers: .command)
                 if model.isEditing {
-                    Button("Suggest", systemImage: "text.badge.plus") { controller.complete() }
-                        .keyboardShortcut(" ", modifiers: .control)
+                    Button("Suggest (⎋ or F5)", systemImage: "text.badge.plus") { controller.complete() }
                     Button("Next Issue", systemImage: "exclamationmark.triangle") { nextIssue() }
                         .keyboardShortcut("'", modifiers: .command)
                     Button("Toggle Comment", systemImage: "number") { controller.toggleComment() }

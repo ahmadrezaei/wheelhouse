@@ -151,6 +151,122 @@ struct ManifestEditorTests {
         #expect(editor.collapsed.isEmpty && editor.hiddenLines.isEmpty)
     }
 
+    @Test func typingDeletingAcrossAClosedFoldAndUndoRestoreTheTextWithFoldsOpen() throws {
+        let editor = CodeEditorScrollView()
+        editor.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
+        let undoSource = OwnUndoManager()
+        editor.textView.delegate = undoSource                          // an undo manager without a window
+        let text = "root:\n  a: 1\n  b: 2\n  c: 3\nlast: 5\n"
+        editor.setText(text)
+        editor.setEditable(true)
+        editor.setFolds(ManifestFolding.ranges(in: text), collapsed: [1])
+        #expect(editor.collapsed == [1] && editor.isLineHidden(3))
+        // Each edit is its own undo step (a real run loop pass would group them by event).
+        let undo = undoSource.manager
+        undo.groupsByEvent = false
+        // Type at the end of the first line, then delete from there across the folded lines.
+        editor.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        undo.beginUndoGrouping()
+        editor.textView.insertText("!", replacementRange: NSRange(location: 5, length: 0))
+        undo.endUndoGrouping()
+        editor.textDidChange(editedAt: 6)
+        let typed = editor.textView.string
+        #expect(typed == "root:!\n  a: 1\n  b: 2\n  c: 3\nlast: 5\n")
+        let across = NSRange(location: 6, length: (typed as NSString).range(of: "last").location - 6)
+        undo.beginUndoGrouping()
+        editor.textView.insertText("", replacementRange: across)
+        undo.endUndoGrouping()
+        editor.textDidChange(editedAt: 6)
+        #expect(editor.textView.string == "root:!last: 5\n")
+        #expect(editor.collapsed.isEmpty && editor.hiddenLines.isEmpty)
+        // Undo brings back the deleted text; the folds stay open (they were never hidden text).
+        undoSource.manager.undo()
+        editor.textDidChange(editedAt: 6)
+        #expect(editor.textView.string == typed)
+        undoSource.manager.undo()
+        editor.textDidChange(editedAt: 5)
+        #expect(editor.textView.string == text && editor.collapsed.isEmpty)
+    }
+
+    @Test func substringOnlyMatchesReachTheSystemList() {
+        let editor = CodeEditorScrollView()
+        editor.setText("pol")
+        let view = YAMLCodeEditor(text: .constant("pol"), isEditable: true, wraps: true, controller: CodeEditorController())
+        editor.pendingCompletion = ManifestCompletionResult(range: NSRange(location: 0, length: 3), items: [
+            ManifestCompletion(label: "imagePullPolicy", insertText: "imagePullPolicy: ", detail: "string", documentation: nil, kind: .field)])
+        var index = -1
+        let words = view.makeCoordinator().textView(editor.textView, completions: [], forPartialWordRange: NSRange(location: 0, length: 3), indexOfSelectedItem: &index)
+        #expect(words == ["imagePullPolicy: "])
+    }
+
+    // MARK: Services
+
+    private func session(_ config: ClusterConfig) -> ClusterSession { ClusterSession(config: config, client: DemoKubeClient(config: config)) }
+
+    @Test func aRebuiltSessionNeverGetsTheOldStore() async throws {
+        let services = SchemaServices()
+        services.cacheRoot = nil
+        let config = DemoFleet.configs[0]
+        let first = session(config)
+        let store1 = await services.store(for: first)
+        #expect(await services.store(for: first) === store1)
+        let rebuilt = session(config)                                  // same cluster, a new session and client
+        let store2 = await services.store(for: rebuilt)
+        #expect(store2 !== store1)
+        #expect(services.storeCount == 1)
+    }
+
+    @Test func aRemovedClusterReleasesItsStore() async throws {
+        let services = SchemaServices()
+        services.cacheRoot = nil
+        let a = session(DemoFleet.configs[0]), b = session(DemoFleet.configs[1])
+        let storeA = await services.store(for: a)
+        _ = await services.store(for: b)
+        #expect(services.storeCount == 2)
+        _ = await storeA.kindSchema(for: GroupVersionKind(group: "apps", version: "v1", kind: "Deployment"))
+        #expect(services.cache.totalCost > 0)
+        services.drop(clusterID: a.id)
+        #expect(services.storeCount == 1)
+        for _ in 0..<50 where services.cache.keys.contains(where: { $0.hasPrefix("cluster:") }) { try await Task.sleep(for: .milliseconds(20)) }
+        // The bundled documents (no cluster prefix) are shared; a cluster's own are gone.
+        #expect(!services.cache.keys.contains { $0.hasPrefix("cluster:\(a.id)|") })
+        // A session that no longer exists is pruned on the next call.
+        do { let temporary = session(DemoFleet.configs[2]); _ = await services.store(for: temporary) }
+        _ = await services.store(for: b)
+        #expect(services.storeCount == 1)
+    }
+
+    @Test func everyStoreSharesTheSingleBudget() async throws {
+        let services = SchemaServices()
+        services.cacheRoot = nil
+        let a = session(DemoFleet.configs[0]), b = session(DemoFleet.configs[1])
+        let storeA = await services.store(for: a), storeB = await services.store(for: b)
+        _ = await storeA.kindSchema(for: GroupVersionKind(group: "", version: "v1", kind: "Pod"))
+        let costA = await storeA.memoryCost, costB = await storeB.memoryCost
+        #expect(costA == services.cache.totalCost && costB == services.cache.totalCost)
+        #expect(services.cache.limit == 32 * 1024 * 1024)
+        services.editorOpened()
+        services.editorOpened()
+        services.editorClosed()
+        #expect(services.cache.totalCost > 0)
+        services.editorClosed()                                         // the last editor closing releases the parsed schemas
+        #expect(services.cache.totalCost == 0)
+    }
+
+    @Test func viewingDoesNoSchemaWorkUntilEditOrFirstHover() async throws {
+        SchemaServices.shared.cacheRoot = nil
+        let model = ManifestAssistModel(session: session(DemoFleet.configs[0]), namespace: nil)
+        #expect(!model.isActive)
+        model.textChanged(deployment, immediately: true)
+        for _ in 0..<100 where model.analyzedGeneration == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!model.isActive && model.analysis.schemaIssues.isEmpty)           // syntax, outline and folds only
+        #expect(model.analysis.outline.map(\.title) == ["Deployment/web"])
+        let hover = await model.hover(text: deployment, offset: (deployment as NSString).range(of: "replica").location + 1)
+        #expect(model.isActive && hover == nil)
+        for _ in 0..<100 where model.analysis.schemaIssues.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.analysis.schemaIssues.map(\.message).contains { $0.hasPrefix("Unknown field “replica”") })
+    }
+
     @Test func managedFieldsStartClosed() {
         let text = "metadata:\n  name: x\n  managedFields:\n    - manager: kubectl\n      operation: Apply\nspec: {}\n"
         let folds = ManifestFolding.ranges(in: text)
@@ -276,4 +392,12 @@ struct ManifestEditorTests {
         for sub in view.subviews { if let hit = find(type, in: sub) { return hit } }
         return nil
     }
+}
+
+
+/// Gives a text view an undo manager when it has no window to supply one.
+@MainActor
+private final class OwnUndoManager: NSObject, NSTextViewDelegate {
+    let manager = UndoManager()
+    func undoManager(for view: NSTextView) -> UndoManager? { manager }
 }

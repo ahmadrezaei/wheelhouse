@@ -92,11 +92,11 @@ public struct ManifestAnalyzer: Sendable {
                 for await (gvk, found) in group { if let found { kindSchemas[gvk] = found } }
             }
         }
-        return Self.analyze(documents: documents, text: text, kindSchemas: kindSchemas)
+        return Self.analyze(documents: documents, text: text, kindSchemas: kindSchemas, providerKnown: schemas != nil)
     }
 
     /// The synchronous part: positions, validation, outline and folds for already-resolved schemas.
-    public static func analyze(documents: [YAMLMapDocument], text: String, kindSchemas: [GroupVersionKind: KindSchema]) -> ManifestAnalysis {
+    public static func analyze(documents: [YAMLMapDocument], text: String, kindSchemas: [GroupVersionKind: KindSchema], providerKnown: Bool = false) -> ManifestAnalysis {
         var out = ManifestAnalysis()
         for doc in documents {
             var found: [ManifestDiagnostic] = []
@@ -105,8 +105,11 @@ public struct ManifestAnalyzer: Sendable {
                                                 message: d.message, severity: .error, source: .syntax, path: ""))
             } else if let root = doc.root {
                 found += check(root, doc: doc, kindSchemas: kindSchemas)
+                if let gvk = gvk(of: doc), kindSchemas[gvk] == nil, providerKnown, out.schemaNote == nil {
+                    out.schemaNote = "No schema for \(gvk.kind) (\(gvk.apiVersion)): only the YAML is checked"
+                }
                 if let gvk = gvk(of: doc), let kindSchema = kindSchemas[gvk] {
-                    if out.schemaNote == nil { out.schemaNote = kindSchema.source.note(serverVersion: nil) }
+                    if out.schemaNote == nil { out.schemaNote = kindSchema.source.note }
                     let engine = kindSchema.engine
                     found += engine.validate(root, schema: kindSchema.schema).map {
                         ManifestDiagnostic(span: $0.span, message: $0.message, severity: $0.severity == .error ? .error : .warning, source: .schema, path: $0.path)
@@ -179,7 +182,7 @@ public struct ManifestAnalyzer: Sendable {
 public enum ManifestFolding {
     /// Header lines of folds that start closed: `metadata.managedFields` (server bookkeeping nobody edits by hand).
     public static func defaultCollapsed(in text: String, folds: [ManifestFoldRange]) -> [Int] {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = text.yamlLines
         return folds.map(\.startLine).filter { line in
             lines.indices.contains(line - 1) && lines[line - 1].drop { $0 == " " }.hasPrefix("managedFields:")
         }
@@ -188,7 +191,7 @@ public enum ManifestFolding {
     /// Every line that is followed by deeper-indented lines starts a fold that ends at the last of them. Blank lines inside a
     /// block belong to it; trailing blank lines do not.
     public static func ranges(in text: String) -> [ManifestFoldRange] {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = text.yamlLines
         var out: [ManifestFoldRange] = []
         var open: [(line: Int, indent: Int)] = []
         var lastContent = 0

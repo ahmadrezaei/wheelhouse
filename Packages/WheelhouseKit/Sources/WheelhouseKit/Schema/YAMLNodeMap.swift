@@ -32,8 +32,6 @@ public struct YAMLNode: Sendable {
     public var scalar: JSONValue = .null
     /// `true` when the scalar was written in quotes (so it is always a string).
     public var isQuoted = false
-    /// `true` for an alias (`*name`), which the schema checks skip.
-    public var isOpaque = false
     public var entries: [YAMLEntry] = []
     public var items: [YAMLNode] = []
 
@@ -71,8 +69,8 @@ public struct YAMLMapDocument: Sendable, Identifiable {
 /// ``YAMLCodec/parseDocuments(_:)``'s, so indices and start lines agree with the rest of the editor.
 public enum YAMLNodeMap {
     public static func documents(in text: String) -> [YAMLMapDocument] {
-        YAMLCodec.chunks(of: text).enumerated().map { index, chunk in
-            let lineCount = chunk.text.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+        chunks(of: text).enumerated().map { index, chunk in
+            let lineCount = chunk.text.utf8.reduce(1) { $1 == 10 ? $0 + 1 : $0 }
             var doc = YAMLMapDocument(index: index, startLine: chunk.start, endLine: chunk.start + lineCount - 1)
             do {
                 guard let node = try Yams.compose(yaml: chunk.text) else { return doc }
@@ -90,6 +88,28 @@ public enum YAMLNodeMap {
         }
     }
 
+    /// The non-empty `---` separated chunks and the 1-based line each begins on. The same rules as ``YAMLCodec/parseDocuments(_:)`` (so
+    /// indices agree for any text with LF line ends), but lines are split on LF only, so CRLF text keeps its line numbers.
+    static func chunks(of text: String) -> [(start: Int, text: String)] {
+        var chunks: [(start: Int, lines: [Substring])] = [(1, [])]
+        for (i, line) in text.yamlLines.enumerated() {
+            if isSeparator(line) { chunks.append((i + 2, [])) } else { chunks[chunks.count - 1].lines.append(line) }
+        }
+        return chunks.compactMap { chunk in
+            let meaningful = chunk.lines.contains { l in
+                let t = l.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !t.isEmpty && !t.hasPrefix("#")
+            }
+            return meaningful ? (chunk.start, chunk.lines.joined(separator: "\n")) : nil
+        }
+    }
+
+    private static func isSeparator(_ line: Substring) -> Bool {
+        guard line.hasPrefix("---") else { return false }
+        let rest = line.dropFirst(3)
+        return rest.isEmpty || rest.first == " " || rest.first == "\t" || rest.first == "\r" || rest.first == "\r\n"
+    }
+
     // MARK: Conversion
 
     private struct Converter {
@@ -97,7 +117,7 @@ public enum YAMLNodeMap {
         let firstLine: Int
 
         init(text: String, firstLine: Int) {
-            self.lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            self.lines = text.yamlLines
             self.firstLine = firstLine
         }
 
@@ -166,19 +186,41 @@ public enum YAMLNodeMap {
                 return out
             case .mapping(let map):
                 var out = YAMLNode(kind: .mapping, span: YAMLSpan(line: line, column: at.column, endLine: line, endColumn: at.column))
+                var merged: [YAMLEntry] = []
                 for (k, v) in map {
                     let ks = k.scalar.map { $0.string } ?? ""
                     let kn = convert(k)
+                    if ks == "<<", k.scalar?.style != .doubleQuoted, k.scalar?.style != .singleQuoted {
+                        // A merge key: the entries of the referenced mapping (or mappings) join this one, wherever they were
+                        // written; findings on them point at the `<<` key, where the alias is used.
+                        let sources = v.sequence.map { Array($0) } ?? [v]
+                        for source in sources where source.mapping != nil {
+                            let inner = convert(source)
+                            merged += inner.entries.map { YAMLEntry(key: $0.key, keySpan: kn.span, value: Self.retarget($0.value, to: kn.span)) }
+                        }
+                        continue
+                    }
                     out.entries.append(YAMLEntry(key: ks, keySpan: kn.span, value: convert(v)))
                 }
+                // Explicit keys win over merged ones; between merged sources the first wins.
+                let explicit = Set(out.entries.map(\.key))
+                var seen = explicit
+                for entry in merged where !seen.contains(entry.key) { out.entries.append(entry); seen.insert(entry.key) }
                 if let last = out.entries.last { out.span.endLine = last.value.span.endLine; out.span.endColumn = last.value.span.endColumn }
                 return out
             case .alias:
-                var out = YAMLNode(kind: .scalar, span: YAMLSpan(line: line, column: at.column, endLine: line, endColumn: at.column + 1))
-                out.scalar = .null
-                out.isOpaque = true
-                return out
+                // Yams resolves aliases while composing, so this is not reached; a null scalar keeps the switch exhaustive.
+                return YAMLNode(kind: .scalar, span: YAMLSpan(line: line, column: at.column, endLine: line, endColumn: at.column + 1))
             }
+        }
+
+        /// The same node with every span replaced by `span`.
+        static func retarget(_ node: YAMLNode, to span: YAMLSpan) -> YAMLNode {
+            var out = node
+            out.span = span
+            out.entries = node.entries.map { YAMLEntry(key: $0.key, keySpan: span, value: retarget($0.value, to: span)) }
+            out.items = node.items.map { retarget($0, to: span) }
+            return out
         }
     }
 }

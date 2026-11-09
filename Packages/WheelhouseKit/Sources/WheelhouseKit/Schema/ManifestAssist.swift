@@ -79,8 +79,8 @@ public enum ReferenceKind: String, Sendable, CaseIterable {
     }
 }
 
-/// Names of cluster objects for reference completion. Only names: it lists metadata, so a Secret's data never reaches memory and
-/// can not be suggested.
+/// Names of cluster objects for reference completion. Only names are used. It lists metadata (`PartialObjectMetadata`), never `data`; metadata annotations can carry
+/// values (for example `last-applied-configuration`), so nothing but `name` is read from the answer.
 public struct ClusterReferences: Sendable {
     public var names: @Sendable (ReferenceKind, String?) async -> [String]
 
@@ -168,7 +168,7 @@ public enum ManifestAssist {
 
     static func hover(text: String, offset: Int, target: Target) -> ManifestHover? {
         let table = TextLineTable(text)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = text.yamlLines
         let n = table.lineIndex(containing: offset)
         guard lines.indices.contains(n) else { return nil }
         let shape = YAMLLineShape(lines[n])

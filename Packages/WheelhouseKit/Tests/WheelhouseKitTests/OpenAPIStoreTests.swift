@@ -8,6 +8,7 @@ final class FakeOpenAPI: @unchecked Sendable {
     private var gvs: [String: (hash: String, doc: JSONValue)] = [:]
     private(set) var requests: [String] = []
     var failIndex = false
+    var failDocuments = false
     var delay: Duration = .zero
 
     func add(group: String, version: String, kind: String, hash: String = "AAAA", spec: JSONValue = ["type": "object", "properties": ["size": ["type": "string", "enum": ["small", "large"]]]]) {
@@ -28,6 +29,7 @@ final class FakeOpenAPI: @unchecked Sendable {
             for (gv, entry) in lock.withLock({ gvs }) { out[gv] = ["serverRelativeURL": .string("/openapi/v3/\(gv)?hash=\(entry.hash)")] }
             return try JSONValue.object(["paths": .object(out)]).data()
         }
+        if failDocuments { throw KubeError.forbidden(verb: "get", resource: nil, namespace: nil, message: "no") }
         let gv = String(path.dropFirst("/openapi/v3/".count).split(separator: "?")[0])
         guard let entry = lock.withLock({ gvs[gv] }) else { throw KubeError.notFound(message: nil) }
         return try entry.doc.data()
@@ -95,7 +97,7 @@ struct OpenAPIStoreTests {
         _ = await upgraded.kindSchema(for: widget)
         #expect(api.documentRequests.count == 3)
         let clusterFolder = try #require(try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).first)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: clusterFolder.path) == ["v1.33.0"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: clusterFolder.path) == [OpenAPIStore.digest("v1.33.0")])
     }
 
     @Test func aCorruptCacheFileIsFetchedAgain() async throws {
@@ -149,7 +151,7 @@ struct OpenAPIStoreTests {
         let store = OpenAPIStore(cluster: "c", serverVersion: "v1.34.2", cacheRoot: nil, fetch: api.fetch)
         let found = try #require(await store.kindSchema(for: GroupVersionKind(group: "apps", version: "v1", kind: "Deployment")))
         #expect(found.source == .bundled(minor: "1.32"))
-        #expect(found.source.note(serverVersion: nil) == "Schema from Kubernetes 1.32, cluster schema unavailable")
+        #expect(found.source.note == "Schema from Kubernetes 1.32, cluster schema unavailable")
         #expect(await store.lastSource == .bundled(minor: "1.32"))
     }
 
@@ -190,10 +192,83 @@ struct OpenAPIStoreTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["new"])
     }
 
-    @Test func fileNamesAreSafe() {
-        #expect(OpenAPIStore.safe("apis/apps/v1") == "apis_apps_v1")
-        #expect(OpenAPIStore.safe("v1.32.0+k3s1") == "v1.32.0_k3s1")
-        #expect(OpenAPIStore.safe("../x") == ".._x")
+    @Test func folderNamesAreDigests() {
+        #expect(OpenAPIStore.digest("apis/apps/v1").count == 16)
+        #expect(OpenAPIStore.digest("a") != OpenAPIStore.digest("b"))
+        for hostile in ["..", ".", "../x", "a/b", "", "v1.32.0+k3s1"] {
+            let name = OpenAPIStore.digest(hostile)
+            #expect(name.count == 16 && name.allSatisfy { $0.isHexDigit }, "\(hostile)")
+        }
+    }
+
+    @Test func hostileServerVersionsStayInsideTheirFolderAndDeleteNothingElse() async throws {
+        let api = FakeOpenAPI()
+        api.add(group: "example.com", version: "v1", kind: "Widget", hash: "H1")
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Another cluster's cache.
+        let other = OpenAPIStore(cluster: "other", serverVersion: "v1.32.0", cacheRoot: dir, fetch: api.fetch)
+        _ = await other.kindSchema(for: widget)
+        let before = try FileManager.default.subpathsOfDirectory(atPath: dir.path).sorted()
+        for version in ["..", ".", "../../x", "v1/../.."] {
+            let store = OpenAPIStore(cluster: "c", serverVersion: version, cacheRoot: dir, fetch: api.fetch)
+            #expect(await store.kindSchema(for: widget) != nil)
+        }
+        let after = try FileManager.default.subpathsOfDirectory(atPath: dir.path)
+        #expect(Set(before).isSubset(of: Set(after)), "another cluster's cache was removed")
+        #expect(FileManager.default.fileExists(atPath: dir.deletingLastPathComponent().path))
+    }
+
+    @Test func storesShareOneBudget() async throws {
+        let api = FakeOpenAPI()
+        for i in 0..<10 { api.add(group: "g\(i).io", version: "v1", kind: "K\(i)", spec: ["type": "object", "description": .string(String(repeating: "d", count: 4_000))]) }
+        let shared = SharedSchemaCache(limit: 30_000)
+        let stores = (0..<3).map { OpenAPIStore(cluster: "c\($0)", serverVersion: "v1.32.0", cacheRoot: nil, sharedCache: shared, fetch: api.fetch) }
+        for i in 0..<10 {
+            for store in stores {
+                #expect(await store.kindSchema(for: GroupVersionKind(group: "g\(i).io", version: "v1", kind: "K\(i)")) != nil)
+                #expect(shared.totalCost <= 30_000)
+            }
+        }
+        #expect(shared.totalCost > 0)
+        await stores[0].releaseMemory()
+        #expect(!shared.keys.contains { $0.hasPrefix("cluster:c0|") } && shared.keys.contains { $0.hasPrefix("cluster:c1|") || $0.hasPrefix("cluster:c2|") })
+        await stores[1].trimMemory()
+        #expect(shared.totalCost == 0)
+    }
+
+    @Test func aFailedDocumentIsNotRefetchedForAWhile() async throws {
+        let api = FakeOpenAPI()
+        api.add(group: "example.com", version: "v1", kind: "Widget")
+        api.failDocuments = true
+        let store = OpenAPIStore(cluster: "c", serverVersion: "v1.32.0", cacheRoot: nil, fetch: api.fetch)
+        for _ in 0..<4 { _ = await store.kindSchema(for: widget) }
+        #expect(api.documentRequests.count == 1)
+    }
+
+    @Test func theIndexFetchIsShared() async throws {
+        let api = FakeOpenAPI()
+        api.add(group: "example.com", version: "v1", kind: "Widget")
+        api.delay = .milliseconds(80)
+        let store = OpenAPIStore(cluster: "c", serverVersion: "v1.32.0", cacheRoot: nil, fetch: api.fetch)
+        let widget = self.widget
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<5 { group.addTask { _ = await store.kindSchema(for: widget) } }
+        }
+        #expect(api.indexRequests == 1)
+    }
+
+    @Test func aDiskHitCountsAsAUse() async throws {
+        let api = FakeOpenAPI()
+        api.add(group: "example.com", version: "v1", kind: "Widget", hash: "H1")
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = await OpenAPIStore(cluster: "c", serverVersion: "v1.32.0", cacheRoot: dir, fetch: api.fetch).kindSchema(for: widget)
+        let file = try #require(FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL }.first { $0.pathExtension == "json" })
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: file.path)
+        _ = await OpenAPIStore(cluster: "c", serverVersion: "v1.32.0", cacheRoot: dir, fetch: api.fetch).kindSchema(for: widget)
+        let touched = try #require(try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date)
+        #expect(touched.timeIntervalSince1970 > 1_000_000)
     }
 }
 

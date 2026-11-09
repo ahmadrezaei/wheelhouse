@@ -46,7 +46,7 @@ public struct SchemaToolboxProvider: ToolboxExtensionProviding {
                 return f
             })
         }
-        if let source = found.source.note(serverVersion: nil) { out["note"] = .string(source) }
+        if let source = found.source.note { out["note"] = .string(source) }
         return out
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Reads a cluster's OpenAPI v3 schemas on demand and keeps them (ARCHITECTURE-MAC section 6.8, M7).
 ///
@@ -20,15 +21,32 @@ public actor OpenAPIStore: ManifestSchemaProviding {
     private let minRefresh: TimeInterval
     private let clock: @Sendable () -> Date
 
-    private var cache: SchemaMemoryCache
+    private let cache: SharedSchemaCache
     private var index: [String: String]?
     private var indexAt: Date?
+    private var indexTask: Task<[String: String]?, Never>?
+    /// Documents that could not be read, for a while (typing must not mean a request per pause).
+    private var failedDocuments: [String: Date] = [:]
+    private static let failureMemory: TimeInterval = 30
     private var inflight: [String: Task<Loaded?, Never>] = [:]
     private var prunedOldVersions = false
     /// Where the last answer came from.
     public private(set) var lastSource: SchemaSource?
     /// How many documents were downloaded (tests).
     public private(set) var downloads = 0
+
+    public init(cluster: String, serverVersion: String?, cacheRoot: URL?, bundled: BundledSchemas = .standard, sharedCache: SharedSchemaCache,
+         indexTTL: TimeInterval = 300, minRefresh: TimeInterval = 5, clock: @escaping @Sendable () -> Date = { Date() }, fetch: @escaping Fetch) {
+        self.clusterKey = cluster
+        self.serverVersion = serverVersion
+        self.cacheRoot = cacheRoot
+        self.bundled = bundled
+        self.cache = sharedCache
+        self.indexTTL = indexTTL
+        self.minRefresh = minRefresh
+        self.clock = clock
+        self.fetch = fetch
+    }
 
     public init(cluster: String, serverVersion: String?, cacheRoot: URL?, bundled: BundledSchemas = .standard,
                 memoryLimit: Int = 32 * 1024 * 1024, indexTTL: TimeInterval = 300, minRefresh: TimeInterval = 5,
@@ -37,7 +55,7 @@ public actor OpenAPIStore: ManifestSchemaProviding {
         self.serverVersion = serverVersion
         self.cacheRoot = cacheRoot
         self.bundled = bundled
-        self.cache = SchemaMemoryCache(limit: memoryLimit)
+        self.cache = SharedSchemaCache(limit: memoryLimit)
         self.indexTTL = indexTTL
         self.minRefresh = minRefresh
         self.clock = clock
@@ -45,8 +63,9 @@ public actor OpenAPIStore: ManifestSchemaProviding {
     }
 
     /// A store reading through a client's OpenAPI seam. Give it the plain client: wrappers that strip or refuse do not forward it.
-    public init(cluster: String, serverVersion: String?, cacheRoot: URL?, client: any KubeClientProtocol, bundled: BundledSchemas = .standard) {
-        self.init(cluster: cluster, serverVersion: serverVersion, cacheRoot: cacheRoot, bundled: bundled) { path in
+    public init(cluster: String, serverVersion: String?, cacheRoot: URL?, client: any KubeClientProtocol, bundled: BundledSchemas = .standard,
+                sharedCache: SharedSchemaCache = SharedSchemaCache()) {
+        self.init(cluster: cluster, serverVersion: serverVersion, cacheRoot: cacheRoot, bundled: bundled, sharedCache: sharedCache) { path in
             try await client.openAPIDocument(path: path)
         }
     }
@@ -66,10 +85,13 @@ public actor OpenAPIStore: ManifestSchemaProviding {
         return bundledSchema(gvk, gv: gv)
     }
 
-    /// Releases every parsed document (memory pressure). The disk copies stay.
+    /// Releases every parsed document of every store sharing the cache (memory pressure). The disk copies stay.
     public func trimMemory() { cache.removeAll() }
 
-    /// The bytes the cache holds, by its own estimate.
+    /// Releases this cluster's parsed documents only (its last editor closed, or the cluster went away).
+    public func releaseMemory() { cache.remove(prefix: "cluster:\(clusterKey)|") }
+
+    /// The bytes the (possibly shared) cache holds, by its own estimate.
     public var memoryCost: Int { cache.totalCost }
     public var memoryLimit: Int { cache.limit }
 
@@ -79,23 +101,28 @@ public actor OpenAPIStore: ManifestSchemaProviding {
 
     private func currentIndex(refresh: Bool) async -> [String: String]? {
         if !refresh, let index, let at = indexAt, clock().timeIntervalSince(at) < indexTTL { return index }
-        // An index that could not be read is not asked for again until `minRefresh` has passed (typing must not mean a GET per pause).
+        // An index that could not be read is not asked for again for a while.
         if !refresh, index == nil, let at = indexAt, clock().timeIntervalSince(at) < max(minRefresh, 30) { return nil }
-        do {
-            let data = try await fetch("/openapi/v3")
-            let root = try JSONValue.fastParse(data)
-            var found: [String: String] = [:]
-            for (gv, entry) in root["paths"]?.objectValue ?? [:] {
-                if let url = entry["serverRelativeURL"]?.stringValue { found[gv] = url }
-            }
-            index = found
-            indexAt = clock()
-            return found
-        } catch {
-            // Keep serving a stale index across a blip; with none, the bundled schema answers.
-            indexAt = clock()
-            return index
+        if let running = indexTask { return await running.value ?? index }
+        let fetch = self.fetch
+        let task = Task { await Self.fetchIndex(fetch) }
+        indexTask = task
+        let fetched = await task.value
+        indexTask = nil
+        indexAt = clock()
+        if let fetched { index = fetched }
+        // Keep serving a stale index across a blip; with none, the bundled schema answers.
+        return fetched ?? index
+    }
+
+    @concurrent
+    private static func fetchIndex(_ fetch: Fetch) async -> [String: String]? {
+        guard let data = try? await fetch("/openapi/v3"), let root = try? JSONValue.fastParse(data) else { return nil }
+        var found: [String: String] = [:]
+        for (gv, entry) in root["paths"]?.objectValue ?? [:] {
+            if let url = entry["serverRelativeURL"]?.stringValue { found[gv] = url }
         }
+        return found
     }
 
     private func clusterSchema(_ gvk: GroupVersionKind, gv: String, index: [String: String]) async -> KindSchema? {
@@ -105,8 +132,9 @@ public actor OpenAPIStore: ManifestSchemaProviding {
     }
 
     private func document(gv: String, url: String) async -> LoadedSchemaDocument? {
-        let key = "cluster:\(url)"
+        let key = "cluster:\(clusterKey)|\(url)"
         if let hit = cache.value(for: key) { return hit }
+        if let failed = failedDocuments[key], clock().timeIntervalSince(failed) < Self.failureMemory { return nil }
         if let running = inflight[key] { return await running.value?.document }
         let directory = versionDirectory()
         let fetch = self.fetch
@@ -117,8 +145,10 @@ public actor OpenAPIStore: ManifestSchemaProviding {
         if let loaded {
             if loaded.downloaded { downloads += 1; prepareDirectory() }
             cache.insert(loaded.document, for: key)
+            failedDocuments[key] = nil
             return loaded.document
         }
+        failedDocuments[key] = clock()
         return nil
     }
 
@@ -126,8 +156,9 @@ public actor OpenAPIStore: ManifestSchemaProviding {
 
     private func versionDirectory() -> URL? {
         guard let cacheRoot else { return nil }
-        return cacheRoot.appending(path: Self.safe(clusterKey), directoryHint: .isDirectory)
-            .appending(path: Self.safe(serverVersion ?? "unknown"), directoryHint: .isDirectory)
+        // Both names come from the server or the user: they are hashed, so no value can climb out of its folder.
+        return cacheRoot.appending(path: Self.digest(clusterKey), directoryHint: .isDirectory)
+            .appending(path: Self.digest(serverVersion ?? "unknown"), directoryHint: .isDirectory)
     }
 
     /// After the first download: drop folders of older server versions of this cluster.
@@ -149,9 +180,11 @@ public actor OpenAPIStore: ManifestSchemaProviding {
     @concurrent
     private static func load(gv: String, url: String, directory: URL?, fetch: Fetch) async -> Loaded? {
         let hash = URLComponents(string: url)?.queryItems?.first { $0.name == "hash" }?.value
-        let file = hash.flatMap { h in directory?.appending(path: "\(safe(gv))-\(safe(h)).json") }
+        let file = hash.flatMap { h in directory?.appending(path: "\(digest("\(gv)|\(h)")).json") }
         if let file, let data = try? Data(contentsOf: file) {
             if let root = try? JSONValue.fastParse(data), root.value(at: "components.schemas") != nil {
+                // A read is a use: the disk cache evicts the least recently used file first.
+                try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
                 return Loaded(document: LoadedSchemaDocument(components: root), downloaded: false)
             }
             try? FileManager.default.removeItem(at: file)   // unreadable: fetch it again
@@ -181,9 +214,9 @@ public actor OpenAPIStore: ManifestSchemaProviding {
         }
     }
 
-    /// File-name safe form: letters, digits, `.`, `-` and `_`; everything else becomes `_`.
-    static func safe(_ s: String) -> String {
-        String(s.unicodeScalars.map { ($0.properties.isAlphabetic && $0.isASCII) || ("0"..."9").contains($0) || $0 == "." || $0 == "-" ? Character($0) : "_" })
+    /// A fixed-length, file-name safe name for any text: the first 16 hex digits of its SHA-256.
+    static func digest(_ s: String) -> String {
+        SHA256.hash(data: Data(s.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: Bundled

@@ -24,7 +24,7 @@ final class CodeEditorController {
     func dismissKeyboard() { editor?.window?.makeFirstResponder(nil) }
     func focus() { if let tv = editor?.textView { tv.window?.makeFirstResponder(tv) } }
     func jump(toLine line: Int) { editor?.jump(toLine: line) }
-    /// Opens the completion list at the caret (also ⌃Space, ⎋ and F5 inside the editor).
+    /// Opens the completion list at the caret (⎋ and F5 inside the editor do the same).
     func complete() { editor?.requestCompletion() }
     func foldAll() { editor?.foldAll() }
     func unfoldAll() { editor?.unfoldAll() }
@@ -110,8 +110,9 @@ struct YAMLCodeEditor: NSViewRepresentable {
                       indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
             guard let pending = (textView as? YAMLNSTextView)?.editor?.pendingCompletion else { return [] }
             index?.pointee = 0
-            let typed = (textView.string as NSString).substring(with: NSIntersectionRange(charRange, NSRange(location: 0, length: (textView.string as NSString).length))).lowercased()
-            return pending.items.map(\.insertText).filter { typed.isEmpty || $0.lowercased().hasPrefix(typed) }
+            // The list exactly as `ManifestAssist` ranked it (prefix matches first, else substring matches); the system narrows it as the
+            // user types on.
+            return pending.items.map(\.insertText)
         }
     }
 }
@@ -122,7 +123,8 @@ final class YAMLNSTextView: NSTextView {
     weak var editor: CodeEditorScrollView?
     private var tracking: NSTrackingArea?
 
-    /// ⎋ and F5 reach here too (`complete:`): the editor computes the list first, then the system list is shown.
+    /// ⎋ and F5 reach here (`complete:`): the editor computes the list first, then the system list is shown. (⌃Space is macOS's
+    /// input-source shortcut, so it is not used.)
     override func complete(_ sender: Any?) {
         guard let editor, editor.assist != nil else { super.complete(sender); return }
         editor.requestCompletion()
@@ -140,11 +142,6 @@ final class YAMLNSTextView: NSTextView {
     override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
         super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
         if flag { editor?.pendingCompletion = nil }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.control), event.charactersIgnoringModifiers == " " { complete(nil); return }
-        super.keyDown(with: event)
     }
 
     override func updateTrackingAreas() {

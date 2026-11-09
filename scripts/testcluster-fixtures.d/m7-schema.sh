@@ -32,8 +32,13 @@ spec:
             spec:
               type: object
               description: The desired state of the widget.
-              required: [size]
+              oneOf:
+                - required: [size]
+                - required: [tier]
               properties:
+                tier:
+                  type: string
+                  description: A named tier, used instead of a size.
                 size:
                   type: string
                   description: How big the widget is.

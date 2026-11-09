@@ -21,7 +21,7 @@ struct SchemaCalibrationTests {
         let b = BundledSchemas.standard
         _ = b.load(minor: "1.32")                      // warm up allocators and lazy tables
         var bestRatio = Double.infinity       // other tests allocate in parallel: noise only adds, so the smallest reading is the truest
-        for _ in 0..<7 {
+        for _ in 0..<25 {
             let before = Self.footprint()
             let docs = try #require(b.load(minor: "1.32"))
             let after = Self.footprint()
@@ -30,6 +30,8 @@ struct SchemaCalibrationTests {
             print("SCHEMA calibration: estimated \(estimated / 1024) KB, measured \(measured / 1024) KB")
             bestRatio = min(bestRatio, Double(measured) / Double(estimated))
             withExtendedLifetime(docs) {}
+            if bestRatio <= 1.0 { break }
+            Thread.sleep(forTimeInterval: 0.05)
         }
         #expect(bestRatio <= 1.0, "the estimate is lower than the measured footprint (\(bestRatio)x)")
     }

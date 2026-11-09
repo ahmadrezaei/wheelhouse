@@ -126,6 +126,7 @@ final class MacEnergyCoordinator {
         guard !windowsVisible, !released else { return }
         released = true
         registry.stopAllSessions()
+        SchemaServices.trim()
     }
 
     // MARK: Memory pressure

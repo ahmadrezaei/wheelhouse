@@ -93,7 +93,7 @@ public struct ValuesSchemaHints: Sendable {
         var out: [[SchemaPathSegment]: String] = [:]
         var pending: [String] = []
         var path = YAMLIndentPath()
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for raw in text.yamlLines {
             let shape = YAMLLineShape(raw)
             let trimmed = raw.drop { $0 == " " }
             if trimmed.hasPrefix("#") {
