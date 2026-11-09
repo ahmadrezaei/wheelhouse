@@ -18,6 +18,17 @@ public struct LandfallPreferences: Codable, Equatable, Sendable {
     /// When each provider's last scan finished (`CloudProvider.rawValue`), for the daily cadence.
     public var lastScan: [String: Date] = [:]
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case rescan, mergeIntoUserKubeconfig, selectedAccounts, awsRegions, lastScan }
+    /// Missing keys keep their defaults, so adding a field later never resets what the user chose.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rescan = (try? c.decodeIfPresent(Rescan.self, forKey: .rescan)) ?? .manual
+        mergeIntoUserKubeconfig = (try? c.decodeIfPresent(Bool.self, forKey: .mergeIntoUserKubeconfig)) ?? false
+        selectedAccounts = (try? c.decodeIfPresent([String: [String]].self, forKey: .selectedAccounts)) ?? [:]
+        awsRegions = try? c.decodeIfPresent([String].self, forKey: .awsRegions)
+        lastScan = (try? c.decodeIfPresent([String: Date].self, forKey: .lastScan)) ?? [:]
+    }
 }
 
 public extension AppPaths {
@@ -91,6 +102,15 @@ extension MooringsService: LandfallMoorings {
 }
 
 // MARK: - Service
+
+public enum LandfallError: Error, Equatable, Sendable, LocalizedError {
+    case unreadableFile(String)
+    public var errorDescription: String? {
+        switch self {
+        case .unreadableFile(let name): "\(name) could not be read, so nothing was added. Fix or remove the file and try again."
+        }
+    }
+}
 
 public struct LandfallAddOutcome: Sendable, Equatable {
     public var ids: [String: ClusterID]          // CloudCluster.id → cluster id
@@ -212,10 +232,13 @@ public actor LandfallService {
         var seenContexts = Set<String>()
         // landfall.yaml only ever gains names: a name it already holds for another API server is never overwritten (that would repoint
         // a cluster the user approved). An AKS row is retried under a subscription-qualified name; anything else is skipped with the reason.
-        let held = heldServers()
+        let held = try heldServers()
+        // Two AKS clusters of one name in this batch (different subscriptions): both get the subscription-qualified name.
+        let azureDupes = Set(Dictionary(grouping: clusters.filter { $0.provider == .azure }, by: \.contextName).filter { $0.value.count > 1 }.keys)
         var originalIDs: [String] = []      // parallel to `prepared`: the row's id before any rename
         for var c in clusters {
             let rowID = c.id
+            if c.provider == .azure, azureDupes.contains(c.contextName) { c.contextName = "\(c.name)-\(c.accountID.prefix(8))" }
             if let existing = held[c.contextName], let url = c.serverURL, existing != ServerURL.normalized(url) {
                 if c.provider == .azure, !held.keys.contains("\(c.name)-\(c.accountID.prefix(8))") {
                     c.contextName = "\(c.name)-\(c.accountID.prefix(8))"
@@ -258,16 +281,24 @@ public actor LandfallService {
         var merge: UserMergePlan?
         var note: String?
         if preferences.value.mergeIntoUserKubeconfig {
-            do { merge = try planUserMerge(entries) } catch { note = error.localizedDescription }
+            do {
+                merge = try planUserMerge(entries)
+                if let m = merge, m.plan == nil { note = "Already in ~/.kube/config, left unchanged: \(m.leftUnchanged.joined(separator: ", "))." }
+            } catch { note = error.localizedDescription }
         }
         return LandfallAddOutcome(ids: ids, added: prepared, skipped: skipped, checked: toCheck, entries: entries, mergePlan: merge?.plan,
                                   mergeEntries: merge?.entries, mergeLeftUnchanged: merge?.leftUnchanged ?? [], mergeNote: note)
     }
 
     /// context name → normalised server, for what landfall.yaml holds now.
-    private func heldServers() -> [String: String] {
-        guard let text = try? String(contentsOf: landfallFile, encoding: .utf8),
-              let config = try? KubeconfigParser.parse(text, environment: .desktop(baseDirectory: landfallFile.deletingLastPathComponent())) else { return [:] }
+    private func heldServers() throws -> [String: String] {
+        guard FileManager.default.fileExists(atPath: landfallFile.path) else { return [:] }
+        // A landfall.yaml that cannot be read is not overwritten: the add is refused.
+        guard let text = try? String(contentsOf: landfallFile, encoding: .utf8) else { throw LandfallError.unreadableFile(landfallFile.lastPathComponent) }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [:] }
+        guard let config = try? KubeconfigParser.parse(text, environment: .desktop(baseDirectory: landfallFile.deletingLastPathComponent())) else {
+            throw LandfallError.unreadableFile(landfallFile.lastPathComponent)
+        }
         return Dictionary(config.contexts.compactMap { c in c.server.map { (c.name, ServerURL.normalized($0)) } }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -280,7 +311,8 @@ public actor LandfallService {
     // MARK: Merge into ~/.kube/config
 
     public struct UserMergePlan: Sendable, Equatable {
-        public var plan: KubeconfigMergePlan
+        /// Nil when the user's file already has every name: there is nothing to merge.
+        public var plan: KubeconfigMergePlan?
         public var entries: KubeconfigEntries
         public var leftUnchanged: [String]
     }
@@ -299,7 +331,7 @@ public actor LandfallService {
         kept.clusters.removeAll { existing.contains($0.name) }
         kept.users.removeAll { existing.contains($0.name) }
         kept.contexts.removeAll { existing.contains($0.name) }
-        guard !kept.isEmpty else { return UserMergePlan(plan: first, entries: kept, leftUnchanged: existing.sorted()) }
+        guard !kept.isEmpty else { return UserMergePlan(plan: nil, entries: kept, leftUnchanged: existing.sorted()) }
         return UserMergePlan(plan: try writer.plan(entries: kept, into: target, now: now()), entries: kept, leftUnchanged: existing.sorted())
     }
 

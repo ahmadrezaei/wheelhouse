@@ -267,5 +267,18 @@ struct LandfallAdapterTests {
         #expect(KubeconfigLoader.isCandidateName("config"))
         #expect(KubeconfigLoader.isCandidateName("work.yaml"))
     }
+
+    @Test func gkeAndAKSEndpointsAreValidatedToo() {
+        let lab = CloudAccount(provider: .gcp, accountID: "lab", name: "Lab")
+        func gke(_ endpoint: String) -> CloudCluster? { GCloudCLI.cluster(from: ["name": "c", "location": "eu", "endpoint": endpoint], account: lab) }
+        #expect(gke("34.90.0.10") != nil)
+        #expect(gke("evil host") == nil)
+        #expect(gke("x/y?z") == nil)
+        let sub = CloudAccount(provider: .azure, accountID: "00000000-0000-0000-0000-0000000000aa", name: "S")
+        func aks(_ fqdn: String) -> CloudCluster? { AzureCLI.cluster(from: ["name": "n", "resourceGroup": "rg", "location": "we", "fqdn": fqdn, "aadProfile": ["managed": true]], account: sub) }
+        #expect(aks("n-dns.hcp.we.azmk8s.io") != nil)
+        #expect(aks("n-dns.hcp.we.azmk8s.io/evil") == nil)
+        #expect(aks("a b") == nil)
+    }
 }
 #endif

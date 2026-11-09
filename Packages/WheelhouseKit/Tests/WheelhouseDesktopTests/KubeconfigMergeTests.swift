@@ -232,6 +232,20 @@ struct KubeconfigMergeTests {
         #expect(!FileManager.default.fileExists(atPath: realFile.appendingPathExtension("lock").path))   // the lock taken first is released
     }
 
+    @Test func aSymlinkedFolderIsLockedOnceAndTheMergeSucceeds() throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let realDir = try s.dir("dotfiles-kube")
+        let file = realDir.appending(path: "config")
+        try Self.existing.write(to: file, atomically: true, encoding: .utf8)
+        let linkDir = s.root.appending(path: "linked-dir")
+        try FileManager.default.createSymbolicLink(at: linkDir, withDestinationURL: realDir)
+        // Both names (the link's and the target's) are one file: one lock, not two.
+        let result = try writer(s).merge(entries: LandfallKubeconfig.entries(for: [Self.cluster()]), into: linkDir.appending(path: "config"))
+        #expect(result.added.count == 3)
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("arn:aws:eks"))
+        #expect(!FileManager.default.fileExists(atPath: file.appendingPathExtension("lock").path))
+    }
+
     // MARK: Gate
 
     @Test func everyWriteIsRefusedWhileTheGateIsActive() throws {

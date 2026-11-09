@@ -46,7 +46,7 @@ public struct GCloudCLI: CloudProviderAdapter {
         let privateConfig = CLIJSON.object(c["privateClusterConfig"])
         let isPrivate = CLIJSON.bool(privateConfig["enablePrivateEndpoint"]) == true
         let host = isPrivate ? (CLIJSON.string(privateConfig["privateEndpoint"]) ?? CLIJSON.string(c["endpoint"])) : CLIJSON.string(c["endpoint"])
-        guard let host else { return nil }
+        guard let host, CLIJSON.isHTTPSEndpoint("https://\(host)") else { return nil }
         let status = CLIJSON.string(c["status"]) ?? "UNKNOWN"
         return CloudCluster(
             provider: .gcp, accountID: account.accountID, accountName: account.name, name: name, region: location, endpoint: "https://\(host)",

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import WheelhouseDesktop
@@ -45,6 +46,7 @@ final class LandfallModel {
     private(set) var addedIDs: [String: ClusterID] = [:]
     /// Bumped when a check finishes, so rows re-read their state.
     private(set) var checkTick = 0
+    @ObservationIgnored private var quitObserver: (any NSObjectProtocol)?
     var selection: Set<String> = []
     var mergeReview: MergeReview?
     var signIn: SignInRequest?
@@ -74,6 +76,10 @@ final class LandfallModel {
     /// Called once after launch: starts the daily rescan only when "daily" is chosen (and never in development builds).
     func start() async {
         guard isEnabled else { return }
+        // A cloud CLI still running when the app quits is sent SIGTERM (its own observer: the app delegate is not touched).
+        quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            Subprocess.terminateAll(group: SubprocessCLIRunner.quitGroup)
+        }
         await service.applyRescanPolicy()
     }
 

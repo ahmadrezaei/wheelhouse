@@ -159,6 +159,8 @@ public final class SubprocessCLIRunner: CLIRunner {
     public typealias Spawn = @Sendable (ProcessSpec) async throws -> ProcessResult
 
     public static let maxParallel = 6
+    /// The quit group of every Landfall child: the app terminates them when it quits (`Subprocess.terminateAll(group:)`).
+    public static let quitGroup = "landfall"
 
     private let gateProvider: @Sendable () -> DevSafetyPolicy
     private let processGateActive: @Sendable () -> Bool
@@ -219,7 +221,7 @@ public final class SubprocessCLIRunner: CLIRunner {
         }
         let env = EnvironmentBuilder(snapshot: snap, paths: paths, home: home).build(profile: provider.toolProfile, additions: extra)
         return ProcessSpec(executable: exe, arguments: arguments, environment: env, currentDirectory: isolation?.home, timeout: timeout,
-                           stdoutLimit: 16 << 20, stderrLimit: 16 << 10, qos: qos)
+                           stdoutLimit: 16 << 20, stderrLimit: 16 << 10, qos: qos, quitGroup: SubprocessCLIRunner.quitGroup)
     }
 
     public func run(_ provider: CloudProvider, _ arguments: [String], environment: [String: String]) async throws -> CLIOutput {

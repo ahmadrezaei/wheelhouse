@@ -400,10 +400,11 @@ struct LandfallServiceTests {
         let target = try s.write("user-kubeconfig", existing)
         let entries = LandfallKubeconfig.entries(for: [payments, tagged])
         let merge = try await h.service.planUserMerge(entries, target: target)
+        let mergePlan = try #require(merge.plan)
         #expect(merge.leftUnchanged == [payments.contextName])
         #expect(merge.entries.clusters.map(\.name) == [tagged.contextName])
-        #expect(merge.plan.replaced.isEmpty)
-        _ = try await h.service.confirmUserMerge(merge.plan, entries: merge.entries, clusters: [payments, tagged])
+        #expect(mergePlan.replaced.isEmpty)
+        _ = try await h.service.confirmUserMerge(mergePlan, entries: merge.entries, clusters: [payments, tagged])
         let text = try String(contentsOf: target, encoding: .utf8)
         #expect(text.contains("https://mine.example.test") && text.contains("current-context: keep"))
         // Moorings sees the user's file as a source: the copy of the tag-only Production cluster is registered and held.
@@ -430,6 +431,92 @@ struct LandfallServiceTests {
         #expect(h.state.overrides.override(for: key.clusterID)?.added == true)
         try await h.moorings.unregisterLandfall(previous)
         #expect(h.state.overrides.override(for: key.clusterID) == earlier)
+    }
+
+    // MARK: Production is never lowered by a server change
+
+    @Test func aChangedServerKeepsProductionHeldAndReadOnly() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", "current-context: odd\nclusters:\n- {name: c, cluster: {server: \"https://odd.example.test:6443\"}}\nusers:\n- {name: u, user: {token: t}}\ncontexts:\n- {name: odd, context: {cluster: c, user: u}}\n")
+        let h = try MooringsHarness(files: [file], firstRunCompleted: true, scratch: s)
+        await h.service.rescan()
+        let ctx = try #require(h.state.contexts.first)
+        // The user chose Production for a name that does not suggest it, and allowed changes.
+        try await h.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .production, environmentPicked: true, allowChanges: true)])
+        try await h.service.markOpened(ctx.id)
+        #expect(h.state.overrides.override(for: ctx.id)?.readOnly == false)
+        // A tool rewrites the file: same context name, another server.
+        try s.write("kc.yaml", try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "odd.example.test", with: "elsewhere.example.test"))
+        await h.service.rescan()
+        let o = try #require(h.state.overrides.override(for: ctx.id))
+        #expect(o.environment == .production)                      // never lowered
+        #expect(o.readOnly && !o.contactApproved && !o.environmentChosen)
+        #expect(h.state.isContactHeld(ctx.id))
+        let notice = await h.service.issues[ctx.key.definingFile]
+        #expect(notice?.contains("different server") == true)
+        #expect(h.clients.total == 0)
+    }
+
+    @Test func aChangedServerOfALocalClusterGoesBackToItsSuggestion() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let file = try s.write("kc.yaml", "current-context: minikube\nclusters:\n- {name: c, cluster: {server: \"https://127.0.0.1:8443\"}}\nusers:\n- {name: u, user: {token: t}}\ncontexts:\n- {name: minikube, context: {cluster: c, user: u}}\n")
+        let h = try MooringsHarness(files: [file], firstRunCompleted: true, scratch: s)
+        await h.service.rescan()
+        let ctx = try #require(h.state.contexts.first)
+        try await h.service.completeFirstRun(choices: [ctx.id: FirstRunChoice(selected: true, environment: .personal, environmentPicked: true, allowChanges: true)])
+        #expect(h.state.overrides.override(for: ctx.id)?.readOnly == false)
+        try s.write("kc.yaml", try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: ":8443", with: ":8444"))
+        await h.service.rescan()
+        let o = try #require(h.state.overrides.override(for: ctx.id))
+        #expect(o.readOnly && !o.contactApproved && !o.environmentChosen)
+        #expect(o.environment == .development)                     // the suggestion for a local cluster
+    }
+
+    // MARK: Smaller cases
+
+    @Test func anUnreadableLandfallYamlRefusesTheAddAndIsLeftAlone() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let scan = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first)
+        try FileManager.default.createDirectory(at: h.landfallFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "this: [is not a kubeconfig".write(to: h.landfallFile, atomically: true, encoding: .utf8)
+        await #expect(throws: LandfallError.self) { _ = try await h.service.add(scan.clusters) }
+        #expect(try String(contentsOf: h.landfallFile, encoding: .utf8) == "this: [is not a kubeconfig")
+        #expect(h.state.overrides.all.isEmpty)
+    }
+
+    @Test func whenTheUserFileHasEveryNameThereIsNoPlan() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: awsRecording())
+        let c = try #require(try await h.service.scan(.aws, accounts: [h.profile]).first?.clusters.first)
+        let target = try s.write("user-kc", "apiVersion: v1\nkind: Config\nclusters:\n- name: \(c.contextName)\n  cluster: {server: \"https://mine.example.test\"}\nusers:\n- name: \(c.contextName)\n  user: {token: t}\ncontexts:\n- name: \(c.contextName)\n  context: {cluster: \(c.contextName), user: \(c.contextName)}\n")
+        let merge = try await h.service.planUserMerge(LandfallKubeconfig.entries(for: [c]), target: target)
+        #expect(merge.plan == nil)
+        #expect(merge.leftUnchanged == [c.contextName])
+        #expect(merge.entries.isEmpty)
+    }
+
+    @Test func twoAKSClustersOfOneNameInABatchAreBothRenamed() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try LandfallHarness(scratch: s, responder: { p, a in
+            guard p == .azure, a.prefix(2) == ["aks", "get-credentials"] else { return nil }
+            return CLIOutput(exitCode: 0, stdout: landfallFixture("az/get-credentials-aad.yaml"))
+        })
+        func aks(_ sub: String, _ host: String) -> CloudCluster {
+            CloudCluster(provider: .azure, accountID: sub, accountName: sub, name: "aks-main", region: "we", endpoint: "https://\(host):443", status: "Active",
+                         contextName: "aks-main", resourceGroup: "rg-main")
+        }
+        let outcome = try await h.service.add([aks("00000000-0000-0000-0000-0000000000aa", "a.hcp.we.azmk8s.io"), aks("11111111-1111-1111-1111-1111111111bb", "b.hcp.we.azmk8s.io")])
+        #expect(outcome.added.map(\.contextName).sorted() == ["aks-main-00000000", "aks-main-11111111"])
+        #expect(outcome.skipped.isEmpty)
+    }
+
+    @Test func preferencesKeepTheirDefaultsWhenAFieldIsMissing() throws {
+        let json = Data(#"{"rescan":"daily"}"#.utf8)
+        let prefs = try JSONDecoder().decode(LandfallPreferences.self, from: json)
+        #expect(prefs.rescan == .daily)
+        #expect(!prefs.mergeIntoUserKubeconfig && prefs.selectedAccounts.isEmpty && prefs.awsRegions == nil && prefs.lastScan.isEmpty)
+        #expect(try JSONDecoder().decode(LandfallPreferences.self, from: Data("{}".utf8)) == LandfallPreferences())
     }
 }
 #endif

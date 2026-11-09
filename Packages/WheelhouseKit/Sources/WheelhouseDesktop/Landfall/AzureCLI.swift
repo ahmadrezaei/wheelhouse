@@ -60,7 +60,7 @@ public struct AzureCLI: CloudProviderAdapter {
         guard let name = CLIJSON.string(c["name"]), let location = CLIJSON.string(c["location"]) else { return nil }
         let fqdn = CLIJSON.string(c["fqdn"]), privateFqdn = CLIJSON.string(c["privateFqdn"])
         let isPrivate = CLIJSON.bool(CLIJSON.object(c["apiServerAccessProfile"])["enablePrivateCluster"]) == true || (fqdn == nil && privateFqdn != nil)
-        guard let host = isPrivate ? (privateFqdn ?? fqdn) : (fqdn ?? privateFqdn) else { return nil }
+        guard let host = isPrivate ? (privateFqdn ?? fqdn) : (fqdn ?? privateFqdn), CLIJSON.isHTTPSEndpoint("https://\(host):443") else { return nil }
         let power = CLIJSON.string(CLIJSON.object(c["powerState"])["code"])
         let provisioning = CLIJSON.string(c["provisioningState"]) ?? "Unknown"
         let status = power == "Stopped" ? "Stopped" : (provisioning == "Succeeded" ? "Active" : provisioning)

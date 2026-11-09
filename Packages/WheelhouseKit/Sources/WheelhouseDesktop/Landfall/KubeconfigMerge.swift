@@ -142,9 +142,12 @@ extension KubeconfigWriter {
         // client-go's convention: `<file>.lock`, created exclusively.
         var locks: [URL] = []
         defer { for l in locks { unlink(l.path) } }
+        var lockKeys = Set<String>()
         for path in [plan.requested, target] {
             let lock = path.appendingPathExtension("lock")
-            if locks.contains(lock) { continue }
+            // The same file under two names (a symlinked folder): lock it once.
+            let key = lock.deletingLastPathComponent().resolvingSymlinksInPath().appending(path: lock.lastPathComponent).path
+            guard lockKeys.insert(key).inserted else { continue }
             let lockFD = open(lock.path, O_CREAT | O_EXCL | O_WRONLY, 0o600)
             guard lockFD >= 0 else { throw KubeconfigWriteError.locked }
             close(lockFD)
