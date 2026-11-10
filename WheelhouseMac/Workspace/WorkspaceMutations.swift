@@ -30,10 +30,12 @@ extension WorkspaceWindowState {
         if select { selectedTab = tab.id }
     }
 
-    /// Removes a tab. Returns false when it was the window's only tab (nothing is removed: the caller closes the window).
+    /// Removes a tab. Returns false when it was the window's only tab (nothing is removed: the caller closes the window). A tab that is
+    /// not here (already closed: a second click on its close button) changes nothing and never closes the window.
     @discardableResult
     mutating func closeTab(_ id: TabID) -> Bool {
-        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return false }
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return true }
+        guard tabs.count > 1 else { return false }
         let wasSelected = selectedTab == id
         tabs.remove(at: index)
         raw = nil

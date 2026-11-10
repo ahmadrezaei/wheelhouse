@@ -13,7 +13,18 @@ import WheelhouseKit
 final class WorkspaceStore {
     static let saveDelay: Duration = .seconds(1)
 
-    private(set) var windows: [WorkspaceWindowID: WorkspaceWindowState] = [:]
+    /// Every window's state, one observable box per window (ARCHITECTURE-MAC section 12.3.4 item 3): a view reads its own window's box,
+    /// so a change in one window never re-evaluates the views of the others. `membership` is bumped when a window's box is added or
+    /// removed; ``state(for:)`` reads it too, so a view that asked for a window before it existed (or after it closed) hears about it.
+    /// A box is never replaced while its window exists, only its `state` assigned.
+    @ObservationIgnored private var boxes: [WorkspaceWindowID: WindowStateBox] = [:]
+    private var membership = 0
+
+    /// Every window's state (persistence and tests; views read ``state(for:)``, which observes one window only).
+    var windows: [WorkspaceWindowID: WorkspaceWindowState] {
+        _ = membership
+        return boxes.mapValues(\.state)
+    }
     /// Window order of the file (the order they were opened).
     private(set) var windowOrder: [WorkspaceWindowID] = []
     private(set) var detached: [PaneID: DetachedEntry] = [:]
@@ -80,7 +91,8 @@ final class WorkspaceStore {
 
     private func apply(_ f: WorkspaceFile) {
         windowOrder = f.windows.map(\.id)
-        windows = Dictionary(f.windows.map { ($0.id, $0.state) }, uniquingKeysWith: { first, _ in first })
+        boxes = Dictionary(f.windows.map { ($0.id, WindowStateBox($0.state)) }, uniquingKeysWith: { first, _ in first })
+        membership += 1
         for entry in f.windows { if let frame = entry.state.frame { windowFrames[entry.id] = frame } }
         for entry in f.detached { if let frame = entry.frame { detachedFrames[entry.pane.id] = frame } }
         windowOrder = windowOrder.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
@@ -104,7 +116,8 @@ final class WorkspaceStore {
     var snapshot: WorkspaceFile {
         var f = WorkspaceFile()
         f.windows = windowOrder.compactMap { id in
-            windows[id].map { state in
+            boxes[id].map { box in
+                let state = box.state
                 var copy = state
                 if state.raw == nil { copy.frame = windowFrames[id] ?? state.frame }
                 return WindowEntry(id: id, state: copy)
@@ -157,7 +170,7 @@ final class WorkspaceStore {
         // Pure with respect to observed state: SwiftUI calls this while it evaluates the scene body, and a store mutation there
         // (or any change to `windows` that re-evaluates the body again) aborts in AttributeGraph. The first window is created
         // when the store loads, never here.
-        if let pending = pendingLaunch, !liveWindows.contains(pending), windows[pending] != nil { return pending }
+        if let pending = pendingLaunch, !liveWindows.contains(pending), existingState(for: pending) != nil { return pending }
         let id: WorkspaceWindowID
         if !launchQueue.isEmpty { id = launchQueue.removeFirst() }
         else if let saved = windowOrder.first(where: { !liveWindows.contains($0) }) { id = saved }
@@ -177,7 +190,8 @@ final class WorkspaceStore {
     @discardableResult
     func createWindow(_ state: WorkspaceWindowState = .fresh()) -> WorkspaceWindowID {
         let id = WorkspaceWindowID.new()
-        windows[id] = state
+        boxes[id] = WindowStateBox(state)
+        membership += 1
         windowOrder.append(id)
         scheduleSave()
         return id
@@ -185,12 +199,22 @@ final class WorkspaceStore {
 
     /// The state of a window. A pure read: it never creates anything (a closed window whose view body runs once more must not come
     /// back). Unknown or closed identifiers read as a fresh, unsaved window.
-    func state(for id: WorkspaceWindowID) -> WorkspaceWindowState { windows[id] ?? .fresh() }
+    func state(for id: WorkspaceWindowID) -> WorkspaceWindowState {
+        _ = membership
+        return boxes[id]?.state ?? .fresh()
+    }
+
+    /// The state of a window that exists, else nil. Observes that window (and window membership) only.
+    func existingState(for id: WorkspaceWindowID) -> WorkspaceWindowState? {
+        _ = membership
+        return boxes[id]?.state
+    }
 
     /// Makes sure a window the scenes ask for has a state (a restored identifier the file does not know), unless it was closed.
     func ensureWindow(_ id: WorkspaceWindowID) {
-        guard windows[id] == nil, !closedWindows.contains(id) else { return }
-        windows[id] = .fresh()
+        guard boxes[id] == nil, !closedWindows.contains(id) else { return }
+        boxes[id] = WindowStateBox(.fresh())
+        membership += 1
         windowOrder.append(id)
         scheduleSave()
     }
@@ -210,7 +234,8 @@ final class WorkspaceStore {
         liveWindows.remove(id)
         guard !isTerminating, !wasLast else { return }
         closedWindows.insert(id)
-        windows[id] = nil
+        boxes[id] = nil
+        membership += 1
         windowOrder.removeAll { $0 == id }
         scheduleSave()
     }
@@ -231,10 +256,12 @@ final class WorkspaceStore {
     /// Applies `change` to a window's state and schedules a save when something changed.
     @discardableResult
     func mutate<T>(_ id: WorkspaceWindowID, _ change: (inout WorkspaceWindowState) -> T) -> T {
-        guard var state = windows[id] else { var scratch = WorkspaceWindowState.fresh(); return change(&scratch) }
+        guard let box = boxes[id] else { var scratch = WorkspaceWindowState.fresh(); return change(&scratch) }
+        var state = box.state
         let result = change(&state)
-        if windows[id] != state {
-            windows[id] = state
+        // Only a real change is written: an equal write would still invalidate every view of the window.
+        if box.state != state {
+            box.state = state
             scheduleSave()
         }
         return result
@@ -244,11 +271,11 @@ final class WorkspaceStore {
     @ObservationIgnored private var windowFrames: [WorkspaceWindowID: [Double]] = [:]
     @ObservationIgnored private var detachedFrames: [PaneID: [Double]] = [:]
 
-    func frame(for id: WorkspaceWindowID) -> [Double]? { windowFrames[id] ?? windows[id]?.frame }
+    func frame(for id: WorkspaceWindowID) -> [Double]? { windowFrames[id] ?? boxes[id]?.state.frame }
     func detachedFrame(_ id: PaneID) -> [Double]? { detachedFrames[id] ?? detached[id]?.frame }
 
     func setFrame(_ frame: [Double], for id: WorkspaceWindowID) {
-        guard windows[id] != nil, windowFrames[id] != frame else { return }
+        guard boxes[id] != nil, windowFrames[id] != frame else { return }
         windowFrames[id] = frame
         scheduleSave()
     }
@@ -375,6 +402,13 @@ final class WorkspaceStore {
         copy.zoomedPane = nil
         return copy
     }
+}
+
+/// One window's state, observed on its own (see `WorkspaceStore.boxes`).
+@MainActor @Observable
+final class WindowStateBox {
+    var state: WorkspaceWindowState
+    init(_ state: WorkspaceWindowState) { self.state = state }
 }
 
 extension Station {

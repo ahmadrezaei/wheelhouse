@@ -83,13 +83,3 @@ extension PaneState {
         return top?.title(registry: registry) ?? "Empty"
     }
 }
-
-private struct PaneIsVisibleKey: EnvironmentKey { static let defaultValue = true }
-
-extension EnvironmentValues {
-    /// False while the pane's window is miniaturised or covered: nothing draws (ARCHITECTURE-MAC section 12.3.3).
-    var paneIsVisible: Bool {
-        get { self[PaneIsVisibleKey.self] }
-        set { self[PaneIsVisibleKey.self] = newValue }
-    }
-}

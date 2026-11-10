@@ -8,6 +8,8 @@ struct ClusterDashboardView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppPreferences.self) private var preferences
+    /// False while a Mac pane showing the overview cannot be seen: the refresh loop (and the charts' samples) stop until it can.
+    @Environment(\.paneIsVisible) private var paneIsVisible
     var clusterID: ClusterID?
 
     @State private var selectedID: ClusterID?
@@ -50,8 +52,8 @@ struct ClusterDashboardView: View {
             }
         }
         .onChange(of: effectiveID) { _, _ in model.reset() }
-        .task(id: "\(effectiveID ?? "")-\(scenePhase == .active)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
-            guard let session, scenePhase == .active else { return }
+        .task(id: "\(effectiveID ?? "")-\(scenePhase == .active && paneIsVisible)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
+            guard let session, scenePhase == .active, paneIsVisible else { return }
             // Metrics first sample quickly so the live chart has two points soon after opening.
             var first = true
             let configured = preferences.refreshInterval

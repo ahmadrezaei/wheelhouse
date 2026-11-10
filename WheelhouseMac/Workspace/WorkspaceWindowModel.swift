@@ -66,7 +66,6 @@ final class WorkspaceController {
 
     /// Badges of the sidebars of windows that can be seen (a hidden window's sidebar costs nothing).
     func refreshSidebarBadges() {
-        if PerfSwitches.noSidebarRefresh { return }
         for model in allModels where model.isVisible { model.sidebarIfCreated?.refreshBadges() }
     }
 
@@ -75,7 +74,7 @@ final class WorkspaceController {
         for (id, model) in models {
             guard let sidebar = model.sidebarIfCreated else { continue }
             let persisted = sidebar.persisted.state
-            if store.windows[id]?.sidebar != persisted { store.mutate(id) { $0.sidebar = persisted } }
+            if store.existingState(for: id)?.sidebar != persisted { store.mutate(id) { $0.sidebar = persisted } }
         }
     }
 
@@ -324,11 +323,12 @@ final class WorkspaceWindowModel {
     }
 
     /// Critical memory pressure: a hidden window's content goes now, without the grace period.
-    func releaseContentNow() { if !isVisible { graceTask?.cancel(); buildsContent = false } }
+    func releaseContentNow() { if !isVisible { graceTask?.cancel(); buildsContent = false; MemoryRelief.schedule() } }
 
     func teardown() {
         graceTask?.cancel()
         routers.removeAll()
+        MemoryRelief.schedule()
     }
 
     var liveRouterIDs: Set<PaneID> { Set(routers.keys) }
@@ -414,7 +414,10 @@ final class WorkspaceWindowModel {
 
     func closeTab(_ id: TabID) {
         let closed = mutate { $0.closeTab(id) }
-        if !closed { closeWindow() }
+        if !closed { closeWindow(); return }
+        // The tab's panes are gone: their routers go with them, and the memory their screens used goes back to the system.
+        pruneRouters()
+        MemoryRelief.schedule()
     }
 
     func closePane(_ id: PaneID) {
@@ -427,6 +430,7 @@ final class WorkspaceWindowModel {
             if wasPlaceholder, case .window = scope { mutate { $0 = WorkspaceWindowState.fresh() } } else { closeWindow() }
         }
         pruneRouters()
+        MemoryRelief.schedule()
     }
 
     func closeWindow() { window?.performClose(nil) }
@@ -523,12 +527,13 @@ final class WorkspaceWindowModel {
         graceTask?.cancel(); graceTask = nil
         if visible { buildsContent = true; return }
         let grace = thermalGrace ? 0 : releaseGrace
-        if grace == 0 { buildsContent = false; return }
+        if grace == 0 { buildsContent = false; MemoryRelief.schedule(); return }
         graceTask = Task { [weak self] in
             guard let self else { return }
             await sleep(grace)
             guard !Task.isCancelled, !isVisible else { return }
             buildsContent = false
+            MemoryRelief.schedule()
         }
     }
 

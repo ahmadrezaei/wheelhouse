@@ -24,6 +24,8 @@ struct LogsTableView: NSViewRepresentable {
     var lines: [LogLine] = []
     /// The model whose `visible` lines the table follows.
     var source: LogsModel?
+    /// False while the pane cannot be seen (a hidden tab or a pane parked behind a zoomed one): nothing is applied until it can.
+    var isPaneVisible = true
     let settings: LogsDisplaySettings
     let matcher: LogMatcher?
     let follow: Bool
@@ -44,6 +46,7 @@ struct LogsTableView: NSViewRepresentable {
         v.onUserScrolledAway = onUserScrolledAway
         v.onReachedBottom = onReachedBottom
         v.onSelect = onSelect
+        v.isPaneVisible = isPaneVisible
         // Never read `source.visible` here: SwiftUI tracks what `updateNSView` reads, and that would put every flush back on its path.
         if let source { v.track(source) }
         v.apply(lines: source == nil ? lines : nil, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
@@ -167,8 +170,12 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
     // MARK: Visibility
 
-    /// Tests drive the view without a window: when set, the view counts as visible.
+    /// Tests drive the view without a window: when set, the view counts as visible (unless its pane is hidden).
     var assumeVisible = false
+    /// The pane's `\.paneIsVisible`: a table in a hidden tab draws nothing even though its window is visible.
+    var isPaneVisible = true {
+        didSet { if isPaneVisible, !oldValue { becameVisibleMaybe() } }
+    }
     /// How updates reached the table, for tests (`append`, `frontDrop`, `frontTrim` (the slack removed), `reload`).
     private(set) var applyCounts = (append: 0, frontDrop: 0, frontTrim: 0, reload: 0)
     var displayedLineCount: Int { lines.count }
@@ -186,6 +193,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     var isAtBottom: Bool { distanceFromBottom <= 24 }
 
     private var isShown: Bool {
+        guard isPaneVisible else { return false }
         if assumeVisible { return true }
         guard let window, window.isVisible, !window.isMiniaturized else { return false }
         return window.occlusionState.contains(.visible)

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import notify
 import WheelhouseDesktop
 import WheelhouseKit
 
@@ -190,32 +191,50 @@ enum PerfScenarioRunner {
     static func runCycle(model: WorkspaceWindowModel, cluster id: ClusterID, pause: Duration = .seconds(8)) async {
         let original = model.selectedTab.id
         var opened: [TabID] = []
-        for kind in [ResourceKind.configMap, .deployment, .pod] {
+        for (step, kind) in [ResourceKind.configMap, .deployment, .pod].enumerated() {
             model.openInNewTab(.route(.resourceList(id, kind, namespace: nil)))
             opened.append(model.selectedTab.id)
+            CyclePhaseReport.publish(step + 1)
             try? await Task.sleep(for: pause)
         }
         model.openInNewTab(.route(.fleet))
         opened.append(model.selectedTab.id)
+        CyclePhaseReport.publish(4)
         if !PerfSwitches.noSplit {
             model.split(.horizontal)
+            CyclePhaseReport.publish(5)
             try? await Task.sleep(for: pause / 2)
             if let split = model.selectedTab.panes.last?.id { model.closePane(split) }
         }
         for tab in opened { model.closeTab(tab) }
         model.select(tab: original)
+        CyclePhaseReport.publish(0)
     }
 }
 
-/// Measurement-only switches for A/B soak runs (`-WHPerfNoSplit YES`, `-WHPerfNoSidebarRefresh YES`). Honoured only while the safety gate
-/// is active, like the scenarios themselves.
+/// The soak cycle's step as the state of a Darwin notification, so a sampler can align its samples with the cycle (`notifyutil -g`):
+/// 1 ConfigMaps opened, 2 Deployments, 3 Pods, 4 Fleet, 5 split, 0 every cycle tab closed again (and before the first cycle). Only
+/// scenario runs publish it, and scenarios run only while the safety gate is active.
+@MainActor
+enum CyclePhaseReport {
+    static let name = "com.ahmadrezaei.wheelhouse.perf.cycle-phase"
+    private static var token: Int32 = -1
+
+    static func publish(_ step: Int) {
+        if token < 0, notify_register_check(name, &token) != 0 { token = -1; return }
+        notify_set_state(token, UInt64(step))
+        notify_post(name)
+    }
+}
+
+/// Measurement-only switch for A/B soak runs (`-WHPerfNoSplit YES`: the cycle skips its split), read only by the soak cycle. Honoured only
+/// while the safety gate is active, like the scenarios themselves.
 enum PerfSwitches {
     static func isOn(_ name: String, arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
         guard DevSafety.isActive, let i = arguments.firstIndex(of: name) else { return false }
         return arguments.indices.contains(i + 1) && arguments[i + 1] == "YES"
     }
     static var noSplit: Bool { isOn("-WHPerfNoSplit") }
-    static var noSidebarRefresh: Bool { isOn("-WHPerfNoSidebarRefresh") }
 }
 
 /// How a scenario's pane list becomes windows and tabs. The single-window, single-tab scenarios (`idle-1`) keep the M1b behaviour: the

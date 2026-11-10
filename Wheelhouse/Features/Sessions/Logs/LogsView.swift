@@ -10,7 +10,10 @@ struct LogsView: View {
 
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppPreferences.self) private var preferences
+    @Environment(\.paneIsVisible) private var paneIsVisible
     @State private var model: LogsModel?
+    /// What this screen last told its model about its pane's visibility (nil: nothing reported).
+    @State private var reportedVisible: Bool?
     @State private var detail: LogLine?
     @State private var shareURL: ShareItem?
     @FocusState private var searchFocused: Bool
@@ -32,14 +35,34 @@ struct LogsView: View {
         .whInlineNavigationTitle()
         .task(id: pod) { await start() }
         // A follow request holds an inotify watcher on the node: close it when the screen is left (unless pinned).
-        .onAppear { model?.screenDidAppear() }
-        .onDisappear { model?.screenDidDisappear() }
+        .onAppear {
+            if let model { reportVisibility(to: model); model.screenDidAppear() }
+        }
+        .onDisappear {
+            model?.screenDidDisappear()
+            withdrawVisibility()
+        }
+        // A Mac pane that cannot be seen (hidden tab, covered window) keeps its stream filling but stops syncing and drawing.
+        .onChange(of: paneIsVisible) { _, _ in if let model { reportVisibility(to: model) } }
+    }
+
+    /// Tells the model whether this screen's pane can be seen (one model can be on several screens, so it counts them).
+    private func reportVisibility(to model: LogsModel) {
+        model.paneVisibilityChanged(paneIsVisible, previous: reportedVisible)
+        reportedVisible = paneIsVisible
+    }
+
+    private func withdrawVisibility() {
+        if let reportedVisible { model?.paneVisibilityWithdrawn(reportedVisible) }
+        reportedVisible = nil
     }
 
     private func start() async {
         guard let session else { return }
+        if let old = model { if let reportedVisible { old.paneVisibilityWithdrawn(reportedVisible) }; reportedVisible = nil }
         if let existing = hub.existingLogs(for: pod, container: container, previous: previous) {
             model = existing
+            reportVisibility(to: existing)
             existing.screenDidAppear()   // `.onAppear` ran before `model` was set
             return
         }
@@ -47,6 +70,7 @@ struct LogsView: View {
                           maxLines: preferences.logMaxLines, fontSize: preferences.logFontSize)
         hub.register(m)
         model = m
+        reportVisibility(to: m)
         m.screenDidAppear()
         await m.load()
     }
@@ -73,8 +97,9 @@ struct LogsView: View {
         .toolbar { toolbar(model) }
         #if os(macOS)
         // The Mac keeps SwiftUI off the per-flush path entirely: the model syncs itself and the table follows the model. Keyed to the
-        // model, so a screen reused for another pod stops the old model's sync and starts the new one's.
-        .background { MacLogsStreamSync(model: model).id(model.id) }
+        // model, so a screen reused for another pod stops the old model's sync and starts the new one's. Only while the pane can be seen:
+        // a hidden pane's stream keeps filling and the next visible moment catches up in one sync (ARCHITECTURE-MAC section 12.3.3).
+        .background { if paneIsVisible { MacLogsStreamSync(model: model).id(model.id) } }
         #else
         .background { LogsStreamSync(model: model) }
         #endif
@@ -284,6 +309,9 @@ private struct LogsLinesPane: View {
     let model: LogsModel
     let session: ClusterSession
     var onSelect: (LogLine) -> Void
+    #if os(macOS)
+    @Environment(\.paneIsVisible) private var paneIsVisible
+    #endif
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -315,6 +343,7 @@ private struct LogsLinesPane: View {
             #if os(macOS)
             LogsTableView(
                 source: model,
+                isPaneVisible: paneIsVisible,
                 settings: LogsDisplaySettings(wrap: model.wrap, timestamps: model.timestamps, fontSize: model.fontSize, query: model.query,
                                               useRegex: model.useRegex, currentLineID: model.currentLineID),
                 matcher: model.matcher, follow: model.follow, scrollTarget: model.scrollTarget,
