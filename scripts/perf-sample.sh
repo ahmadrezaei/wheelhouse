@@ -22,6 +22,9 @@
 #     `com.ahmadrezaei.wheelhouse.perf.windows-visible` (development builds only), read with `notifyutil -g`. Visible scenarios start
 #     with `-WHPerfKeepVisible YES` (the window floats on every Space, so a full-screen app elsewhere cannot cover it); `--no-keep-visible`
 #     turns that off. The sampler holds `caffeinate -dis -w <pid>` so the display does not sleep during the run.
+#   - complete: the app is still running at the last minute sample. A run whose app went away early measured fewer minutes and
+#     could not run `leaks` (an M4a soak lost its app at minute 54 and was recorded without a leaks count); the sampler saves the
+#     system log of the last 10 minutes next to the CSV (`.exit-log.txt`) and names any crash report.
 #
 # Caveats: `energyImpact` is top's POWER column and tracks CPU% (informational, see perf/budgets.json); IDLEW undercounts
 # wakeups, so `idleWakeupsPerSec` is a lower bound. The derived data defaults to ~/Library/Caches/wheelhouse-perf (WH_PERF_DERIVED_DATA).
@@ -181,8 +184,18 @@ fp_mb() {
 # One row per minute on a fixed schedule (deadline-based, so the samples do not drift by the time the probes take).
 echo "t,minute,footprintMB,fds,threads,established,visible" >"$CSV"
 T0="$(date +%s)"
+EXITED_EARLY=0
 for m in $(seq 0 $(( MINUTES - 1 ))); do
-  kill -0 "$PID" 2>/dev/null || { echo "the app exited while sampling" >&2; break; }
+  if ! kill -0 "$PID" 2>/dev/null; then
+    # A run that lost its app measured fewer minutes than it claims and could not run `leaks` at the end: it is invalid (below). Keep
+    # what the system logged about the end of the process and any crash report, so the cause can be found.
+    EXITED_EARLY=1
+    echo "the app exited while sampling (minute $m of $MINUTES)" >&2
+    log show --last 10m --style compact --predicate "processID == $PID OR eventMessage CONTAINS \"[$PID]\" OR eventMessage CONTAINS \"pid $PID\"" \
+      >"$REPO/.build/perf/$SCENARIO-$DATE.exit-log.txt" 2>&1 || true
+    ls -t "$HOME/Library/Logs/DiagnosticReports" 2>/dev/null | grep -m3 '^Wheelhouse' >&2 || echo "no Wheelhouse crash report" >&2
+    break
+  fi
   FP="$(fp_mb)"; FDS="$(lsof -p "$PID" 2>/dev/null | wc -l | tr -d ' ')"
   TH="$(top -l 1 -pid "$PID" -stats pid,threads 2>/dev/null | awk -v p="$PID" '$1==p {print $2}' | tail -1)"
   echo "$(( $(date +%s) - T0 )),$m,${FP:-0},${FDS:-0},${TH:-0},$(established),$(visible_state)" >>"$CSV"
@@ -201,10 +214,11 @@ python3 -I "$REPO/scripts/perf-summary.py" summarize --scenario "$SCENARIO" --to
   --extra "keepVisible=$([ "$KEEPS" = 1 ] && echo true || echo false)" --extra "connectedAfterSettle=$NOW_CONNECTED"
 
 # Validity over the whole run (see the header).
-python3 -I - "$SUMMARY" "$HIDES" "$CONNECTION_CHECK" <<'PY'
+python3 -I - "$SUMMARY" "$HIDES" "$CONNECTION_CHECK" "$EXITED_EARLY" "$MINUTES" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1])); hides = sys.argv[2] == "1"; check = sys.argv[3] == "1"
 problems = []
+if sys.argv[4] == "1": problems.append(f"the app exited after {s.get('minutes')} of {sys.argv[5]} minutes, so the run is short and could not run leaks at the end (see the .exit-log.txt next to the CSV)")
 vis = s.get("windowVisibleMinutesPct")
 if vis is None or s.get("windowVisibilityUnknownMinutes", 0) > 0: problems.append("the app did not publish its window visibility in every minute (is it a development build of this version?)")
 elif not hides and vis < 100: problems.append(f"the window was visible in only {vis} % of the minute samples")
