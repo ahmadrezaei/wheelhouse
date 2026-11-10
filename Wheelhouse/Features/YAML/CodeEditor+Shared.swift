@@ -30,6 +30,7 @@ enum EditorColors {
     static let anchor = dynamic(0x0060C7, 0x409CFF)
     static let marker = dynamic(0x6C6C70, 0x8E8E93)
     static let error = dynamic(0xCC1F2B, 0xFF6B63)
+    static let warning = dynamic(0xB45309, 0xFFB340)
 
     static var secondaryLabel: PlatformColor {
         #if canImport(UIKit)

@@ -129,6 +129,7 @@ final class MacEnergyCoordinator {
         guard !windowsVisible, !released else { return }
         released = true
         registry.stopAllSessions()
+        SchemaServices.trim()
     }
 
     // MARK: Memory pressure
@@ -141,6 +142,7 @@ final class MacEnergyCoordinator {
             trimLogBuffers()
             registry.trimCaches()
             ChartRoomMemory.trim()
+            SchemaServices.trim()
         case .critical:
             memoryCriticals += 1
             trimSidebars()
@@ -148,6 +150,7 @@ final class MacEnergyCoordinator {
             trimLogBuffers()
             registry.trimCaches()
             ChartRoomMemory.trim()
+            SchemaServices.trim()
             // Every non-visible consumer goes now; with a window visible only the idle caches are dropped above.
             if !windowsVisible { release() }
         }

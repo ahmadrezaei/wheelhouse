@@ -254,6 +254,9 @@ public protocol KubeClientProtocol: Sendable {
     func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                       headers: [String: String], body: Data?) async throws -> ProxyResponse
 
+    /// GET of an OpenAPI v3 document: `/openapi/v3` or `/openapi/v3/<group-version>[?hash=…]` (M7). Any other path is refused.
+    func openAPIDocument(path: String) async throws -> Data
+
     /// Runs the asynchronous part of authentication (an exec credential plugin) before the synchronous socket builders below.
     /// `ExecSession.start` and the port-forward pump call it first. Default: no-op.
     func prepareStreaming() async throws
@@ -294,6 +297,9 @@ public struct ProxyResponse: Sendable {
 
 public extension KubeClientProtocol {
     func prepareStreaming() async throws {}
+    func openAPIDocument(path: String) async throws -> Data {
+        throw KubeError.unsupported("OpenAPI schemas are not available for this client.")
+    }
     func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
         throw KubeError.unsupported("Metadata-only listing is not available for this client.")
     }
