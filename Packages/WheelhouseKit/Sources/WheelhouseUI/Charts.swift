@@ -58,6 +58,18 @@ public struct MetricChart: View {
     }
 
     public var body: some View {
+        #if os(macOS)
+        // Core Graphics instead of Swift Charts on the Mac: see `MacMetricChart` for the measured reason.
+        MacMetricChart(series: series, unit: unit, capacity: capacity)
+            .frame(height: height)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(summary)
+        #else
+        swiftChart
+        #endif
+    }
+
+    private var swiftChart: some View {
         Chart {
             ForEach(series) { s in
                 ForEach(s.points.downsampled(), id: \.time) { p in

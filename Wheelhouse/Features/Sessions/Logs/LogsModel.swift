@@ -133,6 +133,12 @@ final class LogsModel: Identifiable {
     @ObservationIgnored private var markerAdded = false
     @ObservationIgnored private var syncedEpoch = -1
     @ObservationIgnored private var isOnScreen = false
+    /// Screens showing this model whose pane is hidden (`\.paneIsVisible` false; a Mac hidden tab or covered window). One model can be
+    /// on several screens (`SessionsHub`), so the stream counts as visible while any screen on it is. Always 0 on iOS.
+    @ObservationIgnored private var hiddenViewers = 0
+    /// True unless every screen that reported its pane reported it hidden.
+    var isPaneVisible: Bool { hiddenViewers == 0 || visibleViewers > 0 }
+    @ObservationIgnored private var visibleViewers = 0
     /// `load()` finished (or was cancelled) while the screen was gone or the app in the background: start on return.
     @ObservationIgnored private var startDeferred = false
     @ObservationIgnored private var syncedAppended = 0
@@ -243,9 +249,28 @@ final class LogsModel: Identifiable {
     func screenDidAppear() {
         isOnScreen = true
         updateStatus(force: true)
-        stream.isVisible = true
+        stream.isVisible = isPaneVisible
         if stream.state == .paused, stream.pauseReason == .screenLeft { stream.resume() }
         startDeferredIfPossible()
+    }
+
+    /// The pane showing this model became visible or hidden (Mac: a hidden tab, a covered or miniaturised window). A hidden stream counts
+    /// as not visible for the log memory budget (its oldest lines go first, and a memory warning trims it); the follow itself keeps
+    /// running, and the screen stops syncing and drawing (`LogsView`).
+    ///
+    /// Each screen reports its first value with `previous: nil` and every change with the value it reported before, and withdraws its
+    /// report when it goes (`paneVisibilityWithdrawn`).
+    func paneVisibilityChanged(_ visible: Bool, previous: Bool?) {
+        if let previous { if previous { visibleViewers -= 1 } else { hiddenViewers -= 1 } }
+        if visible { visibleViewers += 1 } else { hiddenViewers += 1 }
+        visibleViewers = max(visibleViewers, 0); hiddenViewers = max(hiddenViewers, 0)
+        if isOnScreen { stream.isVisible = isPaneVisible }
+    }
+
+    /// A screen that reported its pane's visibility went away.
+    func paneVisibilityWithdrawn(_ last: Bool) {
+        if last { visibleViewers = max(visibleViewers - 1, 0) } else { hiddenViewers = max(hiddenViewers - 1, 0) }
+        if isOnScreen { stream.isVisible = isPaneVisible }
     }
 
     /// True while new lines come from repeated non-follow requests because the node cannot stream.

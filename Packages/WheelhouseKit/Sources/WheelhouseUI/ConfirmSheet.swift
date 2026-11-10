@@ -94,6 +94,7 @@ public struct ConfirmSheet: View {
     private let request: ConfirmRequest
     @Environment(\.dismiss) private var dismiss
     @Environment(ClusterRegistry.self) private var registry: ClusterRegistry?
+    @Environment(\.activityLog) private var activityLog
     @State private var typed = ""
     @State private var dryRun: DryRunState = .idle
     @State private var isRunning = false
@@ -215,15 +216,22 @@ public struct ConfirmSheet: View {
     private func run() async {
         // Re-check against the live configuration immediately before mutating.
         let live = live
-        if let refusal = request.refusal(live: live) { failure = refusal; isRunning = false; return }
+        if let refusal = request.refusal(live: live) { record("refused: \(refusal)"); failure = refusal; isRunning = false; return }
         if let live, request.requiresTyping(for: live), typed != request.confirmationText { failure = "Type \(request.confirmationText) to confirm."; isRunning = false; return }
         do {
             try await request.action()
+            record("ok")
             dismiss()
         } catch {
             failure = (error as? KubeError)?.summary ?? error.localizedDescription
+            record("failed: \(failure ?? "error")")
         }
         isRunning = false
+    }
+
+    /// The audit trail (Mac Activity log): what was confirmed, where it came from and how it ended. Never a body or a Secret value.
+    private func record(_ result: String) {
+        activityLog.record(ActivityEntry(cluster: request.cluster.id, origin: request.origin.orUI, verb: request.verb, object: request.resource, result: result))
     }
 }
 

@@ -8,6 +8,8 @@ struct FleetDashboardView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppPreferences.self) private var preferences
     @Environment(\.scenePhase) private var scenePhase
+    /// False while a Mac pane showing the Fleet cannot be seen: the refresh loop (and the chart's samples) stop until it can.
+    @Environment(\.paneIsVisible) private var paneIsVisible
     @State private var editingCluster: ClusterConfig?
     private let model = FleetModel.shared
     private let seen = AlertsSeen.shared
@@ -41,8 +43,8 @@ struct FleetDashboardView: View {
         }
         .refreshable { await model.refresh(registry: registry) }
         .sheet(item: $editingCluster) { cfg in NavigationStack { AddClusterView(editing: cfg, registry: registry) } }
-        .task(id: "\(scenePhase == .active)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
-            guard scenePhase == .active else { return }
+        .task(id: "\(scenePhase == .active && paneIsVisible)-\(preferences.refreshInterval)-\(EnergyMonitor.shared.policy.refreshMultiplier)") {
+            guard scenePhase == .active, paneIsVisible else { return }
             await model.run(registry: registry, interval: preferences.refreshInterval)
         }
         // After the first real cluster is added, ask once for notification permission (a no-op unless never asked).

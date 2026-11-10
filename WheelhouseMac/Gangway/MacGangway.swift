@@ -10,6 +10,7 @@ import WheelhouseKit
 @MainActor
 final class MacGangway {
     private let registry: ClusterRegistry
+    private let activity: any ActivityLogging
     private let paths: AppPaths
     private let provider: SnapshotClusterProvider
     private var service: GangwayService?
@@ -20,7 +21,8 @@ final class MacGangway {
     /// Shows the confirmation sheets. M5b installs the real one; until then every held request is declined.
     var confirmer: any GangwayConfirming = DecliningConfirmer()
 
-    init(registry: ClusterRegistry, moorings: MooringsController, paths: AppPaths) {
+    init(registry: ClusterRegistry, moorings: MooringsController, paths: AppPaths, activity: any ActivityLogging = NoopActivityLog()) {
+        self.activity = activity
         self.registry = registry
         self.paths = paths
         let credentials = moorings.credentials
@@ -55,7 +57,7 @@ final class MacGangway {
 #if WH_TEST_HOOKS
             if let hook = GangwayTestHooks.confirmerIfRequested() { confirmer = hook }
 #endif
-            let made = GangwayService(paths: paths, clusters: provider, confirmer: confirmer, observesClusterEvents: false)
+            let made = GangwayService(paths: paths, clusters: provider, confirmer: confirmer, activity: activity, observesClusterEvents: false)
             if locked { made.lock() }
             do { try await made.start() } catch {
                 sync.stop()

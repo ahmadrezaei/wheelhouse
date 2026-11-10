@@ -69,8 +69,33 @@ struct TerminalSurfaceHost: UIViewRepresentable {
 #else
 struct TerminalSurfaceHost: NSViewRepresentable {
     let surface: any TerminalSurface
+    /// A terminal in a pane that cannot be seen draws nothing: AppKit never draws a hidden view, while the bytes it is fed still update
+    /// its buffer, and it draws the current screen once it is shown again (ARCHITECTURE-MAC section 12.3.3).
+    @Environment(\.paneIsVisible) private var paneIsVisible
+
+    final class Coordinator {
+        /// The terminal had the keyboard when it was hidden: AppKit moves first responder away from a hidden view, so it is given back.
+        var restoresFocus = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { surface.view }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        Self.apply(visible: paneIsVisible, to: nsView, coordinator: context.coordinator)
+    }
+
+    /// Hides or shows the terminal view, keeping its keyboard focus across a hide (a covered window or a tab switch and back).
+    static func apply(visible: Bool, to view: NSView, coordinator: Coordinator) {
+        guard view.isHidden == visible else { return }
+        if visible {
+            view.isHidden = false
+            if coordinator.restoresFocus, let window = view.window { window.makeFirstResponder(view) }
+            coordinator.restoresFocus = false
+        } else {
+            coordinator.restoresFocus = view.window?.firstResponder === view
+            view.isHidden = true
+        }
+    }
 }
 #endif
 

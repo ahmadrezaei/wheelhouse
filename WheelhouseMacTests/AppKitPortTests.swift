@@ -628,18 +628,19 @@ struct AppKitPortTests {
     // MARK: Column minimums (P1)
 
     @Test func onlyTheFastUpdatingScreensUseAConstantMinimum() {
-        #expect(MacContentColumn.usesConstantMinimum(.kind("c", .pod)))
-        #expect(!MacContentColumn.usesConstantMinimum(.fleet))
-        #expect(!MacContentColumn.usesConstantMinimum(.clusterOverview("c")))
+        let list = WorkspaceDestination.route(.resourceList("c", .pod, namespace: nil))
+        #expect(PaneMinimums.usesConstantMinimum(list))
+        #expect(!PaneMinimums.usesConstantMinimum(.route(.fleet)))
+        #expect(!PaneMinimums.usesConstantMinimum(.route(.cluster("c"))))
         // Chart Room (releases 520 + 420 pt, charts 520 + 320) and Survey (420 + a second pane) are measured: their split views
-        // must keep holding the column open.
-        for section in ChartRoomSection.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.chartRoom("c", section)))) }
-        for tab in SurveyTab.allCases { #expect(!MacContentColumn.usesConstantMinimum(.feature(.survey(SurveyScope(clusterID: "c", tab: tab, namespace: nil))))) }
-        #expect(MacContentColumn.usesConstantMinimum(route: .resourceList("c", .pod, namespace: nil)))
+        // must keep holding the pane open.
+        for section in ChartRoomSection.allCases { #expect(!PaneMinimums.usesConstantMinimum(.chartRoom("c", section))) }
+        for tab in SurveyTab.allCases { #expect(!PaneMinimums.usesConstantMinimum(.survey(SurveyScope(clusterID: "c", tab: tab, namespace: nil)))) }
+        #expect(PaneMinimums.usesConstantMinimum(route: .resourceList("c", .pod, namespace: nil)))
         let pod = ResourceRef(clusterID: "c", kind: .pod, namespace: "shop", name: "p")
-        #expect(MacDetailColumn.usesConstantMinimum(route: .logs(pod, container: nil, previous: false)))
-        #expect(!MacDetailColumn.usesConstantMinimum(route: .resourceDetail(pod)))
-        #expect(!MacDetailColumn.usesConstantMinimum(route: .yaml(pod)))
+        #expect(PaneMinimums.usesConstantMinimum(route: .logs(pod, container: nil, previous: false)))
+        #expect(!PaneMinimums.usesConstantMinimum(route: .resourceDetail(pod)))
+        #expect(!PaneMinimums.usesConstantMinimum(route: .yaml(pod)))
     }
 
     @Test func aConstantMinimumAnswersTheMinimumWithoutMeasuring() {

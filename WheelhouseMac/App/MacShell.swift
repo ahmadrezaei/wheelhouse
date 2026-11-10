@@ -7,33 +7,65 @@ import WheelhouseDesktop
 import WheelhouseKit
 import WheelhouseUI
 
-/// The M1b workspace window: the resource tree on the left, the selected screen in the middle and, for resource lists and anything
-/// opened from a screen, the detail on the right (DESIGN-MAC section 3.1; M4a replaces the middle and right with tabs and panes).
+/// A workspace window (DESIGN-MAC section 3.1): the resource tree on the left, the tab bar, the pane tree of the selected tab, the
+/// status bar and, when open, the inspector. State lives in `WorkspaceStore`; this view only shows it.
 ///
-/// It reuses every iOS screen through `AppRouter` and `RouteDestinationView`. The Mac adds: the sidebar tree, the lock overlay,
-/// file drops and "Open With" for kubeconfigs, notification routing, and the import sheet with `MacImportPolicy`.
+/// Every iOS screen still runs through `AppRouter` and `RouteDestinationView`, one router per PANE (`WorkspaceWindowModel`). The Mac
+/// adds the sidebar tree, the lock overlay, file drops and "Open With" for kubeconfigs, and the import sheet with `MacImportPolicy`.
 struct MacShell: View {
+    let windowID: WorkspaceWindowID
+    @Environment(MacAppEnvironment.self) private var env
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        let model = env.workspace.model(for: windowID)
+        WorkspaceWindowContent(model: model)
+            .onAppear { connectOpeners() }
+            .task {
+                // Restore the other windows of the last run, once, after the first window exists.
+                env.whenReady {
+                    env.startServices()
+                    env.workspace.restoreRemainingWindows()
+                }
+            }
+            .focusedSceneValue(\.workspaceModel, model)
+    }
+
+    /// The scenes' `openWindow` is how the controller opens windows (⌘N, Move to New Window, Stations, restoration).
+    private func connectOpeners() {
+        let open = openWindow
+        env.workspace.openWorkspaceWindow = { open(value: $0) }
+        env.workspace.openDetachedWindow = { open(value: $0) }
+    }
+}
+
+extension FocusedValues {
+    @Entry var workspaceModel: WorkspaceWindowModel?
+}
+
+/// The window's content for one model. Also the content of the tests that host a whole window.
+struct WorkspaceWindowContent: View {
     @Environment(MacAppEnvironment.self) private var env
     @Environment(\.openSettings) private var openSettings
-    @State private var router = AppRouter()
-    @State private var network = NetworkMonitor()
-    @State private var pendingURL: URL?
+    let model: WorkspaceWindowModel
     @State private var dropTargeted = false
 
     private var registry: ClusterRegistry { env.registry }
     private var showsWelcome: Bool { registry.clusters.isEmpty && !registry.isDemoMode }
     private var locked: Bool { env.lock.isLocked }
-    private var clientFactory: ClusterRegistry.ClientFactory { env.clientFactory }
+    /// The router that serves the window itself (the welcome screen); panes have their own.
+    private var windowRouter: AppRouter { model.windowRouter }
 
     var body: some View {
-        @Bindable var router = router
         @Bindable var importer = env.importer
+        @Bindable var model = model
+        @Bindable var windowRouter = windowRouter
         ZStack {
             // Demo needs no test kubeconfig, so it never waits for the folder prompt.
             if !env.isReady && !registry.isDemoMode {
                 StartingView()
             } else if showsWelcome {
-                WelcomeView().environment(router).onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
+                WelcomeView().environment(windowRouter).onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
             } else {
                 workspace.disabled(locked).accessibilityHidden(locked)
                     .onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
@@ -42,38 +74,50 @@ struct MacShell: View {
                 LockScreenView().environment(env.lock.controller).transition(.identity)
             }
         }
-        .background(WorkspaceWindowMarker().frame(width: 0, height: 0))
+        .background(WorkspaceWindowMarker(model: model).frame(width: 0, height: 0))
         .environment(registry)
         .environment(env.preferences)
-        .environment(router)
+        .environment(windowRouter)
         .environment(env.lock.controller)
-        .environment(network)
-        .environment(env.sidebar)
+        .environment(env.workspace.network)
+        .environment(model.sidebar)
         .environment(\.kubeconfigImportPolicy, env.importer.policy)
-        .environment(\.clusterClientFactory, clientFactory)
+        .environment(\.clusterClientFactory, env.clientFactory)
         .environment(\.clusterChangeAllowing, env.moorings.service)
-        .focusedSceneValue(\.router, router)
-        .focusedSceneValue(\.macNavigation, env.navigation)
+        .environment(\.activityLog, env.activity)
         .tint(Palette.tint)
         .frame(minWidth: 960, minHeight: 600)
-        .sheet(item: $router.sheet) { presented in
-            SheetRouteView(route: presented.route)
-                .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
-                .environment(\.kubeconfigImportPolicy, env.importer.policy)
-                .environment(\.clusterClientFactory, clientFactory)
-                .environment(\.clusterChangeAllowing, env.moorings.service)
-                .frame(minWidth: 520, minHeight: 480)
-        }
         .sheet(item: $importer.presented) { request in
             NavigationStack { KubeconfigImportView(initialFile: request.url) }
-                .environment(registry).environment(env.preferences).environment(router).environment(env.lock.controller).environment(network)
+                .environment(registry).environment(env.preferences).environment(windowRouter).environment(env.lock.controller).environment(env.workspace.network)
                 .environment(\.kubeconfigImportPolicy, env.importer.policy)
-                .environment(\.clusterClientFactory, clientFactory)
+                .environment(\.clusterClientFactory, env.clientFactory)
                 .environment(\.clusterChangeAllowing, env.moorings.service)
                 .frame(minWidth: 560, minHeight: 520)
         }
-        // A tap on a notification, a deep link or a Finder "Open With" lands here.
-        .onOpenURL { handle($0) }
+        // The sheet routes the Welcome screen pushes (Add Cluster, Import) and, like every pane, Settings as its own scene.
+        .sheet(item: $windowRouter.sheet) { presented in
+            SheetRouteView(route: presented.route)
+                .environment(env).environment(registry).environment(env.preferences).environment(windowRouter).environment(env.lock.controller).environment(env.workspace.network)
+                .environment(\.kubeconfigImportPolicy, env.importer.policy)
+                .environment(\.clusterClientFactory, env.clientFactory)
+                .environment(\.clusterChangeAllowing, env.moorings.service)
+                .frame(minWidth: 520, minHeight: 480)
+        }
+        .onChange(of: windowRouter.sheet) { _, sheet in
+            if sheet?.route == .settings { windowRouter.sheet = nil; openSettings() }
+        }
+        .sheet(item: $model.sheet) { sheet in
+            Group {
+                switch sheet {
+                case .saveStation: SaveStationSheet(model: model)
+                case .stations: StationsView().environment(env).safeAreaInset(edge: .bottom) { HStack { Spacer(); Button("Done") { model.sheet = nil } }.padding() }
+                case .pickClusters(let id):
+                    if let station = env.workspace.store.stations.first(where: { $0.id == id }) { StationClusterPicker(station: station).environment(env) }
+                }
+            }
+            .environment(env).environment(registry)
+        }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(MacImportCoordinator.isImportable)
             guard let first = files.first else { return false }
@@ -82,55 +126,69 @@ struct MacShell: View {
         } isTargeted: { dropTargeted = $0 }
         .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.tint, style: StrokeStyle(lineWidth: 3, dash: [8, 6])).padding(6).allowsHitTesting(false) } }
         .task {
-            router.isCompact = false
-            NotificationCoordinator.shared.install { handle($0) }
+            NotificationCoordinator.shared.install { env.workspace.handle(url: $0) }
             env.whenReady {
                 env.startServices()
-                if let id = registry.currentCluster?.id { env.sidebar.focus(cluster: id) }
+                model.focusedPaneChanged()
+                // A link that launched the app waited for the first window.
+                if !env.lock.isLocked, let url = env.workspace.pendingURL { env.workspace.pendingURL = nil; env.workspace.handle(url: url) }
                 openLaunchRequests()
             }
-            for route in env.launchRoutes { router.push(route, from: .content) }
-            env.launchRoutes = []
-        }
-        // Routes queued after the window appeared (performance scenarios apply their layout from the app delegate).
-        .onChange(of: env.launchRoutes.count) { _, count in
-            guard count > 0 else { return }
-            for route in env.launchRoutes { router.push(route, from: .content) }
-            env.launchRoutes = []
         }
         .onChange(of: env.lock.isLocked) { _, locked in
             if locked {
-                router.sheet = nil
+                // Everything above the overlay goes: this window's sheets (Stations, Save Station, the cluster picker, Add Cluster) and
+                // every sheet presented by a screen of any window (sign-in, merge review, scanner setup).
+                model.sheet = nil
+                windowRouter.sheet = nil
+                for other in env.workspace.allModels { other.sheet = nil }
                 ChartRoomMemory.scrub()
                 env.importer.dismiss()
                 Self.coverWindows()
             } else {
-                if let url = pendingURL { pendingURL = nil; handle(url) }
+                if let url = env.workspace.pendingURL { env.workspace.pendingURL = nil; env.workspace.handle(url: url) }
                 env.importer.presentDeferred()
             }
         }
-        // Deep links and notification taps move the router; the content column follows.
-        .onChange(of: router.sidebarSelection) { _, item in if let item { env.navigation.selection = MacNavigation.destination(for: item) } }
-        .onChange(of: router.sheet) { _, sheet in
-            // Settings is a scene on the Mac, not a sheet.
-            if sheet?.route == .settings { router.sheet = nil; openSettings() }
+        .onChange(of: registry.clusters.map(\.id)) { _, _ in model.sidebar.rebuild() }
+        .onChange(of: registry.isDemoMode) { _, _ in
+            model.sidebar.rebuild()
+            model.mutate { state in for pane in state.selected.panes where !pane.isPlaceholder { state.setRoot(.route(.fleet), in: pane.id) } }
         }
-        .onChange(of: registry.clusters.map(\.id)) { _, _ in env.sidebar.rebuild() }
-        .onChange(of: registry.currentClusterID) { _, id in env.sidebar.focus(cluster: id) }
-        .onChange(of: registry.isDemoMode) { _, _ in env.sidebar.rebuild(); env.navigation.selection = .fleet }
+        .navigationTitle(model.focusedPane?.title(registry: registry) ?? "Wheelhouse")
+        .task { env.workspace.announceMovedAsideFileOnce() }
     }
 
     // MARK: Workspace
 
     private var workspace: some View {
-        NavigationSplitView {
-            SidebarPane()
+        let state = model.state
+        let hosted = state.tabs.filter { $0.id == state.selectedTab || $0.panes.contains { !$0.stack.allSatisfy { WorkspaceWindowModel.tearsDownWhenHidden($0) } } }
+        return NavigationSplitView {
+            SidebarPane(window: model)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
-        } content: {
-            MacContentColumn()
-                .navigationSplitViewColumnWidth(min: MacContentColumn.minimumWidth, ideal: 600)
         } detail: {
-            MacDetailColumn()
+            VStack(spacing: 0) {
+                TabBar(model: model)
+                Divider()
+                ZStack {
+                    ForEach(hosted, id: \.id) { tab in
+                        PaneTreeLayout(env: env, model: model, tab: tab, isSelected: tab.id == state.selectedTab)
+                        .accessibilityHidden(tab.id != state.selectedTab)
+                    }
+                }
+                Divider()
+                StatusBar(model: model)
+            }
+            .inspector(isPresented: Binding(get: { model.isInspectorOpen }, set: { model.isInspectorOpen = $0 })) {
+                InspectorView(model: model).inspectorColumnWidth(min: 300, ideal: 340, max: 480)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { model.isInspectorOpen.toggle() } label: { Label("Inspector", systemImage: "sidebar.trailing") }
+                        .help("Show or Hide Inspector").accessibilityIdentifier("toolbar.inspector")
+                }
+            }
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -139,21 +197,10 @@ struct MacShell: View {
     /// the overlay) and closes the Settings window, which the overlay of this window does not cover.
     private static func coverWindows() {
         for window in NSApp.windows {
+            for sheet in window.sheets { window.endSheet(sheet) }
             window.makeFirstResponder(nil)
             if window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true { window.close() }
         }
-    }
-
-    // MARK: Opening things
-
-    private func handle(_ url: URL) {
-        if env.lock.isLocked { pendingURL = url; return }
-        if url.isFileURL {
-            if MacImportCoordinator.isImportable(url) { env.importer.import(url: url) }
-            return
-        }
-        if DeepLink.isImport(url) { env.importer.presentOpenPanel(); return }
-        router.open(url: url, registry: registry)
     }
 
     /// Development-only launch hooks: `-WHImportFile <path>` opens the import screen on a file exactly like Finder's Open With.
@@ -163,6 +210,26 @@ struct MacShell: View {
         if let i = args.firstIndex(of: "-WHImportFile"), args.indices.contains(i + 1) {
             env.importer.import(url: URL(fileURLWithPath: args[i + 1]), whileLocked: env.lock.isLocked)
         }
+    }
+}
+
+/// A pane torn off into its own window (DESIGN-MAC section 3.4): compact chrome, one pane, no sidebar.
+struct DetachedPaneWindow: View {
+    let paneID: PaneID
+    @Environment(MacAppEnvironment.self) private var env
+
+    var body: some View {
+        let model = env.workspace.detachedModel(for: paneID)
+        VStack(spacing: 0) {
+            ZStack {
+                PaneHost(env: env, model: model, paneID: paneID)
+                if env.lock.isLocked { LockScreenView().environment(env.lock.controller).transition(.identity) }
+            }
+        }
+        .background(WorkspaceWindowMarker(model: model).frame(width: 0, height: 0))
+        .frame(minWidth: 480, minHeight: 320)
+        .navigationTitle(model.pane(paneID)?.title(registry: env.registry) ?? "Pane")
+        .focusedSceneValue(\.workspaceModel, model)
     }
 }
 
@@ -214,21 +281,6 @@ extension View {
     }
 }
 
-/// Registers the window that hosts the workspace with ``WorkspaceWindows`` (the energy rules count only these windows).
-private struct WorkspaceWindowMarker: NSViewRepresentable {
-    final class MarkerView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let window { WorkspaceWindows.register(window) }
-        }
-    }
-
-    func makeNSView(context: Context) -> MarkerView { MarkerView() }
-    func updateNSView(_ view: MarkerView, context: Context) {}
-}
-
 /// The end of the launch path: the first time the shell shows real content (the workspace or the welcome screen) instead of the
 /// Starting view. Emits a `FirstContent` signpost (Instruments, `Launch` category) and, in development builds, the Darwin notification
 /// `scripts/perf-launch.swift` times (budget `testLaunch.firstContentP90Sec`, ARCHITECTURE-MAC section 12.3.2). Fires once per process.
@@ -251,10 +303,6 @@ enum LaunchMarker {
             CATransaction.commit()
         }
     }
-}
-
-extension FocusedValues {
-    @Entry var macNavigation: MacNavigation?
 }
 
 /// Shown until the allowed hosts are known. After five seconds it says what it is waiting for: macOS may be asking for access to the

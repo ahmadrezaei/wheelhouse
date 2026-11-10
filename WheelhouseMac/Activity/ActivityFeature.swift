@@ -1,7 +1,7 @@
 import SwiftUI
 import WheelhouseKit
 
-/// Stub. M4a replaces the contents of this file (and only this folder).
+/// The Activity view: a pane destination (`.activity`) and the Activity window share `ActivityView`.
 enum ActivityFeature: WheelhouseFeature {
     static var id: FeatureID { .activity }
     static var title: String { "Activity" }
@@ -11,6 +11,6 @@ enum ActivityFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Activity", milestone: "M4a")
+        ActivityView()
     }
 }

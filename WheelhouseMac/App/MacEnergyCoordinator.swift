@@ -26,6 +26,9 @@ final class MacEnergyCoordinator {
     private(set) var windowsVisible = true
     private(set) var onBattery = PowerSourceMonitor.onBattery
     private(set) var released = false
+    /// Set by the app: drops the sidebars' summary caches (memory warning) and the content of hidden windows (critical).
+    @ObservationIgnored var trimSidebars: @MainActor () -> Void = {}
+    @ObservationIgnored var releaseHiddenWindowContent: @MainActor () -> Void = {}
     /// Counts for diagnostics and tests.
     private(set) var memoryWarnings = 0
     private(set) var memoryCriticals = 0
@@ -135,12 +138,15 @@ final class MacEnergyCoordinator {
         switch level {
         case .warning:
             memoryWarnings += 1
+            trimSidebars()
             trimLogBuffers()
             registry.trimCaches()
             ChartRoomMemory.trim()
             SchemaServices.trim()
         case .critical:
             memoryCriticals += 1
+            trimSidebars()
+            releaseHiddenWindowContent()
             trimLogBuffers()
             registry.trimCaches()
             ChartRoomMemory.trim()

@@ -20,8 +20,10 @@ final class MacAppEnvironment {
     let moorings: MooringsController
     let energy: MacEnergyCoordinator
     let alerts: MacAlertMonitor
-    let sidebar: SidebarModel
-    let navigation = MacNavigation()
+    /// The local audit log (M4a). Opens its database lazily, on the first record or query.
+    let activity: ActivityLog
+    /// Windows, tabs, panes and Stations (M4a).
+    let workspace: WorkspaceController
     let paths: AppPaths
     /// A short description of the safety state (shown in the status line of development builds).
     private(set) var safetySummary: String
@@ -36,13 +38,10 @@ final class MacAppEnvironment {
     @ObservationIgnored private var reader: @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) }
     private var badgeTask: PeriodicTask?
     // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
-    @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths)
+    @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths, activity: activity)
     // end M5a
-    /// Routes to open once the window exists (performance scenarios, launch hooks).
-    var launchRoutes: [Route] = []
-
     init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
-         paths: AppPaths, safetySummary: String, gateActive: Bool) {
+         paths: AppPaths, safetySummary: String, gateActive: Bool, activity: ActivityLog, workspaceStore: WorkspaceStore) {
         self.registry = registry
         self.preferences = preferences
         self.macPreferences = macPreferences
@@ -54,7 +53,14 @@ final class MacAppEnvironment {
         self.gateActive = gateActive
         self.energy = MacEnergyCoordinator(registry: registry, reportsVisibility: gateActive)
         self.alerts = MacAlertMonitor(registry: registry, preferences: preferences)
-        self.sidebar = SidebarModel(provider: RegistrySidebarProvider(registry: registry))
+        self.activity = activity
+        self.workspace = WorkspaceController(store: workspaceStore, registry: registry, activity: activity,
+                                             sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
+        let lock = self.lock
+        self.workspace.isLocked = { lock.isLocked }
+        let workspace = self.workspace
+        energy.trimSidebars = { workspace.allModels.forEach { $0.sidebarIfCreated?.trimCaches() } }
+        energy.releaseHiddenWindowContent = { workspace.allModels.forEach { $0.releaseContentNow() } }
     }
 
     /// Every client is built through this: `DesktopClientFactory`. While the gate is active a server that is not an allowed test host
@@ -98,8 +104,9 @@ final class MacAppEnvironment {
         // private kubectl cache; exec plugins get an environment without KUBECONFIG at all.
         let shell = ShellEnvironment(gate: .current, explicitTestKubeconfig: testFile,
                                      kubeCacheDir: paths.root.appending(path: "kubectl-cache", directoryHint: .isDirectory))
+        let activity = ActivityLog(url: paths.activityDatabase)
         let moorings = MooringsController(paths: paths, explicitTestKubeconfig: testFile, keychainMetadata: keychainMetadata,
-                                          keychainCredentials: KeychainCredentialStore(), shell: shell)
+                                          keychainCredentials: KeychainCredentialStore(), shell: shell, activity: activity)
         let registry = ClusterRegistry(credentials: moorings.credentials, metadata: moorings.metadata, defaults: defaults,
                                        clientFactory: moorings.clientFactory)
         moorings.registry = registry
@@ -114,12 +121,26 @@ final class MacAppEnvironment {
 
         let lock = MacLockCoordinator(locked: preferences.appLockEnabled)
         let env = MacAppEnvironment(registry: registry, preferences: preferences, macPreferences: macPreferences, lock: lock,
-                                    importer: MacImportCoordinator(moorings: moorings.service), moorings: moorings, paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive)
+                                    importer: MacImportCoordinator(moorings: moorings.service), moorings: moorings, paths: paths, safetySummary: notes.joined(separator: " · "), gateActive: gateActive,
+                                    activity: activity, workspaceStore: WorkspaceStore(file: workspaceFile(paths: paths, gateActive: gateActive)))
         env.testKubeconfig = testFile
         env.reader = reader
         env.hostsState = testFile == nil ? .notConfigured : .pending
         env.notes = notes
         return env
+    }
+
+    /// Where the workspace is saved. Performance scenarios, Demo runs and `-WHResetState` use no file at all (they must never read or
+    /// overwrite a person's workspace, and a scenario is applied on top of a clean one); `-WHWorkspaceFile <path>` names a file
+    /// (UI tests of restoration). Both are honoured only while the safety gate is active.
+    static func workspaceFile(paths: AppPaths, gateActive: Bool, arguments: [String] = ProcessInfo.processInfo.arguments) -> URL? {
+        if gateActive {
+            if let i = arguments.firstIndex(of: "-WHWorkspaceFile"), arguments.indices.contains(i + 1) { return URL(fileURLWithPath: arguments[i + 1]) }
+            // Unit tests build the app environment too: they never touch a person's workspace file.
+            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return nil }
+            if arguments.contains("-WHResetState") || arguments.contains("-WHDemoMode") || arguments.contains("-WHPerfScenario") { return nil }
+        }
+        return paths.workspaceFile
     }
 
     @ObservationIgnored private var notes: [String] = []
@@ -184,8 +205,8 @@ final class MacAppEnvironment {
         }
         // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
         if badgeTask == nil {
-            let sidebar = sidebar
-            let t = PeriodicTask(name: "sidebar.badges", interval: 5, hiddenInterval: nil) { await MainActor.run { sidebar.refreshBadges() } }
+            let workspace = workspace
+            let t = PeriodicTask(name: "sidebar.badges", interval: 5, hiddenInterval: nil) { await MainActor.run { workspace.refreshSidebarBadges() } }
             badgeTask = t
             t.start()
         }
