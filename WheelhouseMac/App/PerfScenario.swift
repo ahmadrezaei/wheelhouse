@@ -197,12 +197,25 @@ enum PerfScenarioRunner {
         }
         model.openInNewTab(.route(.fleet))
         opened.append(model.selectedTab.id)
-        model.split(.horizontal)
-        try? await Task.sleep(for: pause / 2)
-        if let split = model.selectedTab.panes.last?.id { model.closePane(split) }
+        if !PerfSwitches.noSplit {
+            model.split(.horizontal)
+            try? await Task.sleep(for: pause / 2)
+            if let split = model.selectedTab.panes.last?.id { model.closePane(split) }
+        }
         for tab in opened { model.closeTab(tab) }
         model.select(tab: original)
     }
+}
+
+/// Measurement-only switches for A/B soak runs (`-WHPerfNoSplit YES`, `-WHPerfNoSidebarRefresh YES`). Honoured only while the safety gate
+/// is active, like the scenarios themselves.
+enum PerfSwitches {
+    static func isOn(_ name: String, arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        guard DevSafety.isActive, let i = arguments.firstIndex(of: name) else { return false }
+        return arguments.indices.contains(i + 1) && arguments[i + 1] == "YES"
+    }
+    static var noSplit: Bool { isOn("-WHPerfNoSplit") }
+    static var noSidebarRefresh: Bool { isOn("-WHPerfNoSidebarRefresh") }
 }
 
 /// How a scenario's pane list becomes windows and tabs. The single-window, single-tab scenarios (`idle-1`) keep the M1b behaviour: the

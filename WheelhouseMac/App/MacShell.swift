@@ -156,6 +156,7 @@ struct WorkspaceWindowContent: View {
             model.mutate { state in for pane in state.selected.panes where !pane.isPlaceholder { state.setRoot(.route(.fleet), in: pane.id) } }
         }
         .navigationTitle(model.focusedPane?.title(registry: registry) ?? "Wheelhouse")
+        .task { env.workspace.announceMovedAsideFileOnce() }
     }
 
     // MARK: Workspace

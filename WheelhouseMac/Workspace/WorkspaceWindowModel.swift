@@ -66,6 +66,7 @@ final class WorkspaceController {
 
     /// Badges of the sidebars of windows that can be seen (a hidden window's sidebar costs nothing).
     func refreshSidebarBadges() {
+        if PerfSwitches.noSidebarRefresh { return }
         for model in allModels where model.isVisible { model.sidebarIfCreated?.refreshBadges() }
     }
 
@@ -108,6 +109,18 @@ final class WorkspaceController {
         }
         newWindow()
     }
+
+    /// A corrupt `workspace.json` was moved aside at launch: say so once, with where it went.
+    func announceMovedAsideFileOnce() {
+        guard !announcedMovedAside, let moved = store.movedAsideCorruptFile else { return }
+        announcedMovedAside = true
+        let alert = NSAlert()
+        alert.messageText = "Your saved windows couldn't be read"
+        alert.informativeText = "Wheelhouse started with a fresh window. The unreadable file was kept as \(moved.lastPathComponent) in its folder."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+    @ObservationIgnored private var announcedMovedAside = false
 
     /// Opens a new workspace window (⌘N) showing the Fleet.
     func newWindow(_ state: WorkspaceWindowState = .fresh()) {
