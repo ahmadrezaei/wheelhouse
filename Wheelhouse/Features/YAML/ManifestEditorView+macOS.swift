@@ -128,6 +128,9 @@ private struct ManifestEditorContent: View {
                 if model.showServerFields && !model.isEditing {
                     StateBanner(.custom(tone: .info, symbol: "server.rack", title: "Showing server fields", message: "status, uid and resourceVersion are visible. managedFields stay hidden. Read-only."))
                 }
+                if assist?.isLoadingSchema == true {
+                    StateBanner(.custom(tone: .info, symbol: "hourglass", title: "Loading schema…", message: nil))
+                }
                 if let note = analysis.schemaNote {
                     StateBanner(.custom(tone: .info, symbol: "doc.text.magnifyingglass", title: note, message: nil))
                 }

@@ -110,9 +110,11 @@ struct YAMLCodeEditor: NSViewRepresentable {
                       indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
             guard let pending = (textView as? YAMLNSTextView)?.editor?.pendingCompletion else { return [] }
             index?.pointee = 0
-            // The list exactly as `ManifestAssist` ranked it (prefix matches first, else substring matches); the system narrows it as the
-            // user types on.
-            return pending.items.map(\.insertText)
+            // The system asks again on every keystroke and does not filter the answer: narrow by what is now in `charRange`, with the
+            // rule and the ranking `ManifestAssist` uses (prefix matches first, else substring matches).
+            let ns = textView.string as NSString
+            let range = NSIntersectionRange(charRange, NSRange(location: 0, length: ns.length))
+            return ManifestAssist.narrow(pending.items, typed: ns.substring(with: range)).map(\.insertText)
         }
     }
 }

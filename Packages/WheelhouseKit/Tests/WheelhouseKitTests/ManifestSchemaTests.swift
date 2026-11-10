@@ -90,6 +90,28 @@ struct YAMLNodeMapTests {
         #expect(root.entry("list")?.keySpan.line == 4)
     }
 
+    @Test func randomLFTextSplitsLikeTheCodec() {
+        let pieces = ["---", "--- ", "a: 1", "  b: 2", "# note", "", " ", "\t", "\u{0C}", "\u{0B}", "\u{85}", "\u{2028}", "  \u{0C}  ", "---x", "- item", "---\t"]
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<500 {
+            let text = (0..<Int.random(in: 0...14, using: &rng)).map { _ in pieces.randomElement(using: &rng)! }.joined(separator: "\n")
+            let mine = YAMLNodeMap.documents(in: text)
+            let theirs = YAMLCodec.parseDocuments(text)
+            #expect(mine.map(\.index) == theirs.map(\.index) && mine.map(\.startLine) == theirs.map(\.startLine), "\(text.debugDescription)")
+        }
+    }
+
+    @Test func narrowingKeepsTheRankingPrefixFirstThenSubstrings() {
+        func item(_ s: String) -> ManifestCompletion { ManifestCompletion(label: s, insertText: s + ": ", detail: nil, documentation: nil, kind: .field) }
+        let items = ["replicas", "revisionHistoryLimit", "imagePullPolicy", "paused"].map(item)
+        #expect(ManifestAssist.narrow(items, typed: "").count == 4)
+        #expect(ManifestAssist.narrow(items, typed: "re").map(\.label) == ["replicas", "revisionHistoryLimit"])
+        #expect(ManifestAssist.narrow(items, typed: "rep").map(\.label) == ["replicas"])
+        #expect(ManifestAssist.narrow(items, typed: "pol").map(\.label) == ["imagePullPolicy"])      // substring when nothing starts with it
+        #expect(ManifestAssist.narrow(items, typed: "PAU").map(\.label) == ["paused"])
+        #expect(ManifestAssist.narrow(items, typed: "zzz").isEmpty)
+    }
+
     @Test func mergeKeysJoinTheMapping() throws {
         let text = "base: &labels\n  app: web\n  tier: be\nlabels:\n  <<: *labels\n  tier: fe\n"
         let root = try #require(YAMLNodeMap.documents(in: text).first?.root)
