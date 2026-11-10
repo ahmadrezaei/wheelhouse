@@ -210,4 +210,21 @@ struct HiddenPaneTests {
         let single = MetricChartLayout(series: [MetricChartLayout.Series(id: "u", name: "Usage", color: .systemTeal, style: .line, points: [(500, 2)])], capacity: nil)
         #expect(single.timeDomain == 440...560)
     }
+
+    @Test func anInfiniteCapacityOrValueStillGivesAFiniteAxis() {
+        let s = MetricChartLayout.Series(id: "u", name: "Usage", color: .systemTeal, style: .area, points: [(0, 1.2), (60, .infinity), (120, 2.4)])
+        let layout = MetricChartLayout(series: [s], capacity: .infinity)
+        #expect(layout.valueDomain.upperBound.isFinite)
+        #expect(layout.valueTicks == [0, 1, 2, 3])
+    }
+
+    @Test func aTabThatRepeatsAPaneIDDecodesAsAPlaceholderInsteadOfTrapping() throws {
+        let pane = PaneState(showing: .route(.fleet))
+        let broken = TabState(root: .split(axis: .horizontal, fraction: 0.5, first: .leaf(pane), second: .leaf(pane)))
+        let window = WorkspaceWindowState(tabs: [broken])
+        let decoded = try JSONDecoder().decode(WorkspaceWindowState.self, from: JSONEncoder().encode(window))
+        #expect(decoded.tabs.count == 1)
+        #expect(decoded.tabs[0].raw != nil)          // kept as a placeholder with its JSON
+        #expect(decoded.tabs[0].panes.count == 1)
+    }
 }

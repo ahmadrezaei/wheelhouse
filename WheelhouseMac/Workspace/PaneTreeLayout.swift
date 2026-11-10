@@ -56,7 +56,7 @@ struct PaneTreeLayout: View {
             let size = geo.size
             let root = tab.root.applying(fractions: live)
             let zoomed = tab.zoomedPane
-            let rects = Dictionary(uniqueKeysWithValues: root.layout().map { ($0.id, $0.rect) })
+            let rects = Dictionary(root.layout().map { ($0.id, $0.rect) }, uniquingKeysWith: { first, _ in first })
             ZStack(alignment: .topLeading) {
                 ForEach(tab.root.paneIDs, id: \.self) { id in
                     let unit = (zoomed == nil ? rects[id] : (zoomed == id ? CGRect(x: 0, y: 0, width: 1, height: 1) : nil))

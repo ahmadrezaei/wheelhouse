@@ -315,6 +315,11 @@ struct TabState: Codable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(TabID.self, forKey: .id)
         let tree = try c.decode(PaneNode.self, forKey: .root)
+        // A tab that repeats a pane ID (a hand-edited or damaged file) can't be laid out; failing here makes the window keep it as a
+        // placeholder with its JSON untouched instead of trapping on every launch.
+        if Set(tree.paneIDs).count != tree.paneIDs.count {
+            throw DecodingError.dataCorruptedError(forKey: .root, in: c, debugDescription: "repeated pane ID in tab")
+        }
         root = tree
         let focused = try c.decodeIfPresent(PaneID.self, forKey: .focusedPane)
         // A focus that points at a pane that no longer exists falls back to the first pane.

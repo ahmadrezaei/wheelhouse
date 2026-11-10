@@ -64,7 +64,9 @@ public struct MetricChartLayout {
         } else {
             timeDomain = 0...1
         }
-        let highest = max(series.flatMap { $0.points.map(\.v) }.max() ?? 0, capacity ?? 0)
+        // Only finite values count: an infinite capacity from a malformed server would make the axis stride never end.
+        let finite = series.flatMap { $0.points.map(\.v) }.filter(\.isFinite) + [capacity ?? 0].filter(\.isFinite)
+        let highest = finite.max() ?? 0
         let step = Self.niceStep(for: highest > 0 ? highest : 1, ticks: 4)
         let top = max(step, (highest / step).rounded(.up) * step)
         valueDomain = 0...top
