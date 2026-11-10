@@ -97,7 +97,7 @@ public enum YAMLNodeMap {
         }
         return chunks.compactMap { chunk in
             let meaningful = chunk.lines.contains { l in
-                let t = l.trimmingCharacters(in: .whitespacesAndNewlines)
+                let t = (l.hasSuffix("\r") ? l.dropLast() : l).trimmingCharacters(in: .whitespaces)
                 return !t.isEmpty && !t.hasPrefix("#")
             }
             return meaningful ? (chunk.start, chunk.lines.joined(separator: "\n")) : nil
