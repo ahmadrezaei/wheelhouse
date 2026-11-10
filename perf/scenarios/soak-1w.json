@@ -1,1 +1,0 @@
-{"name":"soak-1w","description":"A/B: one window, four tabs","clusters":5,"windows":1,"tabs":4,"panes":["logs:chatter","deck-terminal:x"],"cycleSeconds":300}
