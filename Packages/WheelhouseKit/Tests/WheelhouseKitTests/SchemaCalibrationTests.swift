@@ -5,35 +5,40 @@ import Darwin
 @testable import WheelhouseKit
 
 /// The schema cache budgets with ``JSONValue/estimatedMemoryCost``. This checks that the estimate is not below what a parsed
-/// document really holds (measured as the change in the process's physical footprint), so a 32 MB budget means 32 MB.
+/// document really holds, so a 32 MB budget means 32 MB.
+///
+/// The measure is the malloc heap in use (`malloc_zone_statistics`) while the documents are alive, not the process footprint: a
+/// footprint delta shrinks once freed pages are reused, so a later load can read almost nothing.
 @Suite("Schema cache calibration", .serialized)
 struct SchemaCalibrationTests {
-    static func footprint() -> Int {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
-        }
-        return result == KERN_SUCCESS ? Int(info.phys_footprint) : 0
+    static func heapInUse() -> Int {
+        var stats = malloc_statistics_t()
+        malloc_zone_statistics(nil, &stats)
+        return Int(stats.size_in_use)
     }
 
-    @Test func theEstimateIsNotBelowTheMeasuredFootprint() throws {
+    @Test func theEstimateIsNotBelowTheMeasuredHeap() throws {
         let b = BundledSchemas.standard
-        _ = b.load(minor: "1.32")                      // warm up allocators and lazy tables
-        var bestRatio = Double.infinity       // other tests allocate in parallel: noise only adds, so the smallest reading is the truest
-        for _ in 0..<25 {
-            let before = Self.footprint()
-            let docs = try #require(b.load(minor: "1.32"))
-            let after = Self.footprint()
-            let estimated = docs.values.reduce(0) { $0 + $1.cost }
-            let measured = max(0, after - before)
-            print("SCHEMA calibration: estimated \(estimated / 1024) KB, measured \(measured / 1024) KB")
-            bestRatio = min(bestRatio, Double(measured) / Double(estimated))
-            withExtendedLifetime(docs) {}
-            if bestRatio <= 1.0 { break }
-            Thread.sleep(forTimeInterval: 0.05)
+        _ = b.load(minor: "1.32")                      // warm up lazy tables
+        // Alone the reading is deterministic (0.85). Beside other tests the process heap also moves for reasons that are not the
+        // documents: frees read low, allocations read high. A reading below half the estimate saw something else and is not used;
+        // among the others noise only adds, so the smallest one is the truest.
+        var valid: [Double] = []
+        for run in 0..<15 {
+            autoreleasepool {
+                let before = Self.heapInUse()
+                let docs = b.load(minor: "1.32")
+                let after = Self.heapInUse()               // the documents are alive here
+                let estimated = (docs ?? [:]).values.reduce(0) { $0 + $1.cost }
+                let ratio = Double(max(0, after - before)) / Double(max(1, estimated))
+                print("SCHEMA calibration run \(run): estimated \(estimated / 1024) KB, ratio \(String(format: "%.2f", ratio))")
+                if ratio >= 0.5 { valid.append(ratio) }
+                withExtendedLifetime(docs) {}
+            }
+            if valid.count >= 5 { break }
         }
-        #expect(bestRatio <= 1.0, "the estimate is lower than the measured footprint (\(bestRatio)x)")
+        #expect(valid.count >= 1, "no reading measured the documents")
+        #expect((valid.min() ?? 2) <= 1.0, "the estimate is lower than the heap the documents hold (\(valid.min() ?? 0)x)")
     }
 }
 #endif

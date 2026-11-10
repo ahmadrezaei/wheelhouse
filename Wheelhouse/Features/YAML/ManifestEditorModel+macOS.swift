@@ -74,6 +74,8 @@ final class ManifestAssistModel: EditorAssisting {
     private(set) var generation = 0
     private(set) var analyzedGeneration = 0
     private(set) var isActive = false
+    /// True while activation waits for the cluster (an unreachable one can take about 30 s to give up).
+    private(set) var isLoadingSchema = false
     @ObservationIgnored private var schemas: (any ManifestSchemaProviding)?
     @ObservationIgnored private var references: ClusterReferences?
     @ObservationIgnored private var known: [GroupVersionKind] = []
@@ -108,11 +110,18 @@ final class ManifestAssistModel: EditorAssisting {
         if isActive { return }
         if let running = activation { await running.value; return }
         guard let session else { isActive = true; return }
+        isLoadingSchema = true
         let work = Task { @MainActor [weak self] in
+            // The version probe (inside `store(for:)`) and discovery wait on the same cluster: run them side by side.
+            let existing = session.discovery, client = session.client
+            async let found: DiscoveryInfo? = {
+                if let existing { return existing }
+                return try? await client.discovery()
+            }()
             let store = await SchemaServices.shared.store(for: session)
-            let discovery: DiscoveryInfo?
-            if let d = session.discovery { discovery = d } else { discovery = try? await session.client.discovery() }
+            let discovery = await found
             guard let self else { return }
+            self.isLoadingSchema = false
             self.schemas = store
             self.references = ClusterReferences(client: session.client)
             self.known = (discovery?.topLevel ?? []).compactMap { r in

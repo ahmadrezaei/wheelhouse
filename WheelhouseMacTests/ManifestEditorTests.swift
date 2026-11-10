@@ -188,15 +188,24 @@ struct ManifestEditorTests {
         #expect(editor.textView.string == text && editor.collapsed.isEmpty)
     }
 
-    @Test func substringOnlyMatchesReachTheSystemList() {
+    @Test func theSystemListNarrowsAsTheUserTypesOn() {
         let editor = CodeEditorScrollView()
-        editor.setText("pol")
-        let view = YAMLCodeEditor(text: .constant("pol"), isEditable: true, wraps: true, controller: CodeEditorController())
-        editor.pendingCompletion = ManifestCompletionResult(range: NSRange(location: 0, length: 3), items: [
-            ManifestCompletion(label: "imagePullPolicy", insertText: "imagePullPolicy: ", detail: "string", documentation: nil, kind: .field)])
+        editor.setText("re")
+        let coordinator = YAMLCodeEditor(text: .constant("re"), isEditable: true, wraps: true, controller: CodeEditorController()).makeCoordinator()
+        func item(_ s: String) -> ManifestCompletion { ManifestCompletion(label: s, insertText: s + ": ", detail: nil, documentation: nil, kind: .field) }
+        editor.pendingCompletion = ManifestCompletionResult(range: NSRange(location: 0, length: 2), items: ["replicas", "revisionHistoryLimit", "imagePullPolicy"].map(item))
         var index = -1
-        let words = view.makeCoordinator().textView(editor.textView, completions: [], forPartialWordRange: NSRange(location: 0, length: 3), indexOfSelectedItem: &index)
-        #expect(words == ["imagePullPolicy: "])
+        func ask(_ range: NSRange) -> [String] {
+            coordinator.textView(editor.textView, completions: [], forPartialWordRange: range, indexOfSelectedItem: &index)
+        }
+        #expect(ask(NSRange(location: 0, length: 2)) == ["replicas: ", "revisionHistoryLimit: "])
+        editor.setText("rep")                                                        // a longer query: the second ask
+        #expect(ask(NSRange(location: 0, length: 3)) == ["replicas: "])
+        editor.setText("pol")                                                        // substring-only matches still reach the list
+        #expect(ask(NSRange(location: 0, length: 3)) == ["imagePullPolicy: "])
+        editor.setText("zzz")
+        #expect(ask(NSRange(location: 0, length: 3)).isEmpty)
+        #expect(index == 0)
     }
 
     // MARK: Services
@@ -251,6 +260,37 @@ struct ManifestEditorTests {
         #expect(services.cache.totalCost > 0)
         services.editorClosed()                                         // the last editor closing releases the parsed schemas
         #expect(services.cache.totalCost == 0)
+    }
+
+    @Test func activationOnASlowClusterRunsTheProbesSideBySideAndEndsWithFindings() async throws {
+        SchemaServices.shared.cacheRoot = nil
+        let slow = SlowClient(delay: .milliseconds(600))
+        let model = ManifestAssistModel(session: ClusterSession(config: DemoFleet.configs[0], client: slow), namespace: nil)
+        model.textChanged(deployment, immediately: true)
+        for _ in 0..<100 where model.analyzedGeneration == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.analysis.schemaIssues.isEmpty)
+        let started = ContinuousClock.now
+        let activation = Task { await model.activate() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(model.isLoadingSchema && !model.isActive)                           // "Loading schema…" while the cluster is slow
+        await activation.value
+        let took = ContinuousClock.now - started
+        #expect(took < .milliseconds(1_150), "version and discovery ran one after the other (\(took))")
+        #expect(!model.isLoadingSchema && model.isActive)
+        // Never ends stale: the text is analysed again with the schema it found (the bundled one, as the client serves no OpenAPI).
+        for _ in 0..<100 where model.analysis.schemaIssues.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.analysis.schemaIssues.map(\.message).contains { $0.hasPrefix("Unknown field “replica”") })
+    }
+
+    @Test func aKindNoSchemaKnowsEndsWithTheNoSchemaNote() async throws {
+        SchemaServices.shared.cacheRoot = nil
+        let model = ManifestAssistModel(session: ClusterSession(config: DemoFleet.configs[0], client: SlowClient(delay: .milliseconds(50))), namespace: nil)
+        let text = "apiVersion: example.com/v1\nkind: Gizmo\nmetadata:\n  name: g\n"
+        model.textChanged(text, immediately: true)
+        await model.activate()
+        for _ in 0..<100 where model.analysis.schemaNote == nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.analysis.schemaNote == "No schema for Gizmo (example.com/v1): only the YAML is checked")
+        #expect(model.analysis.schemaIssues.isEmpty)
     }
 
     @Test func viewingDoesNoSchemaWorkUntilEditOrFirstHover() async throws {
@@ -400,4 +440,29 @@ struct ManifestEditorTests {
 private final class OwnUndoManager: NSObject, NSTextViewDelegate {
     let manager = UndoManager()
     func undoManager(for view: NSTextView) -> UndoManager? { manager }
+}
+
+
+/// A client whose version probe and discovery are slow (an unreachable cluster in miniature) and that serves no OpenAPI.
+private final class SlowClient: KubeClientProtocol, @unchecked Sendable {
+    let delay: Duration
+    private let inner = DemoKubeClient(config: DemoFleet.configs[0])
+    init(delay: Duration) { self.delay = delay }
+    func version() async throws -> KubeVersion { try await Task.sleep(for: delay); return try await inner.version() }
+    func discovery() async throws -> DiscoveryInfo { try await Task.sleep(for: delay); return try await inner.discovery() }
+    func list<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> KubeList<T> { try await inner.list(type, kind: kind, namespace: namespace, options: options) }
+    func get<T: KubeObject>(_ type: T.Type, kind: ResourceKind, name: String, namespace: String?) async throws -> T { try await inner.get(type, kind: kind, name: name, namespace: namespace) }
+    func listRaw(_ kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> JSONValue { try await inner.listRaw(kind, namespace: namespace, options: options) }
+    func getRaw(_ kind: ResourceKind, name: String, namespace: String?) async throws -> JSONValue { try await inner.getRaw(kind, name: name, namespace: namespace) }
+    func watch<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: WatchOptions) -> AsyncThrowingStream<WatchEvent<T>, Error> { inner.watch(type, kind: kind, namespace: namespace, options: options) }
+    func create(_ kind: ResourceKind, namespace: String?, name: String?, subresource: String?, body: JSONValue, options: MutationOptions) async throws -> JSONValue { throw KubeError.unsupported("slow") }
+    func replace(_ kind: ResourceKind, name: String, namespace: String?, body: JSONValue, options: MutationOptions) async throws -> JSONValue { throw KubeError.unsupported("slow") }
+    func patch(_ kind: ResourceKind, name: String, namespace: String?, subresource: String?, patch: KubePatch, options: MutationOptions) async throws -> JSONValue { throw KubeError.unsupported("slow") }
+    func delete(_ kind: ResourceKind, name: String, namespace: String?, options: DeleteOptions) async throws { throw KubeError.unsupported("slow") }
+    func logs(namespace: String, pod: String, options: LogOptions) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
+    func podMetrics(namespace: String?) async throws -> [PodMetrics] { [] }
+    func nodeMetrics() async throws -> [NodeMetrics] { [] }
+    func proxyGET(namespace: String, service: String, port: String, path: String, query: [String: String]) async throws -> Data { Data() }
+    func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket { throw KubeError.unsupported("slow") }
+    func portForwardWebSocket(namespace: String, pod: String, ports: [Int]) throws -> KubeWebSocket { throw KubeError.unsupported("slow") }
 }

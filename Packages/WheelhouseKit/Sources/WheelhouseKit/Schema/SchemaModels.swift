@@ -90,10 +90,10 @@ extension JSONValue {
     /// The schema cache budgets with this; `SchemaCacheCalibrationTests` (Mac) checks it against the measured footprint.
     var estimatedMemoryCost: Int {
         switch self {
-        case .null, .bool, .int, .double: return 32
-        case .string(let s): return 64 + (s.utf8.count > 15 ? s.utf8.count : 0)
-        case .array(let a): return 64 + a.reduce(0) { $0 + $1.estimatedMemoryCost + 16 }
-        case .object(let o): return 96 + o.reduce(0) { $0 + 96 + ($1.key.utf8.count > 15 ? $1.key.utf8.count : 0) + $1.value.estimatedMemoryCost }
+        case .null, .bool, .int, .double: return 48
+        case .string(let s): return 96 + (s.utf8.count > 15 ? s.utf8.count : 0)
+        case .array(let a): return 96 + a.reduce(0) { $0 + $1.estimatedMemoryCost + 24 }
+        case .object(let o): return 128 + o.reduce(0) { $0 + 128 + ($1.key.utf8.count > 15 ? $1.key.utf8.count : 0) + $1.value.estimatedMemoryCost }
         }
     }
 

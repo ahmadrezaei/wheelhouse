@@ -147,14 +147,19 @@ public enum ManifestAssist {
                 ManifestCompletion(label: $0, insertText: "\($0): ", detail: nil, documentation: nil, kind: .field)
             }
         }
-        let typed = cursor.prefix.lowercased()
-        if !typed.isEmpty {
-            let starts = items.filter { $0.label.lowercased().hasPrefix(typed) }
-            items = starts.isEmpty ? items.filter { $0.label.lowercased().contains(typed) } : starts
-        }
+        items = narrow(items, typed: cursor.prefix)
         // A value already complete needs no suggestion.
         if cursor.isValue, items.count == 1, items[0].label == cursor.prefix { items = [] }
         return ManifestCompletionResult(range: cursor.replaceRange, items: items)
+    }
+
+    /// The items that match what has been typed: those whose label starts with it, or, when none does, those that contain it. The order
+    /// of `items` (the ranking) is kept. The editor applies the same rule again as the user types on while the list is open.
+    public static func narrow(_ items: [ManifestCompletion], typed: String) -> [ManifestCompletion] {
+        let needle = typed.lowercased()
+        guard !needle.isEmpty else { return items }
+        let starts = items.filter { $0.label.lowercased().hasPrefix(needle) }
+        return starts.isEmpty ? items.filter { $0.label.lowercased().contains(needle) } : starts
     }
 
     // MARK: Hover

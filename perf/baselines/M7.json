@@ -53,9 +53,11 @@
     "lines": 2029,
     "firstBundledSchemaLoadMs": 15,
     "schemaMemory": {
-      "estimatedKBCoreAppsBatchLiveCluster": 3315,
+      "estimatedKBBundled132Documents": 3887,
+      "measuredHeapKBBundled132Documents": 3305,
+      "measuredOverEstimate": 0.85,
       "capMB": 32,
-      "estimateVsMeasuredFootprint": "about 2x (SchemaCalibrationTests)"
+      "note": "SchemaCalibrationTests: malloc_zone_statistics size_in_use with the documents alive; the ratio is deterministic over 5 repeats and must stay at or below 1.0."
     },
     "editorOpenFootprintDeltaMB": 10.9,
     "editorOpenNote": "ManifestEditorTests.theFootprintOfAnOpenEditorIsMeasured: 90 Deployment documents (about 2,200 lines) in the AppKit editor with analysis, folds, squiggles and the bundled 1.32 schemas loaded; change in phys_footprint of the test process.",
