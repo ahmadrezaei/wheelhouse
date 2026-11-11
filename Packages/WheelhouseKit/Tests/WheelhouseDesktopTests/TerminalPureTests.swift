@@ -61,6 +61,43 @@ struct OSCScannerTests {
     }
 }
 
+@Suite("OSC filtering")
+struct OSCFilterTests {
+    private let nonce = "0123456789abcdef0123456789abcdef"
+
+    private func run(_ chunks: [Data]) -> (marks: Int, output: String) {
+        var scanner = OSCScanner()
+        var marks = 0
+        var out = Data()
+        for chunk in chunks {
+            let r = scanner.process(chunk)
+            marks += r.sequences.count
+            out.append(r.output)
+        }
+        return (marks, String(decoding: out, as: UTF8.self))
+    }
+
+    @Test func marksAreRemovedAndEverythingElseIsUnchangedAtEveryChunkBoundary() {
+        let text = "a\u{1B}[31mred\u{1B}[0m\u{1B}]0;title\u{07}b\u{1B}]133;A;wh=\(nonce)\u{07}c\u{1B}]633;E;ls;wh=\(nonce)\u{1B}\\d\u{1B}]8;;http://x\u{07}link\u{1B}]8;;\u{07}e"
+        let expected = "a\u{1B}[31mred\u{1B}[0m\u{1B}]0;title\u{07}bc" + "d\u{1B}]8;;http://x\u{07}link\u{1B}]8;;\u{07}e"
+        let whole = Data(text.utf8)
+        let unsplit = run([whole])
+        #expect(unsplit.marks == 2)
+        #expect(unsplit.output == expected)
+        for cut in 1..<whole.count {
+            let split = run([whole.prefix(cut), whole.suffix(from: cut)])
+            #expect(split.marks == 2, "cut \(cut)")
+            #expect(split.output == expected, "cut \(cut)")
+        }
+        #expect(run(whole.map { Data([$0]) }).output == expected)
+    }
+
+    @Test func anAbortedOrShortSequenceIsPassedOn() {
+        let text = "x\u{1B}]133;A\u{18}y\u{1B}]1\u{07}z\u{1B}]133;A\u{1B}[0mq"
+        #expect(run([Data(text.utf8)]).output == text)
+    }
+}
+
 @Suite("Shell marks")
 struct ShellMarkTests {
     private let nonce = "0123456789abcdef0123456789abcdef"

@@ -278,8 +278,10 @@ public final class LocalShellModel: TerminalInsertTarget {
     // MARK: Output and marks
 
     private func receive(_ chunk: Data) {
-        if nonce != nil { for sequence in scanner.feed(chunk) { process(sequence) } }
-        deliver(chunk)
+        // Marks are cut out of the stream whether or not this shell has integration: the terminal emulator must never see an OSC 133 or 633.
+        let scanned = scanner.process(chunk)
+        if nonce != nil { for sequence in scanned.sequences { process(sequence) } }
+        if !scanned.output.isEmpty { deliver(scanned.output) }
     }
 
     private func deliver(_ chunk: Data) {
