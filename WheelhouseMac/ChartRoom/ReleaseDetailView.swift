@@ -50,7 +50,9 @@ struct ReleaseDetailView: View {
     let owner: GitOpsOwner?
     @State private var tab: ReleaseTab = .resources
     @State private var reveal = RevealState()
+    @State private var flow: HelmFlowModel?
     @Environment(AppLockController.self) private var lock: AppLockController?
+    @Environment(MacAppEnvironment.self) private var env
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,7 +80,32 @@ struct ReleaseDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: ChartRoomMemory.didScrub)) { _ in reveal.revealed = false; model.scrub() }
         .onReceive(NotificationCenter.default.publisher(for: ChartRoomMemory.didTrim)) { _ in model.trimTransient() }
+        .sheet(item: $flow, onDismiss: { Task { await model.load() } }) { flow in HelmFlowSheet(model: flow) }
         .accessibilityIdentifier("chartroom-release-detail")
+    }
+
+    // MARK: Write path (M6b)
+
+    /// Upgrade, roll back and uninstall start from the current revision, decoded; an older revision on screen offers none of them.
+    private var canAct: Bool {
+        guard let shown = model.shownRevision, let current = model.summary?.current, model.release != nil else { return false }
+        return shown.revision == current.revision
+    }
+
+    private func start(_ kind: HelmFlowKind) {
+        guard let release = model.release else { return }
+        let values = release.config.isNull || release.config == .object([:]) ? "" : YAMLCodec.dump(release.config)
+        let flow = HelmFlowModel(kind: kind, session: model.session, services: model.services, releaseName: model.name, namespace: model.namespace,
+                                 chart: release.chart.metadata.name, valuesText: values, current: release, history: model.summary?.history ?? [],
+                                 makeRunner: HelmToolbox.liveRunner(env))
+        self.flow = flow
+        if kind == .upgrade {
+            Task {
+                // `repo/name` of the chart this release came from, when a configured repository carries it.
+                let snapshot = await HelmRepositorySnapshot.load(paths: model.services.helmPaths, indexCache: model.services.indexCache)
+                if let match = snapshot.charts.first(where: { $0.name == release.chart.metadata.name }) { flow.chart = "\(match.repository)/\(match.name)" }
+            }
+        }
     }
 
     // MARK: Header
@@ -120,9 +147,9 @@ struct ReleaseDetailView: View {
 
     private var actions: some View {
         HStack(spacing: Spacing.s) {
-            Button("Upgrade…") {}.disabled(true)
-            Button("Roll Back…") {}.disabled(true)
-            Button("Uninstall…", role: .destructive) {}.disabled(true)
+            Button("Upgrade…") { start(.upgrade) }.disabled(!canAct)
+            Button("Roll Back…") { start(.rollback) }.disabled(!canAct || (model.summary?.history.count ?? 0) < 2)
+            Button("Uninstall…", role: .destructive) { start(.uninstall) }.disabled(!canAct)
             Menu {
                 Button("Copy helm status Command") { Pasteboard.copy("helm status \(model.name) -n \(model.namespace)") }
                 Button("Copy helm get values Command") { Pasteboard.copy("helm get values \(model.name) -n \(model.namespace)") }
@@ -130,7 +157,7 @@ struct ReleaseDetailView: View {
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).fixedSize()
         }
-        .help("Upgrade, roll back and uninstall arrive with the write path (M6b)")
+        .help(canAct ? "" : "Show the current revision to upgrade, roll back or uninstall")
     }
 
     private var pendingBanner: some View {

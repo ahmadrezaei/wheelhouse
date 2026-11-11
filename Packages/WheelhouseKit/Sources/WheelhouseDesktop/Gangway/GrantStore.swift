@@ -79,16 +79,28 @@ public struct GrantedObject: Hashable, Sendable {
     public var name: String?
     /// Matches names that start with this prefix (Helm release Secrets: `sh.helm.release.v1.<release>.v`).
     public var namePrefix: String?
-    /// A POST (create) names its object in the body, which Gangway does not read yet. Until it does (M6b: bounded buffered body, match
-    /// `metadata.name`), a create is only covered when the review flow says so explicitly with this flag. Fail closed by default.
+    /// A hook that uses `generateName`: covers a create whose body has exactly this `metadata.generateName` (compared as bytes).
+    public var generateNamePrefix: String?
+    /// An explicit stand-in that covers a create of any name. Helm runs never set it: their creates are matched by the body's name
+    /// (`GrantBody`). Fail closed by default.
     public var createAnyName: Bool
-    public init(group: String = "", resource: String, namespace: String? = nil, name: String? = nil, namePrefix: String? = nil, createAnyName: Bool = false) {
+    public init(group: String = "", resource: String, namespace: String? = nil, name: String? = nil, namePrefix: String? = nil,
+                generateNamePrefix: String? = nil, createAnyName: Bool = false) {
+        self.generateNamePrefix = generateNamePrefix
         self.createAnyName = createAnyName
         self.group = group
         self.resource = resource
         self.namespace = namespace
         self.name = name
         self.namePrefix = namePrefix
+    }
+
+    /// Whether `candidate` is the exact name or starts with the prefix. Compared as UTF-8 bytes, not by Unicode equivalence: a body name
+    /// is not restricted to ASCII like a path name.
+    func matches(name candidate: String) -> Bool {
+        if let exact = name { return exact.utf8.elementsEqual(candidate.utf8) }
+        if let prefix = namePrefix { return candidate.utf8.starts(with: prefix.utf8) }
+        return false
     }
 }
 
@@ -98,7 +110,10 @@ public struct GrantRequest: Sendable {
     public var kind: GangwayClass
     public var shape: APIPathShape
     public var method: String
-    public init(holdID: UUID? = nil, kind: GangwayClass, shape: APIPathShape, method: String) {
+    /// The name a create (POST) asks for, read from its buffered body (`GrantBody`). nil when there is no usable body.
+    public var createdName: CreatedName?
+    public init(holdID: UUID? = nil, kind: GangwayClass, shape: APIPathShape, method: String, createdName: CreatedName? = nil) {
+        self.createdName = createdName
         self.holdID = holdID
         self.kind = kind
         self.shape = shape
@@ -175,15 +190,16 @@ public final class GrantStore: Sendable {
 
     // MARK: Objects and dry-run-only
 
-    // M6b contract for Helm runs (the grant is only as good as its binding): (1) the session is bound to the spawned helm process group
-    // (`PeerBinding.processGroup`) and the peer is checked per request; (2) a POST is matched by `metadata.name` from a bounded (64 KB)
-    // buffered body against the reviewed manifest, replacing `createAnyName`; (3) the grant ends when the helm process exits, not on a timer.
+    // Contract for Helm runs (the grant is only as good as its binding): (1) the session is bound to the spawned helm process group
+    // (`PeerBinding.isolatedGroup`) and the peer is checked per request by `covers`; (2) a POST is matched by `metadata.name` from a
+    // buffered body (3 MB, `GrantBody`) against the reviewed objects; (3) the caller closes the session when the helm process exits, and
+    // the lifetime is only the backstop.
     public func setObjects(session: GangwaySession, objects: Set<GrantedObject>, lifetime: TimeInterval = 600) {
         let expiry = now().addingTimeInterval(lifetime)
         state.withLock { $0.objects[session.id] = (objects, expiry) }
     }
 
-    /// Whether the object grant of this session covers `request`. `.objects` sessions use only this.
+    /// Whether the object grant of this session covers `request`, by what the request changes alone. The peer is checked by `covers`.
     public func coversObject(_ request: GrantRequest, session: GangwaySession) -> Bool {
         guard request.kind == .mutation else { return false }
         let grant = state.withLock { $0.objects[session.id] }
@@ -192,11 +208,16 @@ public final class GrantStore: Sendable {
         guard shape.isResourcePath, shape.legacyVerb == nil, shape.subresource == nil || shape.subresource == "status" else { return false }
         return grant.items.contains { item in
             guard item.group == shape.group, item.resource == shape.resource, item.namespace == shape.namespace else { return false }
-            if request.method == "POST", shape.name == nil { return item.createAnyName }
+            if request.method == "POST", shape.name == nil {
+                if item.createAnyName { return true }
+                switch request.createdName {
+                case .name(let created)?: return item.matches(name: created)
+                case .generateName(let prefix)?: return item.generateNamePrefix.map { $0.utf8.elementsEqual(prefix.utf8) } ?? false
+                case nil: return false
+                }
+            }
             guard let name = shape.name else { return false }                    // deletecollection and list-shaped writes are never covered
-            if let exact = item.name { return exact == name }
-            if let prefix = item.namePrefix { return name.hasPrefix(prefix) }
-            return false
+            return item.matches(name: name)
         }
     }
 
@@ -205,7 +226,8 @@ public final class GrantStore: Sendable {
     /// Whether a held mutation is already covered: a spent batch approval, or the session's command grant when the requesting process is
     /// the terminal's foreground job. Streams and proxy requests are never covered.
     public func covers(_ request: GrantRequest, session: GangwaySession, peer: PeerProcess?) -> Bool {
-        if session.scope == .objects { return coversObject(request, session: session) }
+        // A Helm or Tides run is covered only for the process it was opened for, whatever the object.
+        if session.scope == .objects { return Self.peerIsBound(peer, to: session.binding) && coversObject(request, session: session) }
         // An approval is for exactly the request that was listed, whatever its class (a proxy request is approved per request too).
         if let id = request.holdID, consumeBatch(session: session, holdID: id) { return true }
         guard request.kind == .mutation else { return false }
@@ -228,6 +250,7 @@ public final class GrantStore: Sendable {
             guard let group = foreground() else { return false }
             return peer.session == session && peer.group == group
         case .processGroup(let group): return peer.group == group
+        case .isolatedGroup(let group): return peer.group == group && peer.session == group
         }
     }
 

@@ -10,6 +10,7 @@ final class RepositoriesModel {
     private(set) var snapshot = HelmRepositorySnapshot()
     var search = ""
     var selectedChart: String?
+    @ObservationIgnored var actions: RepositoryActions?
 
     init(services: ChartRoomServices) { self.services = services }
 
@@ -20,12 +21,24 @@ final class RepositoriesModel {
     }
 
     var results: [HelmChartSummary] { HelmRepositories.search(search, in: snapshot.charts) }
+
+    /// The repository actions of this pane (created on first use, so a read-only visit builds nothing).
+    func repositoryActions(_ env: MacAppEnvironment) -> RepositoryActions {
+        if let actions { return actions }
+        let made = RepositoryActions(makeCLI: { try await HelmToolbox.cli(paths: env.paths) })
+        actions = made
+        return made
+    }
 }
 
 // MARK: - Charts
 
 struct ChartsView: View {
     @Bindable var model: RepositoriesModel
+    let session: ClusterSession
+    @State private var adding = false
+    @State private var hub = false
+    @Environment(MacAppEnvironment.self) private var env
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,12 +46,15 @@ struct ChartsView: View {
                 TextField("Search charts", text: $model.search).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
                 Spacer()
                 Text("\(model.snapshot.charts.count) charts from \(model.snapshot.indexes.count) repositories").font(.footnote).foregroundStyle(.secondary)
+                if ChartRoomSettings.isArtifactHubOn { Button("Artifact Hub…") { hub = true } }
             }
             .padding(.horizontal, Spacing.l).padding(.vertical, Spacing.s)
             Divider()
             content
         }
         .task(priority: .utility) { await model.load() }
+        .sheet(isPresented: $adding) { AddRepositorySheet(actions: model.repositoryActions(env), onAdded: { Task { await model.load() } }) }
+        .sheet(isPresented: $hub) { ArtifactHubSheet(actions: model.repositoryActions(env), onAdded: { Task { await model.load() } }) }
         .accessibilityIdentifier("chartroom-charts")
     }
 
@@ -49,12 +65,14 @@ struct ChartsView: View {
             EmptyState(.error(message: error))
         } else if model.snapshot.repositories.isEmpty {
             EmptyState(.empty(title: "No Helm Repositories", systemImage: "books.vertical",
-                              hint: "Charts come from the repositories in your Helm configuration. Add one with `helm repo add`; adding from here arrives with the write path (M6b).")) {
-                Button("Add Repository…") {}.disabled(true)
+                              hint: "Charts come from the repositories in your Helm configuration. Add one here, or with `helm repo add`.")) {
+                Button("Add Repository…") { adding = true }
             }
         } else if model.snapshot.charts.isEmpty {
             EmptyState(.empty(title: "No Chart Indexes Yet", systemImage: "arrow.down.circle",
-                              hint: "None of your repositories has been updated. Run `helm repo update`, or update from the Repositories section once the write path arrives (M6b)."))
+                              hint: "None of your repositories has been updated. Update them from the Repositories section, or run `helm repo update`.")) {
+                Button("Update Repositories") { Task { _ = await model.repositoryActions(env).update(); await model.load() } }
+            }
         } else if model.results.isEmpty {
             EmptyState(.filteredEmpty(filter: model.search))
         } else {
@@ -73,7 +91,7 @@ struct ChartsView: View {
                 }
                 .frame(minWidth: 520)
                 if let id = model.selectedChart, let chart = model.results.first(where: { $0.id == id }) {
-                    ChartDetail(chart: chart, services: model.services).id(id).frame(minWidth: 320, idealWidth: 400)
+                    ChartDetail(chart: chart, services: model.services, session: session).id(id).frame(minWidth: 320, idealWidth: 400)
                 }
             }
         }
@@ -83,12 +101,16 @@ struct ChartsView: View {
 private struct ChartDetail: View {
     let chart: HelmChartSummary
     let services: ChartRoomServices
+    let session: ClusterSession
     @State private var archive: HelmChartArchive?
     @State private var version: String
+    @State private var flow: HelmFlowModel?
+    @Environment(MacAppEnvironment.self) private var env
 
-    init(chart: HelmChartSummary, services: ChartRoomServices) {
+    init(chart: HelmChartSummary, services: ChartRoomServices, session: ClusterSession) {
         self.chart = chart
         self.services = services
+        self.session = session
         _version = State(initialValue: chart.latest.version)
     }
 
@@ -98,7 +120,7 @@ private struct ChartDetail: View {
                 HStack {
                     Text(chart.name).font(.title2.weight(.semibold))
                     Spacer()
-                    Button("Install…") {}.disabled(true).help("Installing arrives with the write path (M6b)")
+                    Button("Install…") { install() }.help("Install this chart version into \(session.config.name)")
                 }
                 if let description = chart.description { Text(description).foregroundStyle(.secondary) }
                 LabeledContent("Repository", value: chart.repository)
@@ -116,13 +138,22 @@ private struct ChartDetail: View {
                     if let values = archive.values { Text("Default values").font(.headline); CodeView(values, language: .yaml).frame(minHeight: 160, maxHeight: 320) }
                     Label(archive.schema == nil ? "No values.schema.json" : "Has values.schema.json", systemImage: "checklist").font(.footnote).foregroundStyle(.secondary)
                 } else {
-                    Label("README and default values are read from the chart archive once it is in Helm's cache. Wheelhouse pulls charts when you install (M6b).",
+                    Label("README and default values are read from the chart archive once it is in Helm's cache. Wheelhouse pulls the chart when you start an install.",
                           systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .padding(Spacing.l)
         }
         .task(id: version) { archive = await Self.readCachedArchive(chart: chart.name, version: version, cache: services.helmPaths.repositoryCache) }
+        .sheet(item: $flow) { HelmFlowSheet(model: $0) }
+    }
+
+    private func install() {
+        let reference = "\(chart.repository)/\(chart.name)"
+        let flow = HelmFlowModel(kind: .install, session: session, services: services, releaseName: chart.name, namespace: "default", chart: reference,
+                                 chartVersion: version, makeRunner: HelmToolbox.liveRunner(env))
+        self.flow = flow
+        Task { await flow.loadChartDefaults(env: env) }
     }
 
     @concurrent private static func readCachedArchive(chart: String, version: String, cache: URL) async -> HelmChartArchive? {
@@ -136,14 +167,24 @@ private struct ChartDetail: View {
 
 struct RepositoriesView: View {
     @Bindable var model: RepositoriesModel
+    @State private var adding = false
+    @State private var selection: String?
+    @State private var removing: String?
+    @Environment(MacAppEnvironment.self) private var env
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Add…") {}.disabled(true)
-                Button("Update All") {}.disabled(true)
-                Text("Adding, updating and removing arrive with the write path (M6b). Until then, use `helm repo` in a terminal; this list follows it.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Add…") { adding = true }
+                Button("Update All") { Task { _ = await model.repositoryActions(env).update(); await model.load() } }
+                    .disabled(model.snapshot.repositories.isEmpty)
+                Button("Update") { if let selection { Task { _ = await model.repositoryActions(env).update(names: [selection]); await model.load() } } }
+                    .disabled(selection == nil)
+                Button("Remove…", role: .destructive) { removing = selection }.disabled(selection == nil)
+                if let actions = model.actions {
+                    if actions.busy { ProgressView().controlSize(.small) }
+                    if let message = actions.message { Text(message).font(.footnote).foregroundStyle(actions.failed ? Palette.criticalText : .secondary).lineLimit(2).textSelection(.enabled) }
+                }
                 Spacer()
                 Button { Task { await model.load() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.keyboardShortcut("r", modifiers: .command)
             }
@@ -157,7 +198,7 @@ struct RepositoriesView: View {
                 EmptyState(.empty(title: "No Helm Repositories", systemImage: "externaldrive.connected.to.line.below",
                                   hint: model.snapshot.configExists ? "Your Helm configuration lists no repositories." : "Helm has not been set up on this Mac yet (no repositories.yaml)."))
             } else {
-                Table(model.snapshot.repositories) {
+                Table(model.snapshot.repositories, selection: $selection) {
                     TableColumn("Name") { r in
                         HStack(spacing: 6) {
                             Text(r.name).fontWeight(.medium)
@@ -183,6 +224,13 @@ struct RepositoriesView: View {
             }
         }
         .task(priority: .utility) { await model.load() }
+        .sheet(isPresented: $adding) { AddRepositorySheet(actions: model.repositoryActions(env), onAdded: { Task { await model.load() } }) }
+        .confirmationDialog("Remove \(removing ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
+            Button("Remove Repository", role: .destructive) {
+                if let name = removing { Task { _ = await model.repositoryActions(env).remove(name: name); await model.load() } }
+                removing = nil
+            }
+        } message: { Text("It is removed from your helm configuration. Releases installed from it are not touched.") }
         .accessibilityIdentifier("chartroom-repositories")
     }
 }

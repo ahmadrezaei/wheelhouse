@@ -37,6 +37,8 @@ struct ReleasesView: View {
     @Bindable var model: ReleasesModel
     var openRelease: (HelmReleaseRef) -> Void = { _ in }
     @State private var scopeText = ""
+    @State private var flow: HelmFlowModel?
+    @Environment(MacAppEnvironment.self) private var env
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +47,8 @@ struct ReleasesView: View {
             content
         }
         .task(id: model.scope) { await model.load() }
+        .sheet(item: $flow, onDismiss: { Task { await model.load() } }) { HelmFlowSheet(model: $0) }
+        .onReceive(NotificationCenter.default.publisher(for: HelmFlowModel.didChangeRelease)) { _ in Task { await model.load() } }
         .accessibilityIdentifier("chartroom-releases")
     }
 
@@ -64,6 +68,10 @@ struct ReleasesView: View {
             if let count = model.listing?.releases.count, model.phase == .loaded {
                 Text("\(count) release\(count == 1 ? "" : "s")").font(.footnote).foregroundStyle(.secondary)
             }
+            Button("Install…") {
+                flow = HelmFlowModel(kind: .install, session: model.session, services: model.services, namespace: model.scope ?? "default", makeRunner: HelmToolbox.liveRunner(env))
+            }
+            .help("Install a chart from a repository, a path or an OCI reference")
             Button { Task { await model.load() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                 .keyboardShortcut("r", modifiers: .command)
                 .help("Refresh the list (metadata only)")

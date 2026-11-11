@@ -54,7 +54,11 @@ public struct EnvironmentBuilder: Sendable {
             case .aws: if Self.awsKeys.contains(k) { out[k] = v }
             case .google: if Self.googleKeys.contains(k) { out[k] = v }
             case .azure: if k.hasPrefix("AZURE_") { out[k] = v }
-            case .helm: if k.hasPrefix("HELM_"), !k.hasPrefix("HELM_KUBE") { out[k] = v }
+            case .helm:
+                // An isolated build takes no HELM_* from the shell (plugins, drivers, homes): its own homes are set in `build`.
+                guard !paths.isolated, k.hasPrefix("HELM_"), !k.hasPrefix("HELM_KUBE") else { break }
+                if k == "HELM_DRIVER", !["secret", "secrets", "configmap", "configmaps"].contains(v) { break }
+                out[k] = v
             case .docker: if Self.dockerKeys.contains(k) { out[k] = v }
             case .trivy: if k.hasPrefix("TRIVY_"), !Self.isTrivyCredential(k) { out[k] = v }
             case .none, .kubectl: break
@@ -81,7 +85,10 @@ public struct EnvironmentBuilder: Sendable {
         // kubectl writes its discovery cache to ~/.kube/cache even with --kubeconfig: keep it under the app's own folder.
         env["KUBECACHEDIR"] = paths.root.appending(path: "kubectl-cache", directoryHint: .isDirectory).path
         // Helm keeps its own folders while isolated (Debug, Profile, local Release).
-        if profile == .helm { env.merge(paths.helmEnvironment) { _, new in new } }
+        if profile == .helm {
+            env.merge(paths.helmEnvironment) { _, new in new }
+            if paths.isolated { env["HELM_PLUGINS"] = paths.helmRoot.appending(path: "data/plugins", directoryHint: .isDirectory).path }
+        }
         env.merge(additions) { _, new in new }
         return env
     }
