@@ -89,22 +89,37 @@ public final class BeaconConnection: Sendable {
     private let fd: Int32
     private let writeLock = NSLock()
     private let closed = Mutex(false)
+    private nonisolated(unsafe) var descriptorClosed = false   // guarded by writeLock
 
     init(fd: Int32) { self.fd = fd }
 
-    /// Sends one frame. Safe to call from any thread; does nothing once closed.
+    /// Sends one frame. Safe to call from any thread; does nothing once closed. A write that fails or times out (the peer stopped
+    /// reading) ends the connection instead of holding a thread.
     public func send(_ payload: Data) {
-        guard !closed.withLock({ $0 }) else { return }
-        writeLock.withLock { _ = BeaconFrame.writeAll(fd: fd, BeaconFrame.encode(payload)) }
+        let ok = writeLock.withLock { () -> Bool in
+            guard !descriptorClosed else { return true }
+            return BeaconFrame.writeAll(fd: fd, BeaconFrame.encode(payload))
+        }
+        if !ok { close() }
     }
 
-    /// Wakes the reader and ends the connection at once. The reading thread closes the descriptor.
+    /// Wakes the reader and ends the connection at once. The reading thread releases the descriptor with ``finish()``.
     public func close() {
         let first = closed.withLock { c -> Bool in
             defer { c = true }
             return !c
         }
         if first { shutdown(fd, SHUT_RDWR) }
+    }
+
+    /// Releases the descriptor, under the write lock, so no write can reach a reused descriptor number.
+    func finish() {
+        close()
+        writeLock.withLock {
+            guard !descriptorClosed else { return }
+            descriptorClosed = true
+            Darwin.close(fd)
+        }
     }
 
     var isClosed: Bool { closed.withLock { $0 } }
@@ -229,6 +244,8 @@ public final class BeaconSocketServer: Sendable {
             _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
             var on: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            var sendTimeout = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, socklen_t(MemoryLayout<timeval>.size))
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
             let admitted = state.withLock { s -> Bool in
                 guard s.unverified < Self.maxUnverified else { return false }
@@ -274,16 +291,15 @@ public final class BeaconSocketServer: Sendable {
         let session = connect(peer, hello, connection)
         guard let session else {
             state.withLock { _ = $0.connections.removeValue(forKey: connection.id) }
-            close(fd)
+            connection.finish()
             return
         }
         connection.send(Data("{\"ok\":true}".utf8))
         while !connection.isClosed, let message = BeaconFrame.read(fd: fd, limit: BeaconFrame.maxMessage) { session.receive(message) }
         session.close()
-        connection.close()
         state.withLock { _ = $0.connections.removeValue(forKey: connection.id) }
         closed(connection)
-        close(fd)
+        connection.finish()
     }
 }
 #endif

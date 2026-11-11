@@ -199,8 +199,14 @@ public struct BeaconToolHandler: MCPHandler {
             var result: BeaconChangeOutcome = .timedOut
             if let first = await group.next(), let outcome = first { result = outcome }
             group.cancelAll()
-            // The change task finishes by itself when cancelled (it withdraws its sheet); an approved write runs to its end.
-            while let _ = await group.next() {}
+            // The change task finishes by itself when cancelled (it withdraws its sheet); an approved write runs to its end, and
+            // its real result replaces a timeout that fired while it was running (the agent must not retry a change that happened).
+            while let later = await group.next() {
+                switch later {
+                case .applied?, .failed?, .refused?: result = later!
+                default: break
+                }
+            }
             return result
         }
     }

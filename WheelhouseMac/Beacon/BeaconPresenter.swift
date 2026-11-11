@@ -28,7 +28,8 @@ final class BeaconPresenter {
         let finish: @MainActor (Resolution) -> Void
     }
 
-    enum Resolution { case approval(BeaconApprovalDecision), dismissed }
+    /// `dismissed` is a withdrawal (lock, Stop, cancel); `userDismissed` is the person closing the sheet.
+    enum Resolution { case approval(BeaconApprovalDecision), dismissed, userDismissed }
 
     /// The sheet on screen now.
     private(set) var current: Shown?
@@ -49,8 +50,11 @@ final class BeaconPresenter {
 
     func ask(_ request: BeaconApprovalRequest) async -> BeaconApprovalDecision {
         let resolution = await run(.approval(request))
-        if case .approval(let decision) = resolution { return decision }
-        return .deny
+        switch resolution {
+        case .approval(let decision): return decision
+        case .userDismissed: return .deny
+        case .dismissed: return .withdrawn
+        }
     }
 
     /// Shows a confirmation. Returns when the sheet closed (after the person confirmed, declined, or the task was cancelled).
@@ -133,7 +137,10 @@ private struct BeaconPresenterRoot: View {
         }
         .padding(24)
         .frame(width: 360, height: 120)
-        .sheet(item: Binding(get: { presenter.current }, set: { if $0 == nil { presenter.resolve(.dismissed) } })) { item in
+        .sheet(item: Binding(get: { presenter.current }, set: { [shownID = presenter.current?.id] new in
+            // Only the sheet that was on screen when this was built may be dismissed by it, never the next one in the queue.
+            if new == nil, presenter.current?.id == shownID { presenter.resolve(.userDismissed) }
+        })) { item in
             switch item.item {
             case .approval(let request): BeaconApprovalSheet(request: request) { presenter.resolve(.approval($0)) }
             case .confirm(let request): ConfirmSheet(request)

@@ -78,8 +78,8 @@ public struct BeaconClientConfig: Sendable, Equatable {
                 root = object
             }
             let backup = configURL.deletingLastPathComponent().appending(path: configURL.lastPathComponent + ".wheelhouse-backup")
-            try? fm.removeItem(at: backup)
-            try data.write(to: backup, options: .atomic)
+            // The first backup is the user's original file: later merges keep it.
+            if !fm.fileExists(atPath: backup.path) { try data.write(to: backup, options: .atomic) }
         } else {
             try fm.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         }

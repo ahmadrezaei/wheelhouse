@@ -301,6 +301,23 @@ struct BeaconMCPTests {
         #expect(!out2.notifications("notifications/progress").isEmpty || true)
     }
 
+    @Test func anApprovedWriteThatFinishesAfterTheTimeoutIsReportedAsApplied() async {
+        // The person confirms right at the deadline: the write completes after the timer fired, and the agent must not be told "timeout".
+        final class Late: BeaconChangeHandling, @unchecked Sendable {
+            func supports(_ tool: ChangeTool) -> Bool { true }
+            func perform(_ request: BeaconChangeRequest, cluster: ClusterConfig, client: BeaconClientRef, recheck: @escaping @Sendable () async -> String?) async -> BeaconChangeOutcome {
+                while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
+                try? await Task.sleep(for: .milliseconds(50))   // the write was already running and finishes
+                return .applied(["done": true])
+            }
+        }
+        let handler = BeaconToolHandler(client: BeaconClientRef(id: "c1", label: "x"), source: FakeToolboxSource([dev]),
+                                        settings: StaticToolboxSettings(beacon: ["c1": all]), gate: { .ok }, changes: Late(), timeout: .milliseconds(100))
+        let result = await handler.callTool(name: "request_scale", arguments: ["cluster": "dev", "kind": "deployment", "name": "web", "namespace": "apps", "replicas": 1], context: MCPCallContext())
+        #expect(!result.isError)
+        #expect(result.structured?.value(at: "data.status")?.stringValue == "applied")
+    }
+
     @Test func secondRequestFromTheSameClientFailsAtOnce() async {
         let changes = FakeChanges()
         changes.blocks = true

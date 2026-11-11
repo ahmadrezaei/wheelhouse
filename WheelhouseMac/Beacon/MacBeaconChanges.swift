@@ -63,7 +63,7 @@ final class MacBeaconChanges: BeaconChangeHandling {
         await presenter.confirm(sheet)
         // A write that already started is not abandoned: wait (briefly) for its result.
         var waited = 0
-        while result.executing, result.outcome == nil, result.lastFailure == nil, waited < 3_000 {
+        while result.executing, result.outcome == nil, result.lastFailure == nil, waited < 6_000 {
             try? await Task.sleep(for: .milliseconds(20))
             waited += 1
         }
@@ -94,8 +94,9 @@ final class MacBeaconChanges: BeaconChangeHandling {
                 } catch { return .failed((error as? KubeError)?.summary ?? error.localizedDescription) }
             },
             action: {
-                if let reason = await recheck() { box.outcome = .refused(reason); throw BeaconRefused(reason: reason) }
+                // Executing from here on: a cancel no longer abandons the call, even while the re-check runs.
                 box.executing = true
+                if let reason = await recheck() { box.executing = false; box.outcome = .refused(reason); throw BeaconRefused(reason: reason) }
                 do {
                     let output = try await Self.execute(request, on: kube, dryRun: false)
                     box.outcome = .applied(output)

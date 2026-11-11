@@ -247,6 +247,15 @@ struct BeaconHubTests {
         #expect(rig.store.record(id: record.id)?.changeRequestClusters == ["dev"])
     }
 
+    @Test func approvingNeverInheritsChangeRequestRights() throws {
+        let store = BeaconClientStore(fileURL: FileManager.default.temporaryDirectory.appending(path: "b-\(UUID().uuidString).json"), secrets: InMemoryBeaconSecrets())
+        let (record, _) = try store.createClient(label: "C")
+        try store.setScope(id: record.id, read: ["dev"], changeRequests: ["dev"])
+        try store.bind(id: record.id, name: "C", launcher: BeaconLauncher(pid: 1, path: "/tmp/other"), readClusters: ["dev"])
+        #expect(store.record(id: record.id)?.changeRequestClusters.isEmpty == true)
+        #expect(store.record(id: record.id)?.readClusters == ["dev"])
+    }
+
     @Test func secretsAreComparedWithoutShortcuts() throws {
         let secrets = InMemoryBeaconSecrets()
         let store = BeaconClientStore(fileURL: FileManager.default.temporaryDirectory.appending(path: "b-\(UUID().uuidString).json"), secrets: secrets)

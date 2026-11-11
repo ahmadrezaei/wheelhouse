@@ -25,6 +25,8 @@ public struct BeaconApprovalRequest: Sendable {
 
 public enum BeaconApprovalDecision: Sendable, Equatable {
     case deny
+    /// The sheet was withdrawn (the app locked, Beacon stopped): not the person's answer, so no cooldown.
+    case withdrawn
     /// `remember` binds a known secret to this client; otherwise the approval lasts for this connection only.
     case allow(readClusters: Set<ClusterID>, remember: Bool)
 }
@@ -295,6 +297,8 @@ public final class BeaconHub: Sendable {
                 return s.on && s.generation == generation && s.entries[entry.id] != nil && !entry.connection.isClosed
             }
             guard still else { return }
+            // A locked app queues no sheet: this approval waits for the unlock too.
+            if isLocked() { entry.state.withLock { $0.deferredName = name }; return }
             let secretState: BeaconSecretState
             switch (entry.hello.secret, entry.secret) {
             case (nil, _): secretState = .none
@@ -305,12 +309,17 @@ public final class BeaconHub: Sendable {
             let clusters = await source.clusters()
             let decision = await approver.approve(BeaconApprovalRequest(clientName: name, launcher: entry.peer.launcher, secretState: secretState, clusters: clusters))
             guard state.withLock({ $0.on && $0.generation == generation && $0.entries[entry.id] != nil }), !entry.connection.isClosed else { return }
+            if decision == .withdrawn {
+                if isLocked() { entry.state.withLock { $0.deferredName = name } }
+                return
+            }
             apply(decision, to: entry, name: name, secretState: secretState)
         }
     }
 
     private func apply(_ decision: BeaconApprovalDecision, to entry: Entry, name: String, secretState: BeaconSecretState) {
         switch decision {
+        case .withdrawn: break
         case .deny:
             state.withLock { $0.denied[entry.peer.launcher.identityKey] = clock() }
             activity.record(ActivityEntry(origin: .ui, verb: "beacon.approval", object: name, result: "denied"))

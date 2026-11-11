@@ -106,7 +106,8 @@ public final class BeaconClientStore: ToolboxClusterSettings, Sendable {
             file.clients[i].launcherKey = launcher.identityKey
             file.clients[i].launcherDescription = launcher.description
             file.clients[i].readClusters = readClusters
-            file.clients[i].changeRequestClusters = file.clients[i].changeRequestClusters.intersection(readClusters)
+            // Change requests are never inherited by an approval: enabling them needs Touch ID, in Settings.
+            file.clients[i].changeRequestClusters = []
         }
         changed.withLock { $0 }?()
     }
@@ -143,11 +144,11 @@ public final class BeaconClientStore: ToolboxClusterSettings, Sendable {
     }
 
     private func persist(_ change: (inout File) -> Void) throws {
-        let file = state.withLock { s -> File in
+        // Snapshot and write under one lock, so an older snapshot can never land on disk after a newer one.
+        try state.withLock { s in
             change(&s)
-            return s
+            try JSONFile.write(s, to: fileURL)
         }
-        try JSONFile.write(file, to: fileURL)
     }
 
     // MARK: Secrets
