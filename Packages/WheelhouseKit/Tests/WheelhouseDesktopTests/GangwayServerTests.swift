@@ -632,6 +632,26 @@ struct GangwayServerTests {
         #expect(ContinuousClock.now - start < .seconds(5))
     }
 
+    @Test("the hold timeout cancels the confirmation so a real sheet can close")
+    func holdTimeoutCancelsTheConfirmer() async throws {
+        let cancelled = Mutex(false)
+        let confirmer = ScriptedConfirmer { _ in
+            await withTaskCancellationHandler {
+                try? await Task.sleep(for: .seconds(30))
+                return false
+            } onCancel: { cancelled.withLock { $0 = true } }
+        }
+        let rig = try await GangwayRig(environment: .production, confirmer: confirmer, holdTimeout: .seconds(1))
+        defer { rig.stop() }
+        let (_, token) = try await rig.open()
+        let c = try await rig.client()
+        try await c.send(rig.request("POST", "/api/v1/namespaces/a/configmaps", token: token, body: "{}"))
+        let r = try #require(await c.readResponse(timeout: .seconds(8)))
+        #expect(r.status == 403)
+        for _ in 0..<40 where !cancelled.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(cancelled.withLock { $0 })
+    }
+
     @Test("stale session folders from a run that did not quit cleanly are removed when Gangway starts")
     func staleSweep() async throws {
         let rig = try await GangwayRig()

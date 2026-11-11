@@ -149,6 +149,9 @@ public final class LocalShellModel: TerminalInsertTarget {
 
     public var sessionKubeconfig: URL? { handle?.kubeconfig }
     public var ptyProcessID: pid_t? { pty?.pid }
+    /// The nonce of the running session; tests forge and verify marks with it.
+    var verificationNonce: String? { nonce }
+    var gangwaySession: GangwaySession? { handle?.session }
     public var isDirect: Bool { configuration.mode == .direct }
 
     /// Opens the Gangway session (guarded) or writes the single-context file (direct), starts the shell, and begins reading it.
