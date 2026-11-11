@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Synchronization
 import Testing
 @testable import WheelhouseDesktop
 import WheelhouseKit
@@ -688,6 +689,52 @@ struct ManagedTrivyTests {
                 try await URLSessionTrivyDownloader().download(url, to: scratch.root.appending(path: "x"), maxBytes: 1_000)
             }
         }
+    }
+
+    /// Serves `body` in 64 KB chunks; a host starting with "missing" answers 404.
+    final class ChunkedProtocol: URLProtocol, @unchecked Sendable {
+        static let body = Mutex(Data())
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() {
+            let url = request.url!
+            let status = url.host()?.hasPrefix("missing") == true ? 404 : 200
+            let body = Self.body.withLock { $0 }
+            let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "\(body.count)"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            var offset = 0
+            while offset < body.count {
+                let end = min(body.count, offset + 65_536)
+                client?.urlProtocol(self, didLoad: body.subdata(in: offset..<end))
+                offset = end
+            }
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        override func stopLoading() {}
+    }
+
+    @Test func theRealDownloaderWritesTheBodyWithinTheLimitAndStopsOverIt() async throws {
+        let scratch = try Scratch()
+        defer { scratch.cleanup() }
+        let downloader = URLSessionTrivyDownloader(protocolClasses: [ChunkedProtocol.self])
+        let body = Data((0..<300_000).map { UInt8($0 % 251) })
+        ChunkedProtocol.body.withLock { $0 = body }
+        let target = scratch.root.appending(path: "ok.tgz")
+        try await downloader.download(URL(string: "https://ok.test/t.tgz")!, to: target, maxBytes: Int64(body.count))
+        #expect(try Data(contentsOf: target) == body)
+        var st = stat()
+        #expect(stat(target.path, &st) == 0 && (st.st_mode & 0o777) == 0o600)
+        // Over the limit: stopped, and nothing is left at the destination.
+        let big = scratch.root.appending(path: "big.tgz")
+        await #expect(throws: ManagedTrivyError.tooLarge(limit: 100_000)) {
+            try await downloader.download(URL(string: "https://ok.test/t.tgz")!, to: big, maxBytes: 100_000)
+        }
+        #expect(!FileManager.default.fileExists(atPath: big.path))
+        // A failing status is an error, not a file.
+        await #expect(throws: URLError.self) {
+            try await downloader.download(URL(string: "https://missing.test/t.tgz")!, to: big, maxBytes: 1_000_000)
+        }
+        #expect(!FileManager.default.fileExists(atPath: big.path))
     }
 
     @Test func anUnsignedProgramIsAcceptedOnItsPinnedHashAndTheSizeCapIsPassedToTheDownloader() async throws {

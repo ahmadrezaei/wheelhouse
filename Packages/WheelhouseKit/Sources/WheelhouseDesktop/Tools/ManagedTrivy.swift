@@ -2,6 +2,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import Synchronization
 
 /// The pinned Trivy release (data shipped inside the app, `Resources/trivy/pin.json`). Complete or empty, never half filled.
 public struct TrivyPin: Codable, Equatable, Sendable {
@@ -90,44 +91,62 @@ public protocol TrivyDownloader: Sendable {
     func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws
 }
 
-/// The real downloader: an ephemeral URLSession that accepts only https and refuses any redirect that is not https. The body is
-/// streamed to disk in 1 MB chunks and stopped as soon as it passes `maxBytes`.
+/// The real downloader: an ephemeral URLSession that accepts only https and refuses any redirect that is not https. The body goes to
+/// disk through a download task (the system writes it in large chunks, never byte by byte); the transfer is cancelled as soon as the
+/// bytes written pass `maxBytes`, and the finished file is checked against the limit again before it is moved into place. The
+/// caller still verifies the size and the pinned SHA-256.
 public struct URLSessionTrivyDownloader: TrivyDownloader {
-    public init() {}
+    /// Extra URL protocols for the session; tests serve a body without a network.
+    private let protocolClasses: [AnyClass]
 
-    private final class HTTPSOnly: NSObject, URLSessionTaskDelegate, Sendable {
+    public init() { protocolClasses = [] }
+
+    init(protocolClasses: [AnyClass]) { self.protocolClasses = protocolClasses }
+
+    private final class Limiter: NSObject, URLSessionDownloadDelegate, Sendable {
+        let maxBytes: Int64
+        let exceeded = Mutex(false)
+        init(maxBytes: Int64) { self.maxBytes = maxBytes }
+
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                         completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
             completionHandler(request.url?.scheme == "https" ? request : nil)
         }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                        totalBytesExpectedToWrite: Int64) {
+            if totalBytesWritten > maxBytes || totalBytesExpectedToWrite > maxBytes {
+                exceeded.withLock { $0 = true }
+                downloadTask.cancel()
+            }
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     }
 
     public func download(_ url: URL, to destination: URL, maxBytes: Int64) async throws {
         guard url.scheme == "https" else { throw ManagedTrivyError.insecureURL }
-        let session = URLSession(configuration: .ephemeral, delegate: HTTPSOnly(), delegateQueue: nil)
+        let configuration = URLSessionConfiguration.ephemeral
+        if !protocolClasses.isEmpty { configuration.protocolClasses = protocolClasses }
+        let limiter = Limiter(maxBytes: maxBytes)
+        let session = URLSession(configuration: configuration, delegate: limiter, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (bytes, response) = try await session.bytes(from: url)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
-        if response.expectedContentLength > maxBytes { throw ManagedTrivyError.tooLarge(limit: maxBytes) }
         let fm = FileManager.default
-        try? fm.removeItem(at: destination)
-        guard fm.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-        let handle = try FileHandle(forWritingTo: destination)
-        defer { try? handle.close() }
-        var buffer = Data()
-        var total: Int64 = 0
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 1 << 20 {
-                total += Int64(buffer.count)
-                if total > maxBytes { try? fm.removeItem(at: destination); throw ManagedTrivyError.tooLarge(limit: maxBytes) }
-                try handle.write(contentsOf: buffer)
-                buffer.removeAll(keepingCapacity: true)
-            }
+        let temporary: URL
+        let response: URLResponse
+        do {
+            (temporary, response) = try await session.download(from: url)
+        } catch {
+            if limiter.exceeded.withLock({ $0 }) { throw ManagedTrivyError.tooLarge(limit: maxBytes) }
+            throw error
         }
-        total += Int64(buffer.count)
-        if total > maxBytes { try? fm.removeItem(at: destination); throw ManagedTrivyError.tooLarge(limit: maxBytes) }
-        try handle.write(contentsOf: buffer)
+        defer { try? fm.removeItem(at: temporary) }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
+        let size = ((try? fm.attributesOfItem(atPath: temporary.path)[.size]) as? NSNumber)?.int64Value ?? 0
+        if limiter.exceeded.withLock({ $0 }) || size > maxBytes { throw ManagedTrivyError.tooLarge(limit: maxBytes) }
+        try? fm.removeItem(at: destination)
+        try fm.moveItem(at: temporary, to: destination)
+        chmod(destination.path, 0o600)
     }
 }
 
