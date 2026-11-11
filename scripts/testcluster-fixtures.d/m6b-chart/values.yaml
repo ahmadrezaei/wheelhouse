@@ -3,3 +3,7 @@ replicas: 1
 greeting: hello
 service:
   port: 8080
+deployment:
+  # off by default: the suite switches it on with an image that cannot be pulled to make --wait fail
+  enabled: false
+  image: registry.k8s.io/pause:3.10

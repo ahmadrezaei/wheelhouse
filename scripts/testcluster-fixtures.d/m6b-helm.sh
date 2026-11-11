@@ -13,10 +13,12 @@ m6b_clean() {
   echo "Removing the M6b fixtures from context $CTX ..."
   export HELM_CONFIG_HOME="$REPO/.testcluster/helm-m6b/config" HELM_CACHE_HOME="$REPO/.testcluster/helm-m6b/cache" HELM_DATA_HOME="$REPO/.testcluster/helm-m6b/data"
   mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
-  for rel in $(helm --kubeconfig "$KC" --kube-context "$CTX" list -n "$M6B_NS" -q 2>/dev/null); do
-    helm --kubeconfig "$KC" --kube-context "$CTX" uninstall "$rel" -n "$M6B_NS" >/dev/null
+  for ns in "$M6B_NS" wh-m6b-new; do
+    for rel in $(helm --kubeconfig "$KC" --kube-context "$CTX" list -n "$ns" -q 2>/dev/null); do
+      helm --kubeconfig "$KC" --kube-context "$CTX" uninstall "$rel" -n "$ns" >/dev/null
+    done
   done
-  kubectl --kubeconfig "$KC" --context "$CTX" delete namespace "$M6B_NS" --ignore-not-found --wait=true
+  kubectl --kubeconfig "$KC" --context "$CTX" delete namespace "$M6B_NS" wh-m6b-new --ignore-not-found --wait=true
   kubectl --kubeconfig "$KC" --context "$CTX" delete crd whm6bwidgets.wheelhouse.test --ignore-not-found
   rm -r -f "$REPO/.testcluster/helm-m6b"
 }
