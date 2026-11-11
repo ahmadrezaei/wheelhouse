@@ -138,7 +138,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
             env.workspace.syncSidebarState()
             env.workspace.store.isTerminating = true
             env.workspace.store.flush()
-            env.activity.flush()
+            // From here on every activity record is written before `record` returns: the `willTerminate` observers (Gangway's
+            // revoked sessions, Landfall, the scanner) may record after the delegate's own last flush.
+            env.activity.beginTermination()
         }
         return .terminateNow
     }
@@ -150,8 +152,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // A copied secret must not outlive the app.
         Pasteboard.clearSensitiveIfUnchanged()
-        // The shutdown audits of Gangway, Landfall and the scanner run in `willTerminate` observers, after `applicationShouldTerminate`:
-        // flush once more so none of them is lost.
-        MainActor.assumeIsolated { MacAppDelegate.environment?.activity.flush() }
+        // The shutdown audits of Gangway, Landfall and the scanner run in `willTerminate` observers, in no fixed order relative to
+        // this method: `beginTermination` (already called by `applicationShouldTerminate` on a normal quit) makes their records
+        // synchronous, so each is written before its observer returns, whichever runs first.
+        MainActor.assumeIsolated { MacAppDelegate.environment?.activity.beginTermination() }
     }
 }
