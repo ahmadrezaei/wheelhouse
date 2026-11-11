@@ -298,6 +298,48 @@ struct FirstMateSessionTests {
         #expect(MessageOrdering.violations(session.snapshot.messages).isEmpty)
     }
 
+    @Test func aNewMessageAfterAMidTurnFailureKeepsTheHistoryValid() async {
+        let transport = ReplayTransport([calls(["list_clusters"], input: [:]), .status(400, body: #"{"error":{"message":"bad"}}"#), text("fine")])
+        let session = makeSession(transport)
+        session.send("go")
+        await settle(session)
+        guard case .failed = session.state else { Issue.record("expected a failure"); return }
+        session.send("x")        // typing on instead of Retry
+        await settle(session)
+        #expect(MessageOrdering.violations(session.snapshot.messages).isEmpty)
+        #expect(orderingIsValid(transport))
+    }
+
+    @Test func aDeletedConversationIsNeverWrittenAgain() async throws {
+        let dir = tempDirectory()
+        let store = ConversationStore(directory: dir, secrets: InMemoryAISecrets())
+        let transport = ReplayTransport([.paced(SSEScript.response(text: ["a", "b"]), every: .milliseconds(30))])
+        let session = makeSession(transport, store: store)
+        session.send("hello")
+        try? await Task.sleep(for: .milliseconds(60))
+        session.detach()
+        await settle(session)
+        await session.flushStorage()
+        try await store.delete("c")
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "c.whchat").path))
+        session.send("again")
+        await session.flushStorage()
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "c.whchat").path))
+    }
+
+    @Test func oneResponseWithMoreThanTheBudgetOfCallsRunsOnlyTheBudget() async {
+        let tools = ScriptedTools()
+        let thirty = (0..<30).map { SSEScript.ToolCall(id: "toolu_\($0)", name: "list_clusters", input: [:]) }
+        let transport = ReplayTransport([.stream(SSEScript.response(toolCalls: thirty)), text("done")])
+        let session = makeSession(transport, tools: tools)
+        session.send("lots")
+        await settle(session)
+        #expect(tools.callNames.count == 25)
+        let results = transport.bodies[1]["messages"]?.arrayValue?.dropLast().last?["content"]?.arrayValue ?? []
+        #expect(results.count == 30)
+        #expect(results.suffix(5).allSatisfy { $0["is_error"] == true && $0["content"]?.stringValue?.contains("budget_reached") == true })
+    }
+
     @Test func stoppingAStreamRollsBackTheTurn() async {
         let slow = ReplayTransport([.paced(SSEScript.response(text: Array(repeating: "word ", count: 40)), every: .milliseconds(20))])
         let session = makeSession(slow)
@@ -353,7 +395,7 @@ struct FirstMateSessionTests {
         session.send("two"); await settle(session)
         guard case .blocked(.conversationCapReached) = session.state else { Issue.record("expected the cap"); return }
         #expect(transport.requests.count == 1)
-        #expect(session.draftToRestore == nil)
+        #expect(session.draftToRestore == "two")      // the message is not lost
         session.raiseCap()
         #expect(session.capDollars == 2.25)
         #expect(session.state == .idle)

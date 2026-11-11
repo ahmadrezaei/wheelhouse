@@ -130,7 +130,7 @@ private struct ConversationView: View {
                 .accessibilityIdentifier("firstmate.model")
                 .help("Model. Investigate (⌥↩) uses effort high.")
             Menu {
-                Button("New Conversation") { hub.newConversation(in: slot) }.keyboardShortcut("j", modifiers: [.command, .option])
+                Button("New Conversation") { hub.newConversation(in: slot) }
                 Divider()
                 ForEach(hub.recent.prefix(12)) { item in
                     Button(item.title) { Task { await hub.open(item.id, in: slot) } }

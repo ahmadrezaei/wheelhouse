@@ -196,6 +196,9 @@ public final class FirstMateSession {
     /// Sends `text`. `investigate` raises the effort to high for this send (⌥↩).
     public func send(_ text: String, investigate: Bool = false) {
         guard !isBusy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // A turn that failed or was refused after tool results were exchanged must be closed first: the history would otherwise end with
+        // a tool call nobody answered, and every later request would be refused.
+        if !pending.isEmpty, !turnIsOpening { commitPlaceholder("I stopped before finishing that.") }
         let safe = redactor.redact(text)
         openingDraft = text
         var notes = pendingNotes + coordinator.takeOutcomeNotes(for: id).map { redactor.redact($0) }
@@ -235,6 +238,15 @@ public final class FirstMateSession {
         task?.cancel()
     }
 
+    @ObservationIgnored private var detached = false
+
+    /// The conversation was deleted: stop work and never write it again (a queued save finishes first, so the hub can delete the file
+    /// after ``flushStorage()`` without the file coming back).
+    public func detach() {
+        detached = true
+        task?.cancel()
+    }
+
     private func run() {
         state = .sending
         task = Task { [weak self] in await self?.runLoop() }
@@ -246,7 +258,7 @@ public final class FirstMateSession {
         while true {
             if let blocked = gateCheck() {
                 state = .blocked(blocked)
-                if !turnIsOpening { commitPlaceholder("I stopped here because the cost cap was reached.") } else { rollBack(restoreDraft: false) }
+                if !turnIsOpening { commitPlaceholder("I stopped here because the cost cap was reached.") } else { rollBack() }
                 return
             }
             let choice = turnProfile ?? record.profile
@@ -263,8 +275,8 @@ public final class FirstMateSession {
                 state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
                 return
             }
-            if Task.isCancelled { finishStopped(); return }
             account(response, choice: choice)
+            if Task.isCancelled { finishStopped(); return }
             if response.isRefusal {
                 let details = response.stopDetails
                 state = .refused(category: details?["category"]?.stringValue,
@@ -284,7 +296,7 @@ public final class FirstMateSession {
             }
             state = .runningTools(uses.count)
             let cutOff = response.stopReason == "max_tokens"
-            let results = await runTools(uses, invalid: response.invalidToolInputs, truncated: cutOff)
+            let results = await runTools(uses, invalid: response.invalidToolInputs, truncated: cutOff, budget: Self.maxToolCalls - toolCallsThisTurn)
             toolCallsThisTurn += uses.count
             let content = zip(uses, results).map { use, out in AIMessage.toolResult(id: use.id, text: out.text, isError: out.isError) }
             pending = [AIMessage(role: .user, content: content)]
@@ -385,13 +397,15 @@ public final class FirstMateSession {
 
     // MARK: Tools
 
-    private func runTools(_ uses: [AIMessage.ToolUse], invalid: Set<String>, truncated: Bool) async -> [ToolOutput] {
+    private func runTools(_ uses: [AIMessage.ToolUse], invalid: Set<String>, truncated: Bool, budget: Int) async -> [ToolOutput] {
         var results = [ToolOutput?](repeating: nil, count: uses.count)
         let definitions = Dictionary(tools.definitions.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         var runnable: [Int] = []
         for (index, use) in uses.enumerated() {
             if truncated {
                 results[index] = Self.failure("cut_off", "The response was cut off before this call was complete. Make a smaller call or answer without it.")
+            } else if index >= budget {
+                results[index] = Self.failure("budget_reached", "The tool budget for this turn is used up. Answer with what you have.")
             } else if invalid.contains(use.id) {
                 results[index] = Self.failure("invalid_input", "The tool input was not valid JSON.")
             } else if let definition = definitions[use.name] {
@@ -478,7 +492,7 @@ public final class FirstMateSession {
     }
 
     private func persist() {
-        guard let store else { return }
+        guard let store, !detached else { return }
         let snapshot = record
         let previous = saveChain
         saveChain = Task { [weak self] in

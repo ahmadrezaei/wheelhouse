@@ -121,6 +121,8 @@ final class FirstMateHub {
     }
 
     func delete(_ id: String) async {
+        // Stop the conversation and let a queued save land first, so the file cannot be written again after it is deleted.
+        if let session = sessions[id] { session.detach(); await session.flushStorage() }
         sessions[id] = nil
         slots = slots.filter { $0.value != id }
         slotRevision += 1
@@ -129,6 +131,9 @@ final class FirstMateHub {
     }
 
     func deleteAll() async {
+        let open = Array(sessions.values)
+        for session in open { session.detach() }
+        for session in open { await session.flushStorage() }
         sessions = [:]
         slots = [:]
         slotRevision += 1

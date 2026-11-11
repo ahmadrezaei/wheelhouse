@@ -153,7 +153,7 @@ private struct RedactionSection: View {
             }
             if let problem { Text(problem).font(.callout).foregroundStyle(Palette.criticalText) }
         } header: { Text("Redaction") } footer: {
-            Text("Matches are replaced with ‹redacted› in everything First Mate sends, including your own messages.")
+            Text("Matches are replaced with ‹redacted› in everything First Mate sends, including your own messages. A new pattern applies to conversations you start after adding it.")
         }
     }
 
