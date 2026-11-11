@@ -50,7 +50,8 @@ public final class GangwaySession: Sendable {
     public let clusterID: ClusterID
     public let origin: GangwayOrigin
     public let scope: GangwayScope
-    public let binding: PeerBinding
+    /// How the client process is found. Set once, from `.none`, by ``bind(_:)`` when a terminal's PTY exists (after the shell started).
+    public var binding: PeerBinding { state.withLock { $0.binding } }
     public let createdAt: Date
     let tokenDigest: String
     /// What the session was opened against (server, auth, TLS settings, credential digest). A change ends the session.
@@ -60,6 +61,7 @@ public final class GangwaySession: Sendable {
     }
 
     private struct State {
+        var binding: PeerBinding = .none
         var kubeconfigHash: String?
         var fingerprint: String?
         var revoked = false
@@ -67,16 +69,27 @@ public final class GangwaySession: Sendable {
         var reportedCommand: ReportedCommand?
         var closers: [UUID: @Sendable () -> Void] = [:]
     }
-    private let state = Mutex(State())
+    private let state: Mutex<State>
 
     init(id: UUID, clusterID: ClusterID, origin: GangwayOrigin, scope: GangwayScope, binding: PeerBinding, createdAt: Date, tokenDigest: String) {
         self.id = id
         self.clusterID = clusterID
         self.origin = origin
         self.scope = scope
-        self.binding = binding
+        self.state = Mutex(State(binding: binding))
         self.createdAt = createdAt
         self.tokenDigest = tokenDigest
+    }
+
+    /// Binds a terminal session to its PTY. Accepted once, from `.none`, for a terminal origin; until then requests fall to per-request sheets.
+    @discardableResult
+    public func bind(_ new: PeerBinding) -> Bool {
+        guard case .terminal = origin else { return false }
+        return state.withLock { s in
+            guard case .none = s.binding else { return false }
+            s.binding = new
+            return true
+        }
     }
 
     public var kubeconfigHash: String? {

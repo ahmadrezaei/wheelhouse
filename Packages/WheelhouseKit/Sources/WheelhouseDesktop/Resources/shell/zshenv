@@ -1,0 +1,38 @@
+# Wheelhouse shell integration (zsh), installed as $ZDOTDIR/.zshenv of ONE session. The user's own startup files are sourced from
+# $WH_ORIG_ZDOTDIR (set by the app, never guessed from $HOME). ZDOTDIR stays ours for the whole life of the shell, so `exec zsh`
+# and `omz reload` run this again and the guard is never lost.
+
+# 1. The nonce is read FIRST (before any user file), only by an interactive shell, and never exported.
+if [[ -o interactive && -z "${__wh_nonce-}" && -n "${WH_SESSION_DIR-}" && -r "$WH_SESSION_DIR/nonce" ]]; then
+  builtin typeset __wh_read=
+  { IFS= builtin read -r __wh_read < "$WH_SESSION_DIR/nonce" } 2>/dev/null
+  command rm -f -- "$WH_SESSION_DIR/nonce" 2>/dev/null
+  if [[ $__wh_read =~ ^[0-9a-f]{32}$ ]]; then
+    builtin typeset -g +x -H __wh_nonce="$__wh_read"
+  fi
+  builtin unset __wh_read
+fi
+
+# Sources one of the user's startup files with ZDOTDIR pointed at their directory, then takes ZDOTDIR back. A user file that sets
+# ZDOTDIR changes where the later user files are read from, never where ours are.
+__wh_user_source() {
+  [[ -n "${WH_ORIG_ZDOTDIR-}" && -r "$WH_ORIG_ZDOTDIR/$1" ]] || return 0
+  builtin typeset __wh_ours=$ZDOTDIR
+  ZDOTDIR=$WH_ORIG_ZDOTDIR
+  builtin source "$WH_ORIG_ZDOTDIR/$1"
+  WH_ORIG_ZDOTDIR=$ZDOTDIR
+  ZDOTDIR=$__wh_ours
+}
+
+# The session kubeconfig wins over whatever the user's files set.
+__wh_reguard() {
+  if [[ -n "${WH_KUBECONFIG-}" && "${KUBECONFIG-}" != "$WH_KUBECONFIG" ]]; then
+    if [[ -o interactive && -n "${KUBECONFIG-}" && -t 2 ]]; then
+      builtin print -u2 -r -- $'\e[2mwheelhouse: KUBECONFIG from your shell startup files is overridden in this guarded session\e[0m'
+    fi
+    export KUBECONFIG="$WH_KUBECONFIG"
+  fi
+}
+
+__wh_user_source .zshenv
+__wh_reguard

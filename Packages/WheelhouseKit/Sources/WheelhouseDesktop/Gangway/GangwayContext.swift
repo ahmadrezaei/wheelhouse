@@ -171,15 +171,19 @@ actor HoldCoordinator {
         let confirmer = self.confirmer, timeout = self.timeout
         let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let once = AnswerOnce(continuation)
-            let timer = Task {
-                try? await Task.sleep(for: timeout)
-                once.answer(false)
-            }
-            Task {
+            let timer = Mutex<Task<Void, Never>?>(nil)
+            let confirming = Task {
                 let answer = await confirmer.confirm(sheet)
-                timer.cancel()
+                timer.withLock { $0?.cancel() }
                 once.answer(answer)
             }
+            // The timeout does not wait for the confirmer; it cancels it, so a real sheet closes instead of staying up after the refusal.
+            timer.withLock { $0 = Task {
+                try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
+                once.answer(false)
+                confirming.cancel()
+            } }
         }
         guard approved, !session.isRevoked else { return .declined }
         switch kind {

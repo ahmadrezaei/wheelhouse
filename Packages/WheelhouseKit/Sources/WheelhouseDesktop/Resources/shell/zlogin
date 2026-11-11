@@ -1,0 +1,3 @@
+# Wheelhouse shell integration (zsh): the user's .zlogin, then the guard again.
+__wh_user_source .zlogin
+__wh_reguard

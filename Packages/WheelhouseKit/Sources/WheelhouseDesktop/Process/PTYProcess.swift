@@ -27,6 +27,8 @@ public final class PTYProcess: Sendable {
     /// stdout when `stdoutPipe` was requested; an empty, finished stream otherwise.
     public let stdout: AsyncStream<Data>
     public let pid: pid_t
+    /// The terminal device (`st_rdev` of the slave): what `PeerResolver` lists processes by.
+    public let ttyDevice: dev_t
 
     private let master: Int32
     private let writer = DispatchQueue(label: "app.wheelhouse.pty.writer", qos: .userInitiated)
@@ -66,6 +68,9 @@ public final class PTYProcess: Sendable {
             close(masterFD); close(slaveFD)
             throw PTYError.openFailed("no slave name")
         }
+        var slaveStat = stat()
+        fstat(slaveFD, &slaveStat)
+        let device = slaveStat.st_rdev
         var pipeFDs: [Int32] = [-1, -1]
         if stdoutPipe, pipe(&pipeFDs) != 0 { close(masterFD); close(slaveFD); throw PTYError.openFailed("pipe") }
 
@@ -99,6 +104,7 @@ public final class PTYProcess: Sendable {
             throw PTYError.spawnFailed(String(cString: strerror(rc)))
         }
         self.pid = childPID
+        self.ttyDevice = device
         self.master = masterFD
         (output, outputContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
         (stdout, stdoutContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
@@ -205,8 +211,10 @@ public final class PTYProcess: Sendable {
         // Close on the writer queue, after queued writes, so a write never races with a closed (or reused) descriptor.
         let fd = master
         writer.async { [self] in
-            state.withLock { $0.closed = true }
-            close(fd)
+            state.withLock { s in
+                s.closed = true
+                close(fd)
+            }
         }
     }
 
@@ -261,6 +269,15 @@ public final class PTYProcess: Sendable {
                 return nil
             }
             if let ready { c.resume(returning: ready) }
+        }
+    }
+
+    /// The foreground process group of the terminal (`tcgetpgrp(master)`), asked on demand and never polled; nil once the master is closed.
+    public var foregroundProcessGroup: pid_t? {
+        state.withLock { s in
+            guard !s.closed else { return nil }
+            let group = tcgetpgrp(master)
+            return group > 0 ? group : nil
         }
     }
 
