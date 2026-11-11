@@ -18,4 +18,13 @@ struct ConfirmationInputDelayTests {
             #expect(request(o).inputDelay == 1.0)
         }
     }
+
+    @Test func onlyNonUIOriginsLoseTheDefaultButton() {
+        #expect(request(nil).hasDefaultButton)
+        #expect(request(.ui).hasDefaultButton)
+        #expect(request(.chartRoom).hasDefaultButton && request(.tides).hasDefaultButton && request(.survey).hasDefaultButton)
+        for o in [ChangeOrigin.firstMate(conversation: "c"), .beacon(client: "b"), .terminal(session: "s", reportedCommand: nil), .rigging(pack: "p")] {
+            #expect(!request(o).hasDefaultButton)
+        }
+    }
 }

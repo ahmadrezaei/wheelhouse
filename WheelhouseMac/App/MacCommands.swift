@@ -31,6 +31,15 @@ struct MacCommands: Commands {
         model?.selectSidebar(destination)
     }
 
+    // M11b
+    private func showFirstMate(newConversation: Bool) {
+        guard let model else { return }
+        model.isInspectorOpen = true
+        model.mutate { $0.inspector.segment = .firstMate }
+        if newConversation { env.firstMate.newConversation(in: "inspector") }
+    }
+    // end M11b
+
     var body: some Commands {
         // Wheelhouse
         CommandGroup(after: .appInfo) {
@@ -89,6 +98,11 @@ struct MacCommands: Commands {
                 Divider()
                 Button("Alerts") { go(.alerts) }.keyboardShortcut("a", modifiers: [.command, .option]).disabled(!hasWindow)
                 Button("Sessions") { go(.sessions) }.keyboardShortcut("e", modifiers: [.command, .option]).disabled(!hasWindow)
+                // M11b: First Mate. Opens the inspector on First Mate, bound to the focused pane's selection (Stop is ⌘. in the panel).
+                Divider()
+                Button("First Mate") { showFirstMate(newConversation: false) }.keyboardShortcut("j").disabled(!hasWindow)
+                Button("New First Mate Conversation") { showFirstMate(newConversation: true) }.keyboardShortcut("j", modifiers: [.command, .option]).disabled(!hasWindow)
+                // end M11b
             }
             .disabled(locked)
         }

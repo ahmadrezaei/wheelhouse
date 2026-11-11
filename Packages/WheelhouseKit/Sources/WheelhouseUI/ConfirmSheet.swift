@@ -72,6 +72,10 @@ public struct ConfirmRequest: Identifiable {
     public static let nonUIInputDelay: TimeInterval = 1.0
     public var inputDelay: TimeInterval { origin?.isNonUI == true ? Self.nonUIInputDelay : 0 }
 
+    /// Sheets from AI, MCP, terminal and extension origins have no default button: no button answers Return, and Esc cancels
+    /// (ARCHITECTURE-MAC section 9.2). A UI-origin sheet keeps its default button, so iOS and ordinary Mac sheets do not change.
+    public var hasDefaultButton: Bool { origin?.isNonUI != true }
+
     /// Production clusters: every mutation requires typing the confirmation text.
     public var requiresTyping: Bool { requiresTyping(for: cluster) }
 
@@ -166,11 +170,22 @@ public struct ConfirmSheet: View {
             .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isRunning) }   // never disabled by the input delay
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
-                        .buttonStyle(.glassProminent)
-                        .tint(request.isDestructive ? Palette.critical : Palette.tint)
-                        .disabled(!canConfirm)
+                // A hardened sheet puts the button in `.primaryAction` with a plain glass style: `.confirmationAction` is the sheet's
+                // default button on the Mac (Return presses it).
+                ToolbarItem(placement: request.hasDefaultButton ? .confirmationAction : .primaryAction) {
+                    if request.hasDefaultButton {
+                        Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
+                            .buttonStyle(.glassProminent)
+                            .tint(request.isDestructive ? Palette.critical : Palette.tint)
+                            .disabled(!canConfirm)
+                            .accessibilityIdentifier("confirm.action")
+                    } else {
+                        Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
+                            .buttonStyle(.glass)
+                            .tint(request.isDestructive ? Palette.critical : Palette.tint)
+                            .disabled(!canConfirm)
+                            .accessibilityIdentifier("confirm.action")
+                    }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
