@@ -269,7 +269,12 @@ struct EnvironmentBuilderTests {
         #expect(b.build(profile: .azure)["AZURE_CONFIG_DIR"] == "/az")
         #expect(b.build(profile: .azure)["CLOUDSDK_CONFIG"] == nil)
         #expect(b.build(profile: .google)["CLOUDSDK_CONFIG"] == "/gc")
-        let helm = b.build(profile: .helm)
+        // An isolated (Debug or Profile) build takes no HELM_* from the shell; an ordinary build passes the non-credential ones.
+        #expect(b.build(profile: .helm)["HELM_NAMESPACE"] == nil)
+        let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
+        let ordinary = EnvironmentBuilder(snapshot: ShellSnapshot(path: "/usr/bin", kubeconfig: nil, vars: vars, shell: "/bin/zsh"),
+                                          paths: AppPaths(gateActive: false, bundleID: AppPaths.releaseBundleID, home: home), home: home)
+        let helm = ordinary.build(profile: .helm)
         #expect(helm["HELM_NAMESPACE"] == "x")
         #expect(helm["HELM_KUBEAPISERVER"] == nil && helm["HELM_KUBETOKEN"] == nil)
         #expect(b.build(profile: .docker)["DOCKER_CONFIG"] == "/d")
