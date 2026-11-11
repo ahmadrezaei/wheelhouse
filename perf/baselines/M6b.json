@@ -1,0 +1,31 @@
+{
+  "milestone": "M6b",
+  "date": "2026-11-11",
+  "note": "Chart Room write path. The test cluster was not running (its Docker daemon was down and must not be restarted by this work), so the live helm suite could not run and the footprint gate is measured against a fake helm through the real Gangway: session, 0400 kubeconfig, object grant, suspended spawn, 100 KB of output per run, grant plan. App-level scenarios (idle-1, hidden, launch) are unchanged: Chart Room code runs only when a pane is open, and nothing starts at launch.",
+  "environment": {
+    "machine": "MacBook Pro (Apple M4 Pro)",
+    "macOS": "27.0.1",
+    "xcode": "27.1",
+    "load1m": "high (shared machine, six workers) at the time of the run; the measure is a footprint delta, not a timing",
+    "command": "WH_PERF_PRINT=1 swift test --filter HelmRunFootprint"
+  },
+  "helmRunFootprint": {
+    "budgetMB": 5,
+    "runsMeasured": 20,
+    "warmupRuns": 5,
+    "outputPerRunKB": 100,
+    "footprintBeforeMB": 12.4,
+    "footprintAfterMB": 12.9,
+    "growthMB": 0.5,
+    "sessionsLeftOpen": 0,
+    "process": "swift test process (debug)"
+  },
+  "gangwayGrant": {
+    "peerCheck": "once per connection, memoised; reads and changes of an object session",
+    "createBodyLimitBytes": 3145728
+  },
+  "kitSwiftTest": {
+    "tests": 938,
+    "suites": 132
+  }
+}
