@@ -36,6 +36,19 @@ private actor BlockingRunner: ScanRunner {
     }
 }
 
+/// A runner whose scan does not notice cancellation until released (a child process that is slow to exit).
+private actor StubbornRunner: ScanRunner {
+    private(set) var started = 0
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var released = false
+    func release() { released = true; waiting?.resume(); waiting = nil }
+    func scan(_ item: ScanQueueItem, trigger: ScanTrigger) async throws -> ImageScanResult {
+        started += 1
+        if !released { await withCheckedContinuation { waiting = $0 } }
+        return ImageScanResult(image: item.image, digest: nil, isMutable: true, dbVersion: "2", scannedAt: Date(), vulnerabilities: [])
+    }
+}
+
 @Suite("Review fixes: scan queue", .serialized)
 struct ScanQueueReviewTests {
     private func images(_ n: Int) -> [(image: String, isMutable: Bool, clusters: [String])] {
@@ -56,6 +69,29 @@ struct ScanQueueReviewTests {
         #expect(try await store.queueCount() == 5)                     // nothing was dropped
         let p = await queue.progress
         #expect(p.failed == 0 && p.queued == 5)
+    }
+
+    @Test func noScanStartsAfterCancelAllReturns() async throws {
+        let scratch = try Scratch()
+        defer { scratch.cleanup() }
+        let runner = StubbornRunner()
+        let store = try SurveyStore(url: scratch.root.appending(path: "survey.sqlite"))
+        let queue = ScanQueue(store: store, runner: runner, conditions: { ScanConditions() })
+        try await queue.enqueue(images: images(2), trigger: .manual)
+        await queue.start(trigger: .manual)
+        try await settle("first scan started") { await runner.started == 1 }
+        // The cancelled scan ignores the cancellation until released, so cancelAll waits for its child to exit.
+        let cancelled = Task { await queue.cancelAll() }
+        try await settle("cancel began") { await queue.progress.state == .userPaused }
+        await queue.start(trigger: .manual)                            // a start while the cancel is waiting must not launch a run
+        await queue.resume(trigger: .manual)
+        await runner.release()
+        await cancelled.value
+        try await Task.sleep(for: .milliseconds(150))                  // a stray run would have picked an image by now
+        #expect(await runner.started == 1)
+        let p = await queue.progress
+        #expect(p.state == .idle && p.queued == 0)
+        #expect(try await store.queueCount() == 0)
     }
 
     @Test func aScheduledStartNeverDowngradesARunningManualRun() async throws {
@@ -141,8 +177,13 @@ struct RunnerReviewTests {
         try Data(#"{"Version":1,"DownloadedAt":"\#(old)","UpdatedAt":"\#(old)"}"#.utf8).write(to: java.appending(path: "metadata.json"))
         let store = try SurveyStore(url: fake.scratch.root.appending(path: "survey.sqlite"))
         let runner = TrivyScanRunner(cli: fake.cli, options: fake.options, store: store, paths: fake.paths)
-        _ = try await runner.scan(ScanQueueItem(id: 1, image: "registry.example.com/team/web:1", isMutable: true, clusters: ["c1"]), trigger: .manual)
+        // An image without Java results never waits for the refresh.
+        _ = try await runner.scan(ScanQueueItem(id: 1, image: "registry.example.com/team/web-nojar:1", isMutable: true, clusters: ["c1"]), trigger: .manual)
+        #expect(!fake.log.contains("--download-java-db-only"))
+        // An image whose report has JARs refreshes the stale Java DB and is scanned again with it.
+        _ = try await runner.scan(ScanQueueItem(id: 2, image: "registry.example.com/team/web:1", isMutable: true, clusters: ["c1"]), trigger: .manual)
         #expect(fake.log.contains("--download-java-db-only"))
+        #expect(fake.log.components(separatedBy: "ARGS image --format").count == 4)      // nojar once, web twice
     }
 
     @Test func aScanIsReusedOnlyWithinOneDBUpdate() async throws {

@@ -1,7 +1,7 @@
 #!/bin/sh
 # A fake trivy for tests: replays Fixtures/trivy/image-report.json (next to this script) and records what it was given.
 # Behaviour by image name: "unauth" fails like a registry that refuses the pull; "slow" waits; "broken" prints text, not JSON;
-# "jarapp" needs the Java DB (fails with trivy's first-run message until --download-java-db-only has run).
+# "nojar" replays the report without its JAR result; "jarapp" needs the Java DB (fails with trivy's first-run message until --download-java-db-only has run).
 # A file named java-download-fails in the cache makes the Java DB download fail with a ghcr 401.
 here="$(cd "$(dirname "$0")" && pwd)"
 cache=""
@@ -42,6 +42,7 @@ for a in "$@"; do
   fi
 done
 case "$last" in
+  *nojar*) grep -v "app.jar" "$here/image-report.json"; exit 0 ;;
   *unauth*) echo "FATAL image scan error: UNAUTHORIZED: authentication required" >&2; exit 1 ;;
   *slow*) sleep 30; exit 0 ;;
   *broken*) echo "not json"; exit 0 ;;

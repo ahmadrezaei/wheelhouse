@@ -64,6 +64,9 @@ public actor ScanQueue {
     private var generation = 0
     /// The cancelled scan(s) whose child process may still be exiting: a new loop waits for them, so two trivy never share the cache.
     private var draining: Task<Void, Never>?
+    /// Non-zero from the start of ``cancelAll()`` until the queue is empty: nothing may launch a run in between, or an image could be
+    /// picked up after the cancel has returned.
+    private var cancelling = 0
 
     public init(store: SurveyStore, runner: any ScanRunner, conditions: @escaping @Sendable () -> ScanConditions,
                 onlyOnPower: @escaping @Sendable () -> Bool = { true }, observer: (any ScanConditionsObserver)? = nil,
@@ -92,6 +95,7 @@ public actor ScanQueue {
 
     /// Starts (or resumes) the run. `.manual` overrides the energy rules for this run.
     public func start(trigger: ScanTrigger) {
+        guard cancelling == 0 else { return }
         // A run that is already going keeps its trigger, except that a manual request upgrades it (a scheduled one never downgrades it).
         if loop != nil {
             if trigger == .manual { runTrigger = .manual }
@@ -123,6 +127,8 @@ public actor ScanQueue {
 
     /// Empties the queue.
     public func cancelAll() async {
+        cancelling += 1
+        defer { cancelling -= 1 }
         stopLoop()
         // Items stay queued until the cancelled child has exited; the state blocks an automatic restart meanwhile.
         progress.state = .userPaused
@@ -175,6 +181,7 @@ public actor ScanQueue {
     }
 
     private func launch() {
+        guard cancelling == 0 else { return }
         generation += 1
         let mine = generation
         loop?.cancel()

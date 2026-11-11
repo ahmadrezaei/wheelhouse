@@ -61,20 +61,23 @@ public struct TrivyScanRunner: ScanRunner {
         throw lastError
     }
 
-    /// The Java DB is downloaded only when it is needed (an image with JARs) or already present and stale, under the same 24 h rule
-    /// as the vulnerability DB, keyed on `<cache>/java-db/metadata.json`. A scan runs with `--skip-java-db-update`; when trivy says the
-    /// Java DB is missing it is fetched once and the scan retried. A failure of THAT download is a database problem, never "the image
-    /// registry refused you".
+    /// The Java DB is downloaded only when an image needs it (JARs), under the same 24 h rule as the vulnerability DB, keyed on
+    /// `<cache>/java-db/metadata.json`. A scan runs with `--skip-java-db-update`, so an image without Java never waits for the
+    /// refresh: when trivy says the Java DB is missing it is fetched once and the scan retried, and when the report shows Java
+    /// results while a present Java DB is stale it is refreshed and that one scan repeated. A failure of THAT download is a
+    /// database problem, never "the image registry refused you".
     private func scanWithJavaFallback(_ ref: ImageReference, cluster: String, trigger: ScanTrigger, architecture: String?) async throws -> TrivyImageReportParser.Parsed {
-        if let java = TrivyCLI.javaDatabaseMetadata(cacheDirectory: options.cacheDirectory), DBUpdatePolicy.needsDownload(metadata: java, now: now()) {
-            try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
-        }
+        let parsed: TrivyImageReportParser.Parsed
         do {
-            return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
+            parsed = try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
         } catch TrivyError.javaDatabaseMissing {
             try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
             return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
         }
+        guard parsed.usesJavaDatabase, let java = TrivyCLI.javaDatabaseMetadata(cacheDirectory: options.cacheDirectory),
+              DBUpdatePolicy.needsDownload(metadata: java, now: now()) else { return parsed }
+        try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
+        return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
     }
 
     private func scanOnce(_ ref: ImageReference, cluster: String, trigger: ScanTrigger, architecture: String?) async throws -> TrivyImageReportParser.Parsed {
