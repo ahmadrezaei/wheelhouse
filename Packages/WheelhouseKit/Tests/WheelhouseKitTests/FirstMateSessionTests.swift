@@ -320,7 +320,7 @@ struct FirstMateSessionTests {
         let transport = ReplayTransport([calls(["list_clusters"], input: [:])])
         let session = makeSession(transport, tools: Slow(inner: tools))
         session.send("go")
-        try? await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<1_000 { if case .runningTools = session.state { break }; try? await Task.sleep(for: .milliseconds(5)) }
         session.stop()
         await settle(session)
         #expect(session.state == .idle)

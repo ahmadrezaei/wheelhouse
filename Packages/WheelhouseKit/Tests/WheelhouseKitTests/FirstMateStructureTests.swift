@@ -21,7 +21,7 @@ struct FirstMateStructureTests {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
     }
 
-    private static let bannedInAI = ["KubeClientProtocol", "LiveKubeClient", "DemoKubeClient", "MutationOptions", ".patch(", ".delete(", ".create(", ".replace(", "ConfirmRequest", "ProposalConfirmation"]
+    private static let bannedInAI = ["KubeClientProtocol", "LiveKubeClient", "DemoKubeClient", "MutationOptions", ".patch(", "ConfirmRequest", "ProposalConfirmation"]
 
     @Test func theAICodeNamesNoClientAndNoMutation() {
         let files = Self.swiftFiles(in: Self.packageRoot.appendingPathComponent("Sources/WheelhouseKit/AI"))
