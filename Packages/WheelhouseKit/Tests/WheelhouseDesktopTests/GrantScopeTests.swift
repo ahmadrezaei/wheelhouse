@@ -20,8 +20,8 @@ private func session(scope: GangwayScope = .standard, binding: PeerBinding, regi
     return try r.create(cluster: cluster(), origin: .terminal(paneID: "p1"), scope: scope, binding: binding).session
 }
 
-private func mutation(_ path: String = "/apis/apps/v1/namespaces/shop/deployments/web", method: String = "PATCH", hold: UUID? = nil, kind: GangwayClass = .mutation) throws -> GrantRequest {
-    GrantRequest(holdID: hold, kind: kind, shape: RequestClassifier.shape(of: try RequestClassifier.canonicalSegments(of: path)), method: method)
+private func mutation(_ path: String = "/apis/apps/v1/namespaces/shop/deployments/web", method: String = "PATCH", hold: UUID? = nil, kind: GangwayClass = .mutation, created: CreatedName? = nil) throws -> GrantRequest {
+    GrantRequest(holdID: hold, kind: kind, shape: RequestClassifier.shape(of: try RequestClassifier.canonicalSegments(of: path)), method: method, createdName: created)
 }
 
 @Suite("Command eligibility")
@@ -207,7 +207,7 @@ struct GrantScopeTests {
             GrantedObject(resource: "configmaps", namespace: "shop", name: "base", createAnyName: true),
             GrantedObject(resource: "secrets", namespace: "shop", namePrefix: "sh.helm.release.v1.web.v"),
         ])
-        func covers(_ path: String, _ method: String) throws -> Bool { grants.covers(try mutation(path, method: method), session: s, peer: nil) }
+        func covers(_ path: String, _ method: String) throws -> Bool { grants.coversObject(try mutation(path, method: method), session: s) }
         #expect(try covers("/apis/apps/v1/namespaces/shop/deployments/web", "PATCH"))
         #expect(try !covers("/apis/apps/v1/namespaces/shop/deployments/other", "PATCH"))
         #expect(try !covers("/apis/apps/v1/namespaces/other/deployments/web", "PATCH"))
@@ -232,21 +232,107 @@ struct GrantScopeTests {
         let (grants, _) = rig()
         let s = try session(scope: .objects, binding: .processGroup(4242))
         grants.setObjects(session: s, objects: [GrantedObject(resource: "configmaps", namespace: "shop")])
-        func covers(_ path: String, _ method: String) throws -> Bool { grants.covers(try mutation(path, method: method), session: s, peer: nil) }
+        func covers(_ path: String, _ method: String) throws -> Bool { grants.coversObject(try mutation(path, method: method), session: s) }
         #expect(try !covers("/api/v1/namespaces/shop/configmaps", "DELETE"))               // deletecollection
         #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "DELETE"))
         #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "PUT"))
         #expect(try !covers("/api/v1/namespaces/shop/configmaps/x", "PATCH"))
-        #expect(try !covers("/api/v1/namespaces/shop/configmaps", "POST"), "a create of an unlisted name is refused until the body is matched (M6b)")
+        #expect(try !covers("/api/v1/namespaces/shop/configmaps", "POST"), "a create with no usable body name is refused")
         grants.setObjects(session: s, objects: [GrantedObject(resource: "configmaps", namespace: "shop", createAnyName: true)])
         #expect(try covers("/api/v1/namespaces/shop/configmaps", "POST"))
         #expect(try !covers("/api/v1/namespaces/shop/configmaps", "DELETE"))
     }
 
-    @Test("M6b: a create is matched by metadata.name from a bounded buffered body", .disabled("M6b: Gangway does not read the body of a Helm create yet; createAnyName is the explicit stand-in"))
-    func createByBodyName() {
-        // M6b contract: POST /api/v1/namespaces/shop/configmaps with {"metadata":{"name":"unlisted"}} is refused when the grant lists
-        // name "listed"; with {"metadata":{"name":"listed"}} it passes; the grant ends when the helm process exits.
+    @Test("a create is matched by the name in its body, as bytes, against exact names, prefixes and generateName prefixes")
+    func createByBodyName() throws {
+        let (grants, _) = rig()
+        let s = try session(scope: .objects, binding: .isolatedGroup(4242))
+        grants.setObjects(session: s, objects: [
+            GrantedObject(resource: "configmaps", namespace: "shop", name: "listed"),
+            GrantedObject(resource: "secrets", namespace: "shop", namePrefix: "sh.helm.release.v1.web.v"),
+            GrantedObject(group: "batch", resource: "jobs", namespace: "shop", generateNamePrefix: "hook-"),
+        ])
+        func creates(_ path: String, _ name: CreatedName?) throws -> Bool { grants.coversObject(try mutation(path, method: "POST", created: name), session: s) }
+        #expect(try creates("/api/v1/namespaces/shop/configmaps", .name("listed")))
+        #expect(try !creates("/api/v1/namespaces/shop/configmaps", .name("unlisted")))
+        #expect(try !creates("/api/v1/namespaces/shop/configmaps", nil))
+        #expect(try !creates("/api/v1/namespaces/other/configmaps", .name("listed")))
+        #expect(try !creates("/api/v1/namespaces/shop/secrets", .name("sh.helm.release.v1.other.v1")))
+        #expect(try creates("/api/v1/namespaces/shop/secrets", .name("sh.helm.release.v1.web.v7")))
+        #expect(try creates("/apis/batch/v1/namespaces/shop/jobs", .generateName("hook-")))
+        #expect(try !creates("/apis/batch/v1/namespaces/shop/jobs", .generateName("hook-x")))
+        #expect(try !creates("/apis/batch/v1/namespaces/shop/jobs", .name("hook-1")), "a name needs an exact or prefix item, not a generateName one")
+        // canonically equivalent Unicode is not the same name
+        #expect(try !creates("/api/v1/namespaces/shop/configmaps", .name("liste\u{0301}d")))
+        let accented = GrantedObject(resource: "configmaps", namespace: "shop", name: "caf\u{00E9}")
+        grants.setObjects(session: s, objects: [accented])
+        #expect(try creates("/api/v1/namespaces/shop/configmaps", .name("caf\u{00E9}")))
+        #expect(try !creates("/api/v1/namespaces/shop/configmaps", .name("cafe\u{0301}")))
+    }
+
+    @Test("an object grant covers only the process it was opened for")
+    func objectGrantPeer() throws {
+        let (grants, clock) = rig()
+        let s = try session(scope: .objects, binding: .isolatedGroup(4242))
+        grants.setObjects(session: s, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
+        let request = try mutation()
+        #expect(grants.covers(request, session: s, peer: PeerProcess(pid: 4242, session: 4242, group: 4242)))
+        #expect(!grants.covers(request, session: s, peer: nil))
+        #expect(!grants.covers(request, session: s, peer: PeerProcess(pid: 9, session: 4242, group: 4243)), "another process group")
+        #expect(!grants.covers(request, session: s, peer: PeerProcess(pid: 9, session: 1, group: 4242)), "joined the group from outside its session")
+        let other = try session(scope: .objects, binding: .isolatedGroup(4242))
+        #expect(!grants.covers(request, session: other, peer: PeerProcess(pid: 4242, session: 4242, group: 4242)), "another session has no grant")
+        clock.advance(601)
+        #expect(!grants.covers(request, session: s, peer: PeerProcess(pid: 4242, session: 4242, group: 4242)), "expired")
+    }
+
+    @Test("a session binds to its helm process once, and only an object session")
+    func bindOnce() throws {
+        let s = try session(scope: .objects, binding: .none)
+        let grants = GrantStore()
+        grants.setObjects(session: s, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
+        let peer = PeerProcess(pid: 4242, session: 4242, group: 4242)
+        #expect(!grants.covers(try mutation(), session: s, peer: peer), "unbound covers nothing")
+        #expect(!s.bindIsolatedGroup(1) && !s.bindIsolatedGroup(0))
+        #expect(s.bindIsolatedGroup(4242))
+        #expect(!s.bindIsolatedGroup(4243), "a second bind is refused")
+        #expect(grants.covers(try mutation(), session: s, peer: peer))
+        #expect(try !session(binding: .none).bindIsolatedGroup(4242), "a standard session never binds")
+        let revoked = try session(scope: .objects, binding: .none)
+        revoked.revoke(reason: "x")
+        #expect(!revoked.bindIsolatedGroup(4242))
+    }
+
+    @Test("the body of a create is read strictly")
+    func bodyParsing() {
+        func name(_ json: String, type: String = "application/json", extra: [HTTPRequestHead.Header] = [], ns: String? = "shop") -> CreatedName? {
+            GrantBody.createdName(body: Data(json.utf8), headers: [.init(name: "Content-Type", value: type)] + extra, pathNamespace: ns)
+        }
+        #expect(name(#"{"metadata":{"name":"a"}}"#) == .name("a"))
+        #expect(name(#"{"metadata":{"name":"a","namespace":"shop"}}"#) == .name("a"))
+        #expect(name(#"{"metadata":{"name":"a","namespace":"other"}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a","namespace":"other"}}"#, ns: nil) == .name("a"), "a cluster-scoped create has no path namespace")
+        #expect(name(#"{"metadata":{"name":"","generateName":"g-"}}"#) == .generateName("g-"))
+        #expect(name(#"{"metadata":{"name":"a","generateName":"g-"}}"#) == .name("a"))
+        #expect(name(#"{"metadata":{"generateName":""}}"#) == nil)
+        #expect(name(#"{"metadata":{}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a","name":"b"}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a","Name":"b"}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a"},"Metadata":{"name":"b"}}"#) == nil)
+        #expect(name(#"{"Metadata":{"name":"a"}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a\ud800\nb"}}"#) == .name("a\u{FFFD}\nb"), "a lone high surrogate before another escape is U+FFFD first")
+        #expect(name(#"{"metadata":{"name":1}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":null,"generateName":"g-"}}"#) == nil)
+        #expect(name(#"{"metadata":"x"}"#) == nil)
+        #expect(name("[1]") == nil)
+        #expect(name("not json") == nil)
+        #expect(name(#"{"metadata":{"name":"a"}}"#, type: "application/yaml") == nil)
+        #expect(name(#"{"metadata":{"name":"a"}}"#, type: "application/json; charset=utf-8") == .name("a"))
+        #expect(name(#"{"metadata":{"name":"a"}}"#, extra: [.init(name: "Content-Encoding", value: "gzip")]) == nil)
+        #expect(GrantBody.createdName(body: Data(#"{"metadata":{"name":"a"}}"#.utf8), headers: [], pathNamespace: nil) == nil, "no content type")
+        #expect(GrantBody.createdName(body: nil, headers: [], pathNamespace: nil) == nil)
+        let big = Data(repeating: 0x20, count: GrantBody.maxCreateBody) + Data(#"{"metadata":{"name":"a"}}"#.utf8)
+        #expect(GrantBody.createdName(body: big, headers: [.init(name: "Content-Type", value: "application/json")], pathNamespace: nil) == nil)
     }
 
     @Test("an object grant never covers a stream or proxy class")
@@ -254,8 +340,8 @@ struct GrantScopeTests {
         let (grants, _) = rig()
         let s = try session(scope: .objects, binding: .processGroup(4242))
         grants.setObjects(session: s, objects: [GrantedObject(resource: "pods", namespace: "shop", name: "a")])
-        #expect(!grants.covers(try mutation("/api/v1/namespaces/shop/pods/a", method: "POST", kind: .stream(.otherUpgrade)), session: s, peer: nil))
-        #expect(grants.covers(try mutation("/api/v1/namespaces/shop/pods/a", method: "DELETE"), session: s, peer: nil))
+        #expect(!grants.coversObject(try mutation("/api/v1/namespaces/shop/pods/a", method: "POST", kind: .stream(.otherUpgrade)), session: s))
+        #expect(grants.coversObject(try mutation("/api/v1/namespaces/shop/pods/a", method: "DELETE"), session: s))
     }
 
     @Test("a Helm or flux run's requests must come from its spawned process group")
@@ -264,6 +350,8 @@ struct GrantScopeTests {
         #expect(!GrantStore.peerIsBound(PeerProcess(pid: 5, session: 1, group: 4243), to: .processGroup(4242)))
         #expect(!GrantStore.peerIsBound(nil, to: .processGroup(4242)))
         #expect(!GrantStore.peerIsBound(PeerProcess(pid: 5, session: 1, group: 4242), to: .none))
+        #expect(GrantStore.peerIsBound(PeerProcess(pid: 5, session: 4242, group: 4242), to: .isolatedGroup(4242)))
+        #expect(!GrantStore.peerIsBound(PeerProcess(pid: 5, session: 1, group: 4242), to: .isolatedGroup(4242)))
     }
 
     @Test("a session scope of dry-run-only exists on the session")

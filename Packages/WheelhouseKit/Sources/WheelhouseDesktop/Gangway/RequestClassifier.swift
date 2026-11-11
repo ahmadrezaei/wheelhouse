@@ -362,6 +362,8 @@ enum StrictJSON {
                 guard index < bytes.count else { return nil }
                 let e = bytes[index]
                 index += 1
+                // A lone high surrogate followed by any other escape is U+FFFD first, as in Go.
+                if e != UInt8(ascii: "u"), pendingHigh != nil { out.append(contentsOf: [0xEF, 0xBF, 0xBD]); pendingHigh = nil }
                 switch e {
                 case UInt8(ascii: "u"):
                     guard index + 4 <= bytes.count, let v = UInt32(String(decoding: bytes[index..<index + 4], as: UTF8.self), radix: 16) else { return nil }

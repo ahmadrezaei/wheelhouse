@@ -58,6 +58,7 @@
 		21E8463FE6F0EFA33EFD4BAB /* SessionsHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309FD722690ACE35D393E993 /* SessionsHub.swift */; };
 		23BCDE6D2EFB428142141BB9 /* LogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AD102426EA9E7E598EAE10C /* LogsView.swift */; };
 		25E3B4F3A5FC26CA22425B46 /* ShellRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595E05758EBAA172D428E075 /* ShellRegressionTests.swift */; };
+		26A47996E364AF2F2BEE04F0 /* HelmFlowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9231D724E591F24888BABCB3 /* HelmFlowModel.swift */; };
 		26EA2D7D7680FDC32D54BB1F /* LogsTableView+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B29E96E8F50A280EC46BDCEF /* LogsTableView+macOS.swift */; };
 		27CC93247310EDAD59ADCE1C /* WheelhouseMacWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A9511A09D09C905B4F324992 /* WheelhouseMacWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		28D9C061E9D0C5868BE49330 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */; };
@@ -163,6 +164,7 @@
 		7EEE5FE6C72F12E87C1D7A37 /* ResourceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6FD1419CECD7C9E8F7F106 /* ResourceListView.swift */; };
 		7F6285C3C4CF6E7B33962ABA /* FleetDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CDDBFC44EFBFF404C6330B /* FleetDashboardView.swift */; };
 		8029DEF97E36819CC0EBAB05 /* LogsTableView+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A8B15BD1430061595E91E9 /* LogsTableView+Shared.swift */; };
+		8074A4715331479455302287 /* HelmFlowSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48F0EC28092A8861B061FE5 /* HelmFlowSheet.swift */; };
 		80A29524801EBB49F39A513D /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
 		818B2291051E4CDFB8B57FE1 /* ProposalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DCA0B620D1C4C8E469FDB6B /* ProposalCard.swift */; };
 		81C9899DE6BF46A7B69F4789 /* FleetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E84D8194B6C8616AA8C1C161 /* FleetModel.swift */; };
@@ -203,7 +205,9 @@
 		A0909F6327B43105F8D5DCEB /* MacImportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262EE9C0925CDF2CB0660F03 /* MacImportPolicy.swift */; };
 		A0AC8600177AB365A7A78377 /* MacLockCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB3D6E95365F633D8D90DF7 /* MacLockCoordinator.swift */; };
 		A1D2C7F4B7D12245F0FB9937 /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = C3A245E3706F52B4320366EA /* WheelhouseUI */; };
+		A2257B877ED757FD3C2635D6 /* HelmToolbox+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3FFA8CA3C196743141F392 /* HelmToolbox+Live.swift */; };
 		A2BCD195FA5B8BB8216AEF25 /* ActivityFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49AC7DE33B55565935B6DB40 /* ActivityFeature.swift */; };
+		A3384F5DA69ABD4D1443FFFF /* HelmRepoViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6612E7D7BAF07A705404E18 /* HelmRepoViews.swift */; };
 		A43519306DA4DA21A19BD732 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D83C8128E5F48D7BA516AADD /* PrivacyInfo.xcprivacy */; };
 		A5E78D7FAE92C50E0676AE5C /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = 6F011FE1F7367C6C3CCC2EE9 /* main.c */; };
 		A6A6C8916200CC0A8F0E1F42 /* AboutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */; };
@@ -241,6 +245,7 @@
 		C0E49BBB730EA1E71545AB58 /* CodeEditor+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7F0CC520B085EA3A7EF4F5 /* CodeEditor+iOS.swift */; };
 		C17F64A6EEA12A4BC97163AE /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1ED9D02FBECAF3C542C53443 /* WheelhouseUI */; };
 		C1DAF27FABC6CCE699096D94 /* TerminalPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 951A2B14985875AD7FB06D45 /* TerminalPane.swift */; };
+		C1E7C349755BB8900C2F97D0 /* HelmFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADD72F550EE6BD43294DEBA /* HelmFlowTests.swift */; };
 		C256F63C5F12C71F2350B17D /* Destinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72DAC6F8EBD962CBA6F07781 /* Destinations.swift */; };
 		C288B6A3AA936A1A23772EEF /* MooringsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AC9112AFDD43844779E752D /* MooringsViews.swift */; };
 		C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */; };
@@ -298,6 +303,7 @@
 		F327DAF2B9231751C6E8F821 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
 		F32905F453B917170A2B69C8 /* TidesDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */; };
 		F32E6B11981AE4A63EA2A41C /* RouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */; };
+		F34ADDABAD6081F5CC481776 /* HelmToolbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAA91CE1040352CF0A7AE1D /* HelmToolbox.swift */; };
 		F34B2E5215C3323CF049BEBB /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
 		F34F6FE5289CDB77BEE6D383 /* TidesVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2102449582D5D268C8A8D09 /* TidesVisibility.swift */; };
 		F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BD4897653F124947C8290 /* NotificationsPane.swift */; };
@@ -433,7 +439,9 @@
 		17506DFFD11F03C73F12343C /* WhatWasSentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatWasSentView.swift; sourceTree = "<group>"; };
 		18E629946671A1519BEFD10D /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
 		194E572C05497A3D3C488831 /* TidesConfirmations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesConfirmations.swift; sourceTree = "<group>"; };
+		1A3FFA8CA3C196743141F392 /* HelmToolbox+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HelmToolbox+Live.swift"; sourceTree = "<group>"; };
 		1A704C901EBD79BFF4AEB47A /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
+		1ADD72F550EE6BD43294DEBA /* HelmFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmFlowTests.swift; sourceTree = "<group>"; };
 		1D0DD6C5827213D05E2799CF /* SwiftTermSurface+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftTermSurface+macOS.swift"; sourceTree = "<group>"; };
 		1DCA0B620D1C4C8E469FDB6B /* ProposalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProposalCard.swift; sourceTree = "<group>"; };
 		1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallFeature.swift; sourceTree = "<group>"; };
@@ -543,6 +551,7 @@
 		8E530C6D3731258C4406AD97 /* WheelhouseMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacApp.swift; sourceTree = "<group>"; };
 		8E754B51D3704699B8AA7597 /* SurveyFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyFeature.swift; sourceTree = "<group>"; };
 		922C20DFD7456D7C813FEC15 /* TidesFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesFeature.swift; sourceTree = "<group>"; };
+		9231D724E591F24888BABCB3 /* HelmFlowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmFlowModel.swift; sourceTree = "<group>"; };
 		938E86E9E6678A5A33F1ED62 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		951A2B14985875AD7FB06D45 /* TerminalPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPane.swift; sourceTree = "<group>"; };
@@ -567,6 +576,7 @@
 		AAEF1BCBF8FB09388C107679 /* BeaconFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconFeature.swift; sourceTree = "<group>"; };
 		AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportPolicyTests.swift; sourceTree = "<group>"; };
 		ADA5203C5C0E7FB0A8D8C278 /* FirstMatePerfReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMatePerfReplay.swift; sourceTree = "<group>"; };
+		ADAA91CE1040352CF0A7AE1D /* HelmToolbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmToolbox.swift; sourceTree = "<group>"; };
 		AE6FD1419CECD7C9E8F7F106 /* ResourceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceListView.swift; sourceTree = "<group>"; };
 		AE7F0CC520B085EA3A7EF4F5 /* CodeEditor+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodeEditor+iOS.swift"; sourceTree = "<group>"; };
 		AF2BA55B44724291DF21B17F /* DrainSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrainSheet.swift; sourceTree = "<group>"; };
@@ -643,8 +653,10 @@
 		F4030A2999CF81F1FC82BF95 /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		F41716695B3C1FDFB51EA6A0 /* ReleasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasesView.swift; sourceTree = "<group>"; };
 		F48AF98D23880D5FAC860DFF /* WheelhouseKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WheelhouseKit; path = Packages/WheelhouseKit; sourceTree = SOURCE_ROOT; };
+		F48F0EC28092A8861B061FE5 /* HelmFlowSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmFlowSheet.swift; sourceTree = "<group>"; };
 		F495E201E0610A974851C166 /* ObjectRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectRow.swift; sourceTree = "<group>"; };
 		F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardBrowserView+iOS.swift"; sourceTree = "<group>"; };
+		F6612E7D7BAF07A705404E18 /* HelmRepoViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmRepoViews.swift; sourceTree = "<group>"; };
 		F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeepLink+Routes.swift"; sourceTree = "<group>"; };
 		F756D86F9AA69A8B3EA0A20E /* VulnerabilitiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VulnerabilitiesView.swift; sourceTree = "<group>"; };
 		F7A6CF8DD4B434DD8CF25040 /* SidebarTreeBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTreeBuilder.swift; sourceTree = "<group>"; };
@@ -736,6 +748,7 @@
 				FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */,
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				F3CD95ABDB5AA17016E0759D /* FirstMateTests.swift */,
+				1ADD72F550EE6BD43294DEBA /* HelmFlowTests.swift */,
 				46E6F6C7D6D95CEA222310D2 /* HiddenPaneTests.swift */,
 				AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */,
 				2FB1CC652EB53E4DFCF4D504 /* KubeTableDiffTests.swift */,
@@ -1064,6 +1077,11 @@
 				1397FA22FE4D5C935325C52B /* ChartRoomServices.swift */,
 				5F968D0AB8E05455F90F499A /* ChartRoomView.swift */,
 				8AA425EF7547DC4CB7F170BC /* ChartsAndRepositoriesView.swift */,
+				9231D724E591F24888BABCB3 /* HelmFlowModel.swift */,
+				F48F0EC28092A8861B061FE5 /* HelmFlowSheet.swift */,
+				F6612E7D7BAF07A705404E18 /* HelmRepoViews.swift */,
+				ADAA91CE1040352CF0A7AE1D /* HelmToolbox.swift */,
+				1A3FFA8CA3C196743141F392 /* HelmToolbox+Live.swift */,
 				7748F223C621D083612450AB /* ReleaseDetailView.swift */,
 				F41716695B3C1FDFB51EA6A0 /* ReleasesView.swift */,
 			);
@@ -1812,6 +1830,11 @@
 				4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */,
 				870D80CFCB11DE4B3513F26A /* GangwayTestHooks.swift in Sources */,
 				14BEFAA11F49757B563200AF /* GeneralPane.swift in Sources */,
+				26A47996E364AF2F2BEE04F0 /* HelmFlowModel.swift in Sources */,
+				8074A4715331479455302287 /* HelmFlowSheet.swift in Sources */,
+				A3384F5DA69ABD4D1443FFFF /* HelmRepoViews.swift in Sources */,
+				A2257B877ED757FD3C2635D6 /* HelmToolbox+Live.swift in Sources */,
+				F34ADDABAD6081F5CC481776 /* HelmToolbox.swift in Sources */,
 				7530D2CE52F321690788A5AD /* ICloudPane.swift in Sources */,
 				B607829F5B89295DA4C0B437 /* KubeTable+Diff.swift in Sources */,
 				C8CA295AD6896E6193598156 /* KubeTable+macOS.swift in Sources */,
@@ -2049,6 +2072,7 @@
 				501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */,
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				EACB47D9C537A958B3CE5F9A /* FirstMateTests.swift in Sources */,
+				C1E7C349755BB8900C2F97D0 /* HelmFlowTests.swift in Sources */,
 				715A6A399FAA50840B01B4A5 /* HiddenPaneTests.swift in Sources */,
 				4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */,
 				9F2169A48127E89417F810D3 /* KubeTableDiffTests.swift in Sources */,
