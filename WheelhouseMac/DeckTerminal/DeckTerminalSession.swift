@@ -57,6 +57,11 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
             let service = direct ? nil : try await env.gangway.service()
             try await shell.start(gangway: service)
             model = shell
+            if let command = Self.perfCommand(title: spec.title) {
+                // Measurement runs only (the safety gate is active): the scenario's command is typed once, after the first prompt.
+                await shell.waitForFirstPrompt()
+                shell.write(Data((command + "\r").utf8))
+            }
             if let restored = restoredDirectory(), spec.startDirectory == nil { restoredFrom = restored }
         } catch {
             startError = error.localizedDescription
@@ -78,6 +83,14 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
         await model?.close()
         env.gangwaySheets.unregister(pane: paneID)
     }
+
+    /// The command a performance scenario asks this terminal to run (`deck-terminal:<command>` in `perf/scenarios`), only while the safety gate is active.
+    static func perfCommand(title: String?, gateActive: Bool = DevSafety.isActive) -> String? {
+        guard gateActive, let title, title.hasPrefix(perfTitlePrefix) else { return nil }
+        let command = String(title.dropFirst(perfTitlePrefix.count)).trimmingCharacters(in: .whitespaces)
+        return command.isEmpty ? nil : command
+    }
+    static let perfTitlePrefix = "perf-run:"
 
     // MARK: Restoration (new shell, last directory; processes are never restored)
 

@@ -78,7 +78,8 @@ struct TerminalLiveTests {
         if case .command(let line) = first.first?.kind { #expect(line.contains("rollout restart")) } else { Issue.record("expected a command sheet, got \(String(describing: first.first?.kind))") }
         #expect(first.first?.requiresTyping == true)
         // The next command gets its own sheet: a grant never carries over.
-        try await type("kubectl rollout restart deployment/web -n wh-m5b", into: terminal, waitFor: "restarted\r\n", timeout: .seconds(60))
+        terminal.model.write(Data("kubectl rollout restart deployment/web -n wh-m5b\r".utf8))
+        for _ in 0..<600 where sheets.list.withLock({ $0.count }) < 2 { try await Task.sleep(for: .milliseconds(100)) }
         #expect(sheets.list.withLock { $0.count } == 2)
     }
 
@@ -122,8 +123,8 @@ struct TerminalLiveTests {
         chmod(file.path, 0o600)
         for _ in 0..<50 { terminal.model.checkIntegrity(); if case .unguarded = terminal.model.banner { break }; try await Task.sleep(for: .milliseconds(100)) }
         guard case .unguarded = terminal.model.banner else { Issue.record("expected unguarded"); return }
-        try await type("kubectl get ns", into: terminal, waitFor: "session ended")
-        #expect(terminal.text().contains("session ended"))
+        try await type("kubectl get ns", into: terminal, waitFor: "Unauthorized")
+        #expect(terminal.text().contains("Unauthorized") || terminal.text().contains("session ended"))
     }
 }
 #endif

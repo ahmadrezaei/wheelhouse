@@ -196,6 +196,23 @@ public struct GangwayHold: Sendable, Identifiable {
     public var requiresTyping: Bool
     public var origin: GangwayOrigin
     public var isStream: Bool { if case .stream = request.kind { true } else { false } }
+
+    public init(id: UUID = UUID(), sessionID: UUID, clusterID: ClusterID, clusterName: String, request: GangwayRequestClass, method: String, path: String, query: String? = nil,
+                bodySHA256: String? = nil, reportedCommand: String? = nil, execCommand: [String] = [], requiresTyping: Bool, origin: GangwayOrigin) {
+        self.id = id
+        self.sessionID = sessionID
+        self.clusterID = clusterID
+        self.clusterName = clusterName
+        self.request = request
+        self.method = method
+        self.path = path
+        self.query = query
+        self.bodySHA256 = bodySHA256
+        self.reportedCommand = reportedCommand
+        self.execCommand = execCommand
+        self.requiresTyping = requiresTyping
+        self.origin = origin
+    }
 }
 
 /// What a sheet asks the person: a command approval (one grant), a batch of listed requests, or one stream.
@@ -209,6 +226,11 @@ public struct GangwaySheet: Sendable {
     public var kind: Kind
     public var holds: [GangwayHold]
     public var requiresTyping: Bool { holds.contains { $0.requiresTyping } }
+
+    public init(kind: Kind, holds: [GangwayHold]) {
+        self.kind = kind
+        self.holds = holds
+    }
 }
 
 /// Shows the confirmation. M5b supplies the real sheets; the default declines everything.

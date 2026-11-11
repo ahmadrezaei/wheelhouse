@@ -142,6 +142,7 @@ public final class LocalShellModel: TerminalInsertTarget {
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private var closed = false
+    @ObservationIgnored private var promptWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(configuration: Configuration) { self.configuration = configuration }
 
@@ -227,6 +228,7 @@ public final class LocalShellModel: TerminalInsertTarget {
     private func shellExited(_ code: Int?) {
         guard phase == .running else { return }
         phase = .exited(code)
+        resumePromptWaiters()
         teardown(reason: "the shell exited")
         refreshBanner()
     }
@@ -237,6 +239,7 @@ public final class LocalShellModel: TerminalInsertTarget {
         closed = true
         if let pty { await pty.terminate() }
         if phase == .running { phase = .exited(nil) }
+        resumePromptWaiters()
         teardown(reason: "the terminal was closed")
         refreshBanner()
     }
@@ -252,6 +255,18 @@ public final class LocalShellModel: TerminalInsertTarget {
         }
         if let directDirectory { DirectKubeconfig.remove(directory: directDirectory) }
         directDirectory = nil
+    }
+
+    /// Suspends until the shell has reported its first verified prompt (or ended). No timer: the mark resumes it.
+    public func waitForFirstPrompt() async {
+        if seenVerified || phase != .running { return }
+        await withCheckedContinuation { promptWaiters.append($0) }
+    }
+
+    private func resumePromptWaiters() {
+        let waiting = promptWaiters
+        promptWaiters = []
+        waiting.forEach { $0.resume() }
     }
 
     // MARK: Input
@@ -314,6 +329,7 @@ public final class LocalShellModel: TerminalInsertTarget {
         guard let mark = parsed.mark else { return }
         seenVerified = true
         integrationLost = false
+        defer { resumePromptWaiters() }
         switch mark {
         case .promptStart:
             commandState = .prompt

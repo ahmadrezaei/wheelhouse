@@ -178,6 +178,7 @@
 		8C602CB9E133067D3EA1AF56 /* ExecTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D464A53678083F853141E5EC /* ExecTerminalView.swift */; };
 		8CB67000EC6A8A4B8C8A639F /* ConnectionTestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */; };
 		8D2B18F102816E74D0BA10AB /* FirstMateFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CB2A41DC3B8EE0923DA621 /* FirstMateFeature.swift */; };
+		8DA55AB87447AB9579FC5125 /* DeckTerminalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */; };
 		8DB3A4EF2B1CBABB4F416557 /* CompassFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66EF0971862B01DAA029E53 /* CompassFeature.swift */; };
 		8DD7147CF945AEC280F364E1 /* SidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3DCCD630640E32390016E7 /* SidebarPane.swift */; };
 		9078FB847ECFEF853118106D /* KubeconfigImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBEB32ACB248A15C67DE849 /* KubeconfigImportView.swift */; };
@@ -407,6 +408,7 @@
 		02B743D0D72AD943255CEFC6 /* WheelhouseMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WheelhouseMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0356E73792E2DDB03D07128E /* ChartRoomFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomFeature.swift; sourceTree = "<group>"; };
+		037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalTests.swift; sourceTree = "<group>"; };
 		040BD4897653F124947C8290 /* NotificationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPane.swift; sourceTree = "<group>"; };
 		04AC2DD8945C0CABBA449B0A /* WheelhouseMacWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacWidgets.swift; sourceTree = "<group>"; };
 		05850A5A2F03124AD8641A6D /* Route.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Route.swift; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 			children = (
 				D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */,
 				FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */,
+				037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */,
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				46E6F6C7D6D95CEA222310D2 /* HiddenPaneTests.swift */,
 				AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */,
@@ -2028,6 +2031,7 @@
 			files = (
 				4A7D4239BCA77080F016445E /* AppKitPortTests.swift in Sources */,
 				501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */,
+				8DA55AB87447AB9579FC5125 /* DeckTerminalTests.swift in Sources */,
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				715A6A399FAA50840B01B4A5 /* HiddenPaneTests.swift in Sources */,
 				4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */,

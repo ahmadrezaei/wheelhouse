@@ -1,0 +1,26 @@
+{
+  "milestone": "M5b",
+  "idle-terminal": {
+    "samples": 30,
+    "intervalSec": 10.0,
+    "cpuAvgPct": 0.0,
+    "cpuMaxSamplePct": 0.0,
+    "idleWakeupsPerSec": 0.003,
+    "energyImpact": 0.0,
+    "threads": 5,
+    "footprintGrowthMB": 0.0,
+    "footprintLastMinusMin10MB": 0.0,
+    "threadsOverBaseline": 0,
+    "fdsOverBaseline": 0,
+    "footprintMB": 90.0,
+    "footprintFirstMB": 90.0,
+    "footprintLastMB": 90.0,
+    "fds": 76,
+    "minutes": 5,
+    "connectedMinutesPct": 0.0,
+    "windowVisibleMinutesPct": 100.0,
+    "keepVisible": true,
+    "connectedAfterSettle": 0,
+    "note": "One Deck Terminal at an idle zsh prompt, Profile build, uptime load 1.48 (1 min). Recorded with --no-connection-check: the test cluster was unreachable (Docker not running), so the stores had no connection; the terminal and its Gangway session do not need one. NOT recorded: soak-5 with kubectl get pods -w (needs the live cluster), idle with a live watch."
+  }
+}

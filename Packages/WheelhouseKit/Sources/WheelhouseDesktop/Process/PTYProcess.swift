@@ -175,29 +175,42 @@ public final class PTYProcess: Sendable {
         }
     }
 
+    /// Leading edge first: output that arrives after a quiet moment goes out at once (a typed key echoes in well under 5 ms), and whatever
+    /// follows within 16 ms is coalesced into one chunk (at most 64 KB). The 16 ms timer exists only while output is flowing.
     private func append(_ data: Data) {
-        let (flushNow, schedule) = state.withLock { s -> (Data?, Bool) in
+        let (now, schedule) = state.withLock { s -> (Data?, Bool) in
+            if !s.flushScheduled {
+                s.flushScheduled = true
+                return (data, true)
+            }
             s.pending.append(data)
             if s.pending.count >= 64 * 1024 {
                 defer { s.pending = Data() }
                 return (s.pending, false)
             }
-            if !s.flushScheduled { s.flushScheduled = true; return (nil, true) }
             return (nil, false)
         }
-        if let flushNow { outputContinuation.yield(flushNow) }
-        if schedule {
-            // At most 16 ms of coalescing; not a poll: it exists only while output is pending.
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(16), clock: .continuous)
-                self?.flush()
-            }
+        if let now { outputContinuation.yield(now) }
+        if schedule { scheduleFlush() }
+    }
+
+    private func scheduleFlush() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(16), clock: .continuous)
+            self?.flush()
         }
     }
 
     private func flush() {
-        let data = state.withLock { s -> Data in defer { s.pending = Data(); s.flushScheduled = false }; return s.pending }
+        let (data, again) = state.withLock { s -> (Data, Bool) in
+            let out = s.pending
+            s.pending = Data()
+            // Data went out in this window: stay in coalescing mode for one more window. A quiet window ends it.
+            s.flushScheduled = !out.isEmpty
+            return (out, !out.isEmpty)
+        }
         if !data.isEmpty { outputContinuation.yield(data) }
+        if again { scheduleFlush() }
     }
 
     private func closeMaster() {

@@ -274,3 +274,28 @@ struct TerminalSafetyTests {
     }
 }
 #endif
+
+#if os(macOS)
+@Suite("Key to echo", .serialized)
+struct KeyToEchoTests {
+    /// The M5b perf gate: a typed key echoes in at most 5 ms (p50). The first output after a quiet moment is not held for the 16 ms coalescing window.
+    @Test func aTypedKeyEchoesWithinFiveMillisecondsAtTheMedian() async throws {
+        let spec = ProcessSpec(executable: URL(fileURLWithPath: "/bin/cat"), environment: ["PATH": "/usr/bin:/bin", "TERM": "xterm-256color"])
+        let pty = try PTYProcess(spec: spec, size: (80, 24), helper: try PTYHelper.url())
+        var iterator = pty.output.makeAsyncIterator()
+        var samples: [Double] = []
+        try await Task.sleep(for: .milliseconds(200))
+        for letter in "abcdefghijklmnopqrstuvwxyz" {
+            try await Task.sleep(for: .milliseconds(40))
+            let start = ContinuousClock.now
+            pty.write(Data(String(letter).utf8))
+            _ = await iterator.next()
+            samples.append(start.duration(to: .now).microseconds / 1000)
+        }
+        samples.sort()
+        let p50 = samples[samples.count / 2]
+        #expect(p50 <= 5, "p50 \(p50) ms")
+        await pty.terminate(gracePeriod: .milliseconds(200))
+    }
+}
+#endif
