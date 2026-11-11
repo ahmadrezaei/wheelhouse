@@ -10,6 +10,12 @@ public struct HelmGrantPlan: Sendable, Equatable {
     public var hooks: [HelmRelease.Hook]
     public var warnings: [String]
 
+    public init(objects: Set<GrantedObject>, hooks: [HelmRelease.Hook], warnings: [String]) {
+        self.objects = objects
+        self.hooks = hooks
+        self.warnings = warnings
+    }
+
     /// What a plan is built from. Every field is optional: an install has no current release, a rollback has no rendered one.
     public struct Inputs: Sendable {
         public var operation: HelmOperation
