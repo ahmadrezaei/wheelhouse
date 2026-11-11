@@ -37,13 +37,15 @@ struct SubprocessTests {
     }
 
     @Test func noDescriptorsLeakIntoTheChild() async throws {
-        // Hold a descriptor open in this process, then list the child's descriptors.
-        let low = open("/dev/null", O_RDONLY)
-        let fd = fcntl(low, F_DUPFD, 100)          // a high number no child descriptor can coincide with
-        defer { close(fd); close(low) }
+        // Hold two descriptors open in this process at numbers above anything the child legitimately has (0-2 and the descriptor `ls`
+        // itself opens), so the check does not depend on how many descriptors the test runner happens to have.
+        let source = open("/dev/null", O_RDONLY)
+        let mid = fcntl(source, F_DUPFD, 10)
+        let high = fcntl(source, F_DUPFD, 100)
+        defer { close(high); close(mid); close(source) }
         let r = try await Subprocess.run(spec("/bin/sh", ["-c", "ls /dev/fd | sort -n | tr '\\n' ' '"]))
         let fds = r.stdoutString.split(separator: " ").compactMap { Int($0) }
-        #expect(!fds.contains(Int(fd)) && !fds.contains(Int(low)))
+        #expect(!fds.contains(Int(mid)) && !fds.contains(Int(high)))
         #expect(fds.allSatisfy { $0 <= 4 })   // 0, 1, 2 and the descriptor `ls` itself opened
     }
 
