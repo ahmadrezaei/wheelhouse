@@ -6,6 +6,13 @@ import Testing
 @testable import WheelhouseDesktop
 import WheelhouseKit
 
+/// Answers every lookup with one fixed peer (the real resolver never finds the test's own process).
+struct ObjectPeerResolver: PeerResolving {
+    static let helm = PeerProcess(pid: 99, session: 700, group: 700)
+    var peer: PeerProcess?
+    func resolve(clientPort: UInt16, listenerPort: UInt16, scope: PeerSearchScope) -> PeerProcess? { peer }
+}
+
 @Suite("Gangway server", .serialized)
 struct GangwayServerTests {
     @Test("a read is forwarded with a fresh head: Host and Authorization rewritten, hop-by-hop and the session token gone, base path kept")
@@ -481,9 +488,9 @@ struct GangwayServerTests {
     @Test("an object session lets the reviewed changes through and refuses everything else, never with a sheet")
     func objectSession() async throws {
         let confirmer = ScriptedConfirmer { _ in true }
-        let rig = try await GangwayRig(environment: .production, confirmer: confirmer)
+        let rig = try await GangwayRig(environment: .production, confirmer: confirmer, resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
         defer { rig.stop() }
-        let (handle, token) = try await rig.open(scope: .objects)
+        let (handle, token) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
         rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
         let c = try await rig.client()
         try await c.send(rig.request("PATCH", "/apis/apps/v1/namespaces/shop/deployments/web", token: token, body: "{}")); #expect(try #require(await c.readResponse()).status == 200)
@@ -492,6 +499,98 @@ struct GangwayServerTests {
         #expect(r.status == 403)
         #expect(r.body.contains("not part of the reviewed operation"))
         #expect(confirmer.sheets.all.isEmpty)
+    }
+
+    @Test("an object session refuses a request from any other process, reads included")
+    func objectSessionWrongPeer() async throws {
+        for peer in [nil, PeerProcess(pid: 5, session: 700, group: 701), PeerProcess(pid: 5, session: 1, group: 700)] {
+            let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: peer))
+            defer { rig.stop() }
+            let (handle, token) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
+            rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
+            let c = try await rig.client()
+            try await c.send(rig.request("PATCH", "/apis/apps/v1/namespaces/shop/deployments/web", token: token, body: "{}"))
+            let r = try #require(await c.readResponse())
+            #expect(r.status == 403 && r.body.contains("does not come from the reviewed operation"))
+            try await c.send(rig.request("GET", "/api/v1/namespaces/shop/pods", token: token))
+            #expect(try #require(await c.readResponse()).status == 403)
+            #expect(rig.upstream.received.isEmpty)
+        }
+    }
+
+    @Test("an object session covers nothing before it is bound to its process, and works after")
+    func objectSessionBindLater() async throws {
+        let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open(scope: .objects, binding: .none)
+        rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
+        let c = try await rig.client()
+        try await c.send(rig.request("PATCH", "/apis/apps/v1/namespaces/shop/deployments/web", token: token, body: "{}"))
+        #expect(try #require(await c.readResponse()).status == 403)
+        #expect(handle.session.bindIsolatedGroup(700))
+        try await c.send(rig.request("PATCH", "/apis/apps/v1/namespaces/shop/deployments/web", token: token, body: "{}"))
+        #expect(try #require(await c.readResponse()).status == 200, "the same connection is looked up again once bound")
+    }
+
+    @Test("a create under an object grant is matched by the name in its body")
+    func objectSessionCreate() async throws {
+        let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
+        rig.service.grants.setObjects(session: handle.session, objects: [
+            GrantedObject(resource: "configmaps", namespace: "shop", name: "listed"),
+            GrantedObject(resource: "secrets", namespace: "shop", namePrefix: "sh.helm.release.v1.web.v"),
+        ])
+        let c = try await rig.client()
+        func post(_ path: String, _ json: String, extra: String = "") async throws -> Int {
+            try await c.send(rig.request("POST", path, token: token, extra: extra, body: json))
+            return try #require(await c.readResponse()).status
+        }
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", #"{"metadata":{"name":"listed"}}"#) == 200)
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", #"{"metadata":{"name":"unlisted"}}"#) == 403)
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", #"{"metadata":{"name":"listed","name":"unlisted"}}"#) == 403)
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", #"{"metadata":{"generateName":"listed"}}"#) == 403)
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", "not json") == 403)
+        #expect(try await post("/api/v1/namespaces/shop/secrets", #"{"metadata":{"name":"sh.helm.release.v1.web.v3"}}"#) == 200)
+        #expect(try await post("/api/v1/namespaces/shop/secrets", #"{"metadata":{"name":"sh.helm.release.v1.api.v3"}}"#) == 403)
+        #expect(try await post("/api/v1/namespaces/shop/configmaps", #"{"metadata":{"name":"listed"}}"#, extra: "Impersonate-User: root\r\n") == 403)
+        #expect(rig.upstream.received.count == 2)
+    }
+
+    @Test("a create body over 3 MB gets a readable 413")
+    func objectSessionBigCreate() async throws {
+        let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
+        rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(resource: "configmaps", namespace: "shop", name: "listed")])
+        let c = try await rig.client()
+        let big = #"{"metadata":{"name":"listed"},"data":{"x":""# + String(repeating: "a", count: GrantBody.maxCreateBody) + #""}}"#
+        try await c.send(rig.request("POST", "/api/v1/namespaces/shop/configmaps", token: token, body: big))
+        #expect(try #require(await c.readResponse()).status == 413)
+        #expect(rig.upstream.received.isEmpty)
+    }
+
+    @Test("an expired object grant, another session's token and a revoked session are refused")
+    func objectSessionLifetimes() async throws {
+        let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
+        defer { rig.stop() }
+        let (a, tokenA) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
+        let (_, tokenB) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
+        let objects: Set = [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")]
+        rig.service.grants.setObjects(session: a.session, objects: objects)
+        let path = "/apis/apps/v1/namespaces/shop/deployments/web"
+        let b = try await rig.client()
+        try await b.send(rig.request("PATCH", path, token: tokenB, body: "{}"))
+        #expect(try #require(await b.readResponse()).status == 403, "session B has no grant")
+        let c = try await rig.client()
+        rig.service.grants.setObjects(session: a.session, objects: objects, lifetime: -1)
+        try await c.send(rig.request("PATCH", path, token: tokenA, body: "{}"))
+        #expect(try #require(await c.readResponse()).status == 403, "expired")
+        rig.service.grants.setObjects(session: a.session, objects: objects)
+        rig.service.closeSession(a)
+        let d = try await rig.client()
+        try await d.send(rig.request("PATCH", path, token: tokenA, body: "{}"))
+        #expect(try #require(await d.readResponse()).status == 401, "the helm run ended")
     }
 
     @Test("a command grant covers a held change when the peer is the bound foreground job")
@@ -540,9 +639,9 @@ struct GangwayServerTests {
 
     @Test("an object session refuses a change outside its grant on a non-Production cluster too")
     func objectSessionDevelopment() async throws {
-        let rig = try await GangwayRig()
+        let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))
         defer { rig.stop() }
-        let (handle, token) = try await rig.open(scope: .objects)
+        let (handle, token) = try await rig.open(scope: .objects, binding: .isolatedGroup(700))
         rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
         let c = try await rig.client()
         try await c.send(rig.request("PATCH", "/apis/apps/v1/namespaces/shop/deployments/web", token: token, body: "{}"))
