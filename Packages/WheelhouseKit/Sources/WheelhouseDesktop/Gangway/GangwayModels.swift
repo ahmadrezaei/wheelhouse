@@ -42,6 +42,9 @@ public enum PeerBinding: Sendable {
     case pty(device: dev_t, session: pid_t, foreground: @Sendable () -> pid_t?)
     /// A helm or flux run: the spawned process group.
     case processGroup(pid_t)
+    /// A Chart Room helm run started in its own session (`ProcessSpec.newSession`): the peer must be in that session AND that group, so a
+    /// child of the app cannot join the group with `setpgid` (that fails across sessions).
+    case isolatedGroup(pid_t)
 }
 
 /// A guarded session. In memory only. The token itself is never stored: only its SHA-256.
@@ -50,7 +53,7 @@ public final class GangwaySession: Sendable {
     public let clusterID: ClusterID
     public let origin: GangwayOrigin
     public let scope: GangwayScope
-    /// How the client process is found. Set once, from `.none`, by ``bind(_:)`` when a terminal's PTY exists (after the shell started).
+    /// How the client process is found. Set once, from `.none`: by ``bind(_:)`` for a terminal's PTY, by ``bindIsolatedGroup(_:)`` for a helm run.
     public var binding: PeerBinding { state.withLock { $0.binding } }
     public let createdAt: Date
     let tokenDigest: String
@@ -61,7 +64,7 @@ public final class GangwaySession: Sendable {
     }
 
     private struct State {
-        var binding: PeerBinding = .none
+        var binding: PeerBinding
         var kubeconfigHash: String?
         var fingerprint: String?
         var revoked = false
@@ -86,8 +89,21 @@ public final class GangwaySession: Sendable {
     public func bind(_ new: PeerBinding) -> Bool {
         guard case .terminal = origin else { return false }
         return state.withLock { s in
-            guard case .none = s.binding else { return false }
+            guard !s.revoked, case .none = s.binding else { return false }
             s.binding = new
+            return true
+        }
+    }
+
+    /// Binds an object-grant session to the helm process it was opened for, once. The process group is only known after the spawn, and
+    /// the process must already hold the session kubeconfig, so the session starts unbound and covers nothing until this succeeds.
+    /// Refused for a standard session, a second bind, a revoked session or a pgid of 0 or 1.
+    @discardableResult
+    public func bindIsolatedGroup(_ pgid: pid_t) -> Bool {
+        state.withLock { s in
+            guard scope == .objects, !s.revoked, pgid > 1, case .none = s.binding else { return false }
+            s.binding = .isolatedGroup(pgid)
+            return true
             return true
         }
     }

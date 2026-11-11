@@ -24,10 +24,18 @@ public struct ProcessSpec: Sendable {
     /// A child of a quit group is sent SIGTERM (to its process group) by ``Subprocess/terminateAll(group:)``, which the app calls when it
     /// quits. nil (the default) leaves the child alone.
     public var quitGroup: String?
+    /// Start the child as the leader of a NEW SESSION (and so of its own process group, with pid == pgid == sid), not only of a new group.
+    /// A helm run uses it so no other child of the app can join its process group.
+    public var newSession: Bool
+    /// Called with the child's pid after the spawn and before the child runs (it is started suspended when this is set). Return true to let it
+    /// continue; false kills it. A Chart Room run binds its Gangway session to the pid here, before helm can send its first request.
+    public var spawnGate: (@Sendable (pid_t) -> Bool)?
 
     public init(executable: URL, arguments: [String] = [], environment: [String: String], currentDirectory: URL? = nil, stdin: Data? = nil,
                 timeout: Duration = .seconds(60), stdoutLimit: Int = 64 << 20, stderrLimit: Int = 1 << 20, qos: QualityOfService = .userInitiated,
-                quitGroup: String? = nil) {
+                quitGroup: String? = nil, newSession: Bool = false, spawnGate: (@Sendable (pid_t) -> Bool)? = nil) {
+        self.newSession = newSession
+        self.spawnGate = spawnGate
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -244,7 +252,10 @@ final class SpawnedProcess: Sendable {
         posix_spawnattr_setsigmask(&attr, &empty)
         posix_spawnattr_setsigdefault(&attr, &all)
         posix_spawnattr_setpgroup(&attr, 0)
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_CLOEXEC_DEFAULT
+        flags |= spec.newSession ? POSIX_SPAWN_SETSID : POSIX_SPAWN_SETPGROUP
+        if spec.spawnGate != nil { flags |= POSIX_SPAWN_START_SUSPENDED }
+        posix_spawnattr_setflags(&attr, Int16(flags))
         posix_spawnattr_set_qos_class_np(&attr, Self.qosClass(spec.qos))
 
         let argv = ([spec.executable.path] + spec.arguments).map { strdup($0) } + [nil]
@@ -262,6 +273,9 @@ final class SpawnedProcess: Sendable {
             throw SubprocessError.launchFailed(String(cString: strerror(rc)))
         }
         self.pid = childPID
+        if let gate = spec.spawnGate {
+            if gate(childPID) { kill(childPID, SIGCONT) } else { kill(childPID, SIGKILL) }
+        }
         if let group = spec.quitGroup { Self.live.insert(childPID, group: group) }
 
         if let input = spec.stdin, inPipe[1] >= 0 { Self.writeAll(input, to: inPipe[1], on: queue) }
