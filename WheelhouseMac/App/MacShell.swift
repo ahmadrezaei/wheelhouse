@@ -112,8 +112,8 @@ struct WorkspaceWindowContent: View {
                 switch sheet {
                 case .saveStation: SaveStationSheet(model: model)
                 case .stations: StationsView().environment(env).safeAreaInset(edge: .bottom) { HStack { Spacer(); Button("Done") { model.sheet = nil } }.padding() }
-                case .pickClusters(let id):
-                    if let station = env.workspace.store.stations.first(where: { $0.id == id }) { StationClusterPicker(station: station).environment(env) }
+                case .pickClusters(let id, let fromLink):
+                    if let station = env.workspace.store.stations.first(where: { $0.id == id }) { StationClusterPicker(station: station, fromLink: fromLink).environment(env) }
                 }
             }
             .environment(env).environment(registry)
@@ -139,9 +139,8 @@ struct WorkspaceWindowContent: View {
             if locked {
                 // Everything above the overlay goes: this window's sheets (Stations, Save Station, the cluster picker, Add Cluster) and
                 // every sheet presented by a screen of any window (sign-in, merge review, scanner setup).
-                model.sheet = nil
-                windowRouter.sheet = nil
-                for other in env.workspace.allModels { other.sheet = nil }
+                model.dismissSheetsForLock()
+                for other in env.workspace.allModels { other.dismissSheetsForLock() }
                 ChartRoomMemory.scrub()
                 env.importer.dismiss()
                 Self.coverWindows()

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WheelhouseKit
 
@@ -74,6 +75,7 @@ struct PaneTreeLayout: View {
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
         .clipped()
+        .background(HiddenTabResponderGuard(isSelected: isSelected))
         .opacity(isSelected ? 1 : 0)
         .allowsHitTesting(isSelected)
         .disabled(!isSelected)
@@ -104,5 +106,52 @@ struct PaneTreeLayout: View {
                 })
             .accessibilityLabel("Pane divider")
             .accessibilityIdentifier("pane.divider")
+    }
+}
+
+/// A hidden tab cannot keep the keyboard. A tab that is not selected stays in the window (its panes keep their state), so a filter
+/// field or an editor of it could stay first responder and take the typing meant for the tab on screen. When the tab stops being the
+/// selected one, a first responder inside its area resigns; the sidebar, the inspector and the toolbar are outside it and keep theirs.
+struct HiddenTabResponderGuard: NSViewRepresentable {
+    let isSelected: Bool
+
+    final class GuardView: NSView {
+        var wasSelected = true
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        /// The tab was hidden: a first responder in the tab's area resigns, unless the screen on top owns it. Every tab shares the
+        /// same area, so the geometry alone cannot tell the hidden tab's field from one the newly selected tab focused on appear;
+        /// hit testing can, because a hidden tab does not take hits.
+        func tabWasHidden() {
+            guard let window, let responder = window.firstResponder as? NSView, responder.window === window else { return }
+            let area = convert(bounds, to: nil)
+            let frame = responder.convert(responder.bounds, to: nil)
+            let centre = CGPoint(x: frame.midX, y: frame.midY)
+            guard area.contains(centre) else { return }
+            if let root = window.contentView, let hit = root.hitTest(root.superview?.convert(centre, from: nil) ?? centre),
+               Self.owns(hit, responder, area: area) { return }
+            window.makeFirstResponder(nil)
+        }
+
+        /// The view hit at the responder's centre belongs to the responder: it is the responder or inside it, or it is a control the
+        /// responder works for (a text field and its field editor), never just the large container both live in.
+        static func owns(_ hit: NSView, _ responder: NSView, area: NSRect) -> Bool {
+            if hit === responder || hit.isDescendant(of: responder) { return true }
+            guard responder.isDescendant(of: hit) else { return false }
+            let size = hit.bounds.size
+            return size.width * size.height < area.width * area.height / 2
+        }
+    }
+
+    func makeNSView(context: Context) -> GuardView {
+        let view = GuardView()
+        view.wasSelected = isSelected
+        return view
+    }
+
+    func updateNSView(_ view: GuardView, context: Context) {
+        if view.wasSelected, !isSelected { view.tabWasHidden() }
+        view.wasSelected = isSelected
     }
 }
