@@ -27,8 +27,12 @@ public struct HelmGrantPlan: Sendable, Equatable {
         public var crdsYAML: String?
         public var skipCRDs: Bool
         public var discovery: DiscoveryInfo?
+        /// "Roll back automatically on failure": a failed upgrade rolls back to `current` (its rollback hooks run), a failed install is
+        /// uninstalled (the delete hooks of `next` run). Those hook objects are granted too.
+        public var rollbackOnFailure: Bool
         public init(operation: HelmOperation, next: HelmRelease? = nil, current: HelmRelease? = nil, crdsYAML: String? = nil, skipCRDs: Bool = false,
-                    discovery: DiscoveryInfo? = nil) {
+                    discovery: DiscoveryInfo? = nil, rollbackOnFailure: Bool = false) {
+            self.rollbackOnFailure = rollbackOnFailure
             self.operation = operation
             self.next = next
             self.current = current
@@ -50,6 +54,13 @@ public struct HelmGrantPlan: Sendable, Equatable {
         for release in [input.next, input.current].compactMap({ $0 }) {
             add(manifest: release.manifest)
             for hook in release.hooks where runs(hook) { add(manifest: hook.manifest) }
+        }
+        if input.rollbackOnFailure {
+            switch op {
+            case .upgrade: for hook in input.current?.hooks ?? [] where !Set(hook.events).isDisjoint(with: ["pre-rollback", "post-rollback"]) { add(manifest: hook.manifest) }
+            case .install: for hook in input.next?.hooks ?? [] where !Set(hook.events).isDisjoint(with: ["pre-delete", "post-delete"]) { add(manifest: hook.manifest) }
+            case .rollback, .uninstall: break
+            }
         }
         let hooks = ((input.next ?? input.current)?.hooks ?? []).filter(runs)
         // Only `helm install` applies the chart's crds/ folder.

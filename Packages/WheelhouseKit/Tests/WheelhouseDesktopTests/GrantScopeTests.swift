@@ -320,6 +320,7 @@ struct GrantScopeTests {
         #expect(name(#"{"metadata":{"name":"a","Name":"b"}}"#) == nil)
         #expect(name(#"{"metadata":{"name":"a"},"Metadata":{"name":"b"}}"#) == nil)
         #expect(name(#"{"Metadata":{"name":"a"}}"#) == nil)
+        #expect(name(#"{"metadata":{"name":"a\ud800\nb"}}"#) == .name("a\u{FFFD}\nb"), "a lone high surrogate before another escape is U+FFFD first")
         #expect(name(#"{"metadata":{"name":1}}"#) == nil)
         #expect(name(#"{"metadata":{"name":null,"generateName":"g-"}}"#) == nil)
         #expect(name(#"{"metadata":"x"}"#) == nil)

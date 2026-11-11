@@ -51,4 +51,30 @@ struct HelmRunFootprintTests {
         #expect(rig.service.registry.sessions.isEmpty, "every run closed its session")
     }
 }
+
+extension HelmRunFootprintTests {
+    @Test("Stop escalates: a helm that ignores SIGTERM is killed after the grace period and the session closes")
+    func stopEscalates() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let dir = rig.scratch.root.appending(path: "stubborn-helm", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let script = dir.appending(path: "helm")
+        try "#!/bin/sh\ntrap '' TERM\necho started\nwhile true; do sleep 1; done\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let cli = HelmCLI(executable: script, version: HelmVersion(4, 0, 0), environment: EnvironmentBuilder(snapshot: nil, paths: rig.service.paths, home: rig.scratch.root))
+        let runner = HelmRunner(cli: cli, gangway: rig.service)
+        let op = HelmOperation.uninstall(release: "web", namespace: "shop", keepHistory: false)
+        let plan = HelmGrantPlan(objects: [], hooks: [], warnings: [])
+        let sink = Sink()
+        let task = Task { try await runner.apply(op, plan: plan, cluster: rig.clusterID, valuesYAML: "", options: HelmApplyOptions(), stopGrace: .seconds(1), output: sink.append) }
+        while !sink.text.contains("started") { try await Task.sleep(for: .milliseconds(50)) }
+        let started = ContinuousClock.now
+        task.cancel()
+        let exit = try await task.value
+        #expect(exit.signal == SIGKILL, "SIGTERM was ignored, so SIGKILL ended it")
+        #expect(ContinuousClock.now - started < .seconds(10))
+        #expect(rig.service.registry.sessions.isEmpty)
+    }
+}
 #endif

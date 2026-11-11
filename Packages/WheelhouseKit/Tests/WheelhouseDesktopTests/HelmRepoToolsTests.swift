@@ -46,6 +46,7 @@ struct HelmRepoToolsTests {
         let args = try String(contentsOf: dir.appending(path: "args"), encoding: .utf8)
         #expect(args.contains("--password-stdin") && !args.contains(secret))
         #expect(try String(contentsOf: dir.appending(path: "stdin"), encoding: .utf8) == secret)
+        await #expect(throws: HelmCLIError.self) { try await runner.add(name: "nouser", url: "https://x.test", username: nil, password: "secret") }
         await #expect(throws: HelmCLIError.self) { try await runner.add(name: "--bad", url: "https://x.test", username: nil, password: nil) }
         try await runner.remove(name: "private")
         #expect(try String(contentsOf: dir.appending(path: "args"), encoding: .utf8) == "repo\nremove\nprivate\n")

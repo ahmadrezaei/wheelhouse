@@ -56,6 +56,7 @@ public struct HelmRepoRunner: Sendable {
     public func add(name: String, url: String, username: String?, password: String?) async throws {
         guard HelmInputCheck.isValidRepositoryName(name), HelmInputCheck.isValidRepositoryURL(url) else { throw HelmCLIError.unsupported("That repository name or URL is not valid.") }
         let usesPassword = !(password ?? "").isEmpty
+        if usesPassword, (username ?? "").isEmpty { throw HelmCLIError.unsupported("A password needs a username.") }
         try await run(cli.repoAddArguments(name: name, url: url, username: username, usesPassword: usesPassword), stdin: usesPassword ? Data(password!.utf8) : nil)
     }
 

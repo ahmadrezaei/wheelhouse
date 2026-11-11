@@ -52,7 +52,7 @@ public struct HelmRunner: Sendable {
     /// The real run. Opens an object session, grants exactly `plan.objects` to the spawned helm (own session and process group, bound
     /// before helm runs), streams its output, and ends the session when helm exits. Returns helm's exit.
     public func apply(_ op: HelmOperation, plan: HelmGrantPlan, cluster: ClusterID, valuesYAML: String, options: HelmApplyOptions,
-                      output: @escaping @Sendable (String) -> Void) async throws -> ProcessExit {
+                      stopGrace: Duration = .seconds(30), output: @escaping @Sendable (String) -> Void) async throws -> ProcessExit {
         let handle = try await gangway.openSession(clusterID: cluster, origin: .chartRoom(operation: op.verb), scope: .objects, namespace: op.namespace)
         defer { gangway.closeSession(handle, reason: "helm finished") }
         let values = op.rendersWithHelm ? try Self.writeValues(valuesYAML, in: handle.directory) : nil
@@ -61,7 +61,7 @@ public struct HelmRunner: Sendable {
         let budget = options.timeout * (options.rollbackOnFailure ? 4 : 3) + .seconds(120)
         gangway.grants.setObjects(session: handle.session, objects: plan.objects, lifetime: TimeInterval(budget.components.seconds))
         let session = handle.session
-        let child = ChildPID()
+        let child = ChildPID(grace: stopGrace)
         let spec = cli.spec(arguments: args, kubeconfig: handle.kubeconfig, timeout: budget, newSession: true,
                             spawnGate: { pid in child.set(pid); return session.bindIsolatedGroup(pid) })
         // The stream is read by a task of its own: cancelling the caller (Stop) asks helm to stop with SIGTERM and keeps reading until it
@@ -94,11 +94,19 @@ public struct HelmRunner: Sendable {
     }
 }
 
-/// The pid of the helm child, set by the spawn gate; Stop sends SIGTERM to its process group.
+/// The pid of the helm child, set by the spawn gate. Stop sends SIGTERM to its process group; a helm that is still there after the grace
+/// period gets SIGKILL, which ends the stream and with it the session and its grant.
 final class ChildPID: @unchecked Sendable {
     private let lock = NSLock()
     private var pid: pid_t?
+    private let grace: Duration
+    init(grace: Duration) { self.grace = grace }
     func set(_ value: pid_t) { lock.withLock { pid = value } }
-    func terminate() { if let pid = lock.withLock({ pid }) { kill(-pid, SIGTERM) } }
+    func terminate() {
+        guard let pid = lock.withLock({ pid }) else { return }
+        kill(-pid, SIGTERM)
+        let delay = Double(grace.components.seconds) + Double(grace.components.attoseconds) / 1e18
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { if kill(-pid, 0) == 0 { kill(-pid, SIGKILL) } }
+    }
 }
 #endif

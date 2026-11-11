@@ -85,6 +85,24 @@ struct HelmFlowTests {
         #expect(request.dryRun == nil)
     }
 
+    @Test func theRunAppliesTheReviewedOperationAndNotTheFormAsItIsNow() async throws {
+        let m = model(.uninstall, config(), current: try release())
+        m.keepHistory = false
+        m.valuesText = "reviewed: true\n"
+        await m.prepareReview()
+        #expect(m.step == .review)
+        m.keepHistory = true                       // background tasks and edits after the review
+        m.namespace = "elsewhere"
+        m.valuesText = "changed: true\n"
+        m.wait = false
+        let run = try #require(m.reviewedRun)
+        #expect(run.operation == .uninstall(release: "web", namespace: "shop", keepHistory: false))
+        #expect(run.values == "reviewed: true\n")
+        #expect(run.options.wait)
+        let request = try #require(m.makeConfirmRequest())
+        #expect(request.facts.contains { $0.label == "Namespace" && $0.value == "shop" })
+    }
+
     @Test func aReadOnlyClusterRefusesTheConfirmationAndTheRun() async throws {
         let m = model(.uninstall, config(readOnly: true), current: try release())
         await m.prepareReview()

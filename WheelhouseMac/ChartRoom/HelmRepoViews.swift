@@ -64,7 +64,7 @@ struct AddRepositorySheet: View {
         _url = State(initialValue: url)
     }
 
-    private var valid: Bool { HelmInputCheck.isValidRepositoryName(name) && HelmInputCheck.isValidRepositoryURL(url) }
+    private var valid: Bool { HelmInputCheck.isValidRepositoryName(name) && HelmInputCheck.isValidRepositoryURL(url) && (password.isEmpty || !username.isEmpty) }
 
     var body: some View {
         VStack(spacing: 0) {

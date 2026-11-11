@@ -100,6 +100,26 @@ struct HelmGrantTests {
         #expect(HelmGrantPlan.hookEvents(for: .uninstall(release: "w", namespace: "n", keepHistory: false)) == ["pre-delete", "post-delete"])
     }
 
+    @Test("automatic rollback also grants the hooks the rollback or the cleanup of a failed install runs")
+    func rollbackOnFailureHooks() throws {
+        func hookRelease(_ events: [String], name: String) throws -> HelmRelease {
+            let json: [String: Any] = ["name": "web", "namespace": "shop", "version": 1, "info": ["status": "deployed"], "chart": ["metadata": ["name": "c", "version": "1"]],
+                                       "manifest": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: main\n",
+                                       "hooks": [["name": name, "kind": "ConfigMap", "path": "t/h.yaml", "events": events,
+                                                  "manifest": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: \(name)\n"] as [String: Any]]]
+            return try HelmReleaseCodec.decode(payload: JSONSerialization.data(withJSONObject: json))
+        }
+        let rollbackHook = GrantedObject(resource: "configmaps", namespace: "shop", name: "undo")
+        let deleteHook = GrantedObject(resource: "configmaps", namespace: "shop", name: "cleanup")
+        let up = HelmOperation.upgrade(release: "web", chart: "./c", version: nil, namespace: "shop", strategy: .reset)
+        let current = try hookRelease(["pre-rollback"], name: "undo"), next = try hookRelease(["pre-upgrade"], name: "up")
+        #expect(!objects(.init(operation: up, next: next, current: current)).contains(rollbackHook), "not without automatic rollback")
+        #expect(objects(.init(operation: up, next: next, current: current, rollbackOnFailure: true)).contains(rollbackHook))
+        let fresh = try hookRelease(["pre-delete"], name: "cleanup")
+        #expect(!objects(.init(operation: install, next: fresh)).contains(deleteHook))
+        #expect(objects(.init(operation: install, next: fresh, rollbackOnFailure: true)).contains(deleteHook))
+    }
+
     @Test("a custom resource of a CRD in crds/ gets that CRD's plural and scope, and a generateName hook its own prefix")
     func crdKindsAndGenerateName() throws {
         let crd = """

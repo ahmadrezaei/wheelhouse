@@ -28,6 +28,10 @@ struct HelmReviewData {
     var removed: [HelmManifestObject]
     var notes: String?
     var helmVersion: String
+    /// What the review was made of: the run applies exactly this, whatever the form says by then.
+    var operation: HelmOperation
+    var values: String
+    var options: HelmApplyOptions
 }
 
 /// One install, upgrade, rollback or uninstall (ARCHITECTURE-MAC section 5.2): configure, render and review, confirm, run.
@@ -140,15 +144,17 @@ final class HelmFlowModel: Identifiable {
         do {
             let runner = try await makeRunner()
             helm = runner
-            let op = operation
+            var op = operation
             let discovery = try? await session.client.discovery()
-            var inputs = HelmGrantPlan.Inputs(operation: op, current: current, skipCRDs: skipCRDs, discovery: discovery)
+            var inputs = HelmGrantPlan.Inputs(operation: op, current: current, skipCRDs: skipCRDs, discovery: discovery, rollbackOnFailure: rollbackOnFailure && op.rendersWithHelm)
             var data = HelmReviewData(plan: HelmGrantPlan(objects: [], hooks: [], warnings: []), comparison: nil, created: [], rendered: [], removed: [], notes: nil,
-                                      helmVersion: runner.cli.version.description)
+                                      helmVersion: runner.cli.version.description, operation: op, values: valuesText, options: applyOptions)
             switch op {
             case .install, .upgrade:
                 let result = try await runner.render(op, cluster: session.config.id, valuesYAML: valuesText, skipCRDs: skipCRDs)
                 renderedRelease = result.release
+                op = pinned(op, to: result.release)
+                data.operation = op
                 inputs.next = result.release
                 inputs.crdsYAML = result.crdsYAML
                 data.rendered = HelmManifest.objects(in: result.release.manifest)
@@ -190,14 +196,15 @@ final class HelmFlowModel: Identifiable {
     /// sheet itself. The sheet's action starts the run; nothing else does.
     func makeConfirmRequest() -> ConfirmRequest? {
         guard let review else { return nil }
-        let op = operation
+        let op = review.operation
         let cluster = session.config
-        var facts: [ConfirmRequest.Fact] = [.init("Release", releaseName), .init("Namespace", namespace), .init("helm", review.helmVersion)]
-        if op.rendersWithHelm { facts.append(.init("Chart", chart + (chartVersion.isEmpty ? "" : " \(chartVersion)"))) }
+        var facts: [ConfirmRequest.Fact] = [.init("Release", op.release), .init("Namespace", op.namespace), .init("helm", review.helmVersion)]
+        if case .install(_, let c, let v, _, _) = op { facts.append(.init("Chart", c + (v.map { " \($0)" } ?? ""))) }
+        if case .upgrade(_, let c, let v, _, _) = op { facts.append(.init("Chart", c + (v.map { " \($0)" } ?? ""))) }
         if case .rollback(_, _, let revision) = op { facts.append(.init("Revision", "\(revision)")) }
         facts.append(.init("Objects it may change", "\(review.plan.objects.count)"))
         if !review.plan.hooks.isEmpty { facts.append(.init("Hooks that will run", review.plan.hooks.map(\.name).joined(separator: ", "))) }
-        facts.append(.init("Roll back automatically on failure", rollbackOnFailure && op.rendersWithHelm ? "Yes" : "No"))
+        facts.append(.init("Roll back automatically on failure", review.options.rollbackOnFailure && op.rendersWithHelm ? "Yes" : "No"))
         let rendered = review.rendered
         let client = session.client
         let namespace = op.namespace
@@ -216,8 +223,8 @@ final class HelmFlowModel: Identifiable {
             }
         }
         return ConfirmRequest(
-            title: "\(kind.title) \(releaseName)", message: Self.message(kind, release: releaseName, namespace: namespace), verb: kind.title,
-            isDestructive: kind == .uninstall, cluster: cluster, namespace: namespace, resource: "release/\(releaseName)", confirmationText: releaseName,
+            title: "\(kind.title) \(op.release)", message: Self.message(kind, release: op.release, namespace: op.namespace), verb: kind.title,
+            isDestructive: kind == .uninstall, cluster: cluster, namespace: op.namespace, resource: "release/\(op.release)", confirmationText: op.release,
             facts: facts, alwaysRequireTyping: kind == .uninstall, origin: .chartRoom,
             dryRun: dryRun,
             action: { @MainActor [weak self] in try await self?.begin() })
@@ -280,11 +287,7 @@ final class HelmFlowModel: Identifiable {
         if case .refuse(let reason) = MutationPolicy.decide(.mutation(dryRun: false), cluster: session.config, origin: .chartRoom) {
             throw HelmCLIError.unsupported(reason)
         }
-        var op = operation
-        // Apply the chart that was reviewed: an empty version would resolve again and could pick up a newer one.
-        if case .install(let r, let c, nil, let n, let create) = op, let pinned = pinnedVersion(for: c) { op = .install(release: r, chart: c, version: pinned, namespace: n, createNamespace: create) }
-        if case .upgrade(let r, let c, nil, let n, let strategy) = op, let pinned = pinnedVersion(for: c) { op = .upgrade(release: r, chart: c, version: pinned, namespace: n, strategy: strategy) }
-        let options = applyOptions, values = valuesText, cluster = session.config.id, plan = review.plan
+        let op = review.operation, options = review.options, values = review.values, cluster = session.config.id, plan = review.plan
         step = .running
         output = ""
         let sink: @Sendable (String) -> Void = { [weak self] chunk in Task { @MainActor in self?.append(chunk) } }
@@ -301,10 +304,18 @@ final class HelmFlowModel: Identifiable {
         }
     }
 
-    /// The version helm rendered, for a chart that comes from a repository or a registry (a local path is what it is).
-    private func pinnedVersion(for chart: String) -> String? {
-        let local = chart.hasPrefix("/") || chart.hasPrefix("./") || chart.hasPrefix("../") || chart.hasPrefix("~") || FileManager.default.fileExists(atPath: chart)
-        return local ? nil : renderedRelease?.chart.metadata.version
+    /// What the run applies: the reviewed operation, values and options, never the form as it is now.
+    var reviewedRun: (operation: HelmOperation, values: String, options: HelmApplyOptions)? { review.map { ($0.operation, $0.values, $0.options) } }
+
+    /// The version helm rendered is pinned into the operation, for a chart that comes from a repository or a registry (a local path is what it is).
+    private func pinned(_ op: HelmOperation, to release: HelmRelease) -> HelmOperation {
+        let version = release.chart.metadata.version
+        func local(_ chart: String) -> Bool { chart.hasPrefix("/") || chart.hasPrefix("./") || chart.hasPrefix("../") || chart.hasPrefix("~") || FileManager.default.fileExists(atPath: chart) }
+        switch op {
+        case .install(let r, let c, nil, let n, let create) where !local(c): return .install(release: r, chart: c, version: version, namespace: n, createNamespace: create)
+        case .upgrade(let r, let c, nil, let n, let strategy) where !local(c): return .upgrade(release: r, chart: c, version: version, namespace: n, strategy: strategy)
+        default: return op
+        }
     }
 
     private func append(_ chunk: String) {
