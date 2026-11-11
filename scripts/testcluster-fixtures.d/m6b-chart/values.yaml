@@ -1,0 +1,5 @@
+# -- how many fake replicas the config reports
+replicas: 1
+greeting: hello
+service:
+  port: 8080

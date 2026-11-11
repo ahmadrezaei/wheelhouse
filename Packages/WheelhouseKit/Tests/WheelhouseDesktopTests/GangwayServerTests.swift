@@ -570,6 +570,30 @@ struct GangwayServerTests {
         #expect(rig.upstream.received.isEmpty)
     }
 
+    @Test("a real child started suspended in its own session is bound before it runs; a sibling process is refused")
+    func objectSessionRealChild() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let (handle, token) = try await rig.open(scope: .objects, binding: .none)
+        rig.service.grants.setObjects(session: handle.session, objects: [GrantedObject(group: "apps", resource: "deployments", namespace: "shop", name: "web")])
+        let url = "https://127.0.0.1:\(try #require(rig.service.port))/c/\(rig.clusterID)/apis/apps/v1/namespaces/shop/deployments/web"
+        let args = ["-sk", "-o", "/dev/null", "-w", "%{http_code}", "-X", "PATCH", "-H", "Authorization: Bearer \(token)", "-H", "Content-Type: application/merge-patch+json", "-d", "{}", url]
+        let env = ["PATH": "/usr/bin:/bin"]
+        let session = handle.session
+        let inGroup = ProcessSpec(executable: URL(fileURLWithPath: "/usr/bin/curl"), arguments: args, environment: env, timeout: .seconds(20), newSession: true,
+                                  spawnGate: { session.bindIsolatedGroup($0) })
+        let ok = try await Subprocess.run(inGroup)
+        #expect(ok.stdoutString == "200", Comment(rawValue: ok.stdoutString + ok.stderrString))
+        let sibling = try await Subprocess.run(ProcessSpec(executable: URL(fileURLWithPath: "/usr/bin/curl"), arguments: args, environment: env, timeout: .seconds(20)))
+        #expect(sibling.stdoutString == "403", "a process outside the bound group is refused")
+        #expect(rig.upstream.received.count == 1)
+        // A second bind (another run started for the same session) is refused and that child never runs.
+        let again = ProcessSpec(executable: URL(fileURLWithPath: "/usr/bin/curl"), arguments: args, environment: env, timeout: .seconds(20), newSession: true,
+                                spawnGate: { session.bindIsolatedGroup($0) })
+        let killed = try await Subprocess.run(again)
+        #expect(killed.exit.signal == SIGKILL)
+    }
+
     @Test("an expired object grant, another session's token and a revoked session are refused")
     func objectSessionLifetimes() async throws {
         let rig = try await GangwayRig(resolver: ObjectPeerResolver(peer: ObjectPeerResolver.helm))

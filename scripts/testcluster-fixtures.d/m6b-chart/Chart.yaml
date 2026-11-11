@@ -1,0 +1,6 @@
+apiVersion: v2
+name: wh-m6b
+description: Wheelhouse Chart Room write-path fixture (no pods, so nothing is pulled)
+type: application
+version: 0.1.0
+appVersion: "1.0"
