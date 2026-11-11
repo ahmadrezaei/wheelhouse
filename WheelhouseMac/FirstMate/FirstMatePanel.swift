@@ -164,16 +164,15 @@ private struct ConversationView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if session.items.isEmpty, session.pendingUserText == nil, !session.isBusy { EmptyHint() }
                     ForEach(session.items) { item in
-                        TranscriptRow(item: item, session: session, showTools: hub.preferences.showToolCalls, review: begin)
+                        TranscriptRow(item: item, session: session, showTools: hub.preferences.showToolCalls, review: begin).equatable()
                     }
                     if let pending = session.pendingUserText { UserBubble(text: pending) }
-                    if session.isBusy { LiveRow(session: session) }
+                    if session.isBusy { LiveRow(session: session, follow: { proxy.scrollTo("bottom", anchor: .bottom) }) }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(12)
             }
             .onChange(of: session.items.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: session.publishCount) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: session.state) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
         }
         .accessibilityIdentifier("firstmate.transcript")

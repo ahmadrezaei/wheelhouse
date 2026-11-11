@@ -3,11 +3,16 @@ import WheelhouseKit
 import WheelhouseUI
 
 /// One row of the transcript. The list is a `LazyVStack`, so only the rows on screen are built (ARCHITECTURE-MAC section 12.3).
-struct TranscriptRow: View {
+///
+/// A row is `Equatable` on its item, so a streamed update of the live text (a few times a second) does not rebuild, and re-parse the
+/// Markdown of, every row that is already on screen.
+struct TranscriptRow: View, Equatable {
     let item: TranscriptItem
     let session: FirstMateSession
     let showTools: Bool
     let review: (String) -> Void
+
+    static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool { lhs.item == rhs.item && lhs.showTools == rhs.showTools }
 
     var body: some View {
         switch item.kind {
@@ -77,6 +82,8 @@ struct ToolCallRow: View {
 /// The answer as it streams. The session publishes it at most four times a second; this view only reads it.
 struct LiveRow: View {
     let session: FirstMateSession
+    /// Keeps the newest text in view. It lives here, not on the scroll view, so only this row follows each published update.
+    let follow: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -93,6 +100,7 @@ struct LiveRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(statusText)
+        .onChange(of: session.publishCount) { _, _ in follow() }
     }
 
     private var statusText: String {
