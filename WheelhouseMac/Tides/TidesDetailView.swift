@@ -75,7 +75,7 @@ struct TidesDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationTitle(app.name)
-        .toolbar { ToolbarItemGroup { actions(app) } }
+        .paneToolbar { ToolbarItemGroup { actions(app) } }
         .overlay(alignment: .bottom) { undoBanner }
     }
 

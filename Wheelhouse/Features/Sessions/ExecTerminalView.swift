@@ -111,7 +111,7 @@ struct ExecTerminalView: View {
                 }
                 overlay(model)
             }
-            .toolbar { toolbar(model) }
+            .paneToolbar { toolbar(model) }
             .onChange(of: model.phase) { _, phase in if phase == .connected { model.surface.focus() } }
             .onDisappear { model.surface.blur() }
             .environment(\.colorScheme, .dark)

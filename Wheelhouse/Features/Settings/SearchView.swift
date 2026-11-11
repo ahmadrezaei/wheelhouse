@@ -124,12 +124,10 @@ struct SearchView: View {
         let groups = model.search(debounced, in: sessions.map(\.id))
         content(groups)
             .navigationTitle("Search")
-            .searchable(text: $query, prompt: scope == .all ? "Search all clusters" : "Search \(registry.currentCluster?.name ?? "cluster")")
-            .searchScopes($scope) {
-                Text("This cluster").tag(Scope.current)
-                Text("All clusters").tag(Scope.all)
+            .paneSearchable(text: $query, prompt: scope == .all ? "Search all clusters" : "Search \(registry.currentCluster?.name ?? "cluster")",
+                            scope: $scope, scopes: [("This cluster", Scope.current), ("All clusters", Scope.all)]) {
+                RecentSearches.add(query); recents = RecentSearches.load()
             }
-            .onSubmit(of: .search) { RecentSearches.add(query); recents = RecentSearches.load() }
             .task {
                 var start = initialQuery
                 #if DEBUG

@@ -40,7 +40,7 @@ struct ClusterDashboardView: View {
         .background(Palette.groupedBackground)
         .navigationTitle(session?.config.name ?? "Cluster")
         .whInlineNavigationTitle()
-        .toolbar {
+        .paneToolbar {
             ToolbarItem(placement: .principal) { switcher }
             ToolbarItem(placement: .whTrailing) {
                 Menu {

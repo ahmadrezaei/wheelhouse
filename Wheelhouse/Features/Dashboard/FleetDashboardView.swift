@@ -36,7 +36,7 @@ struct FleetDashboardView: View {
         .background(Palette.groupedBackground)
         .navigationTitle("Fleet")
         .navigationSubtitle(subtitle)
-        .toolbar {
+        .paneToolbar {
             ToolbarItem(placement: .whLeading) { Button { router.push(.settings) } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings") }
             ToolbarItem(placement: .whTrailing) { bell(alerts) }
             ToolbarItem(placement: .whTrailing) { Button { router.push(.addCluster) } label: { Image(systemName: "plus") }.accessibilityLabel("Add Cluster") }
