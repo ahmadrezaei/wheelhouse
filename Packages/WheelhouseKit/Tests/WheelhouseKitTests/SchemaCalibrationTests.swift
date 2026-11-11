@@ -19,7 +19,7 @@ struct SchemaCalibrationTests {
 
     /// The measuring runs in a forked child. A child has exactly one thread, so no other test's allocations (the runner executes suites
     /// in parallel) can move the heap between the two readings: the reading is the documents and nothing else.
-    @Test func theEstimateIsNotBelowTheMeasuredHeap() throws {
+    @Test(.timeLimit(.minutes(1))) func theEstimateIsNotBelowTheMeasuredHeap() throws {
         let b = BundledSchemas.standard
         _ = b.load(minor: "1.32")                      // warm up lazy tables and caches before the fork, so the child takes no lock another thread holds
         var fds: [Int32] = [0, 0]

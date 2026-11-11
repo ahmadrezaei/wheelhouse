@@ -713,7 +713,7 @@ struct ManagedTrivyTests {
         override func stopLoading() {}
     }
 
-    @Test func theRealDownloaderWritesTheBodyWithinTheLimitAndStopsOverIt() async throws {
+    @Test(.timeLimit(.minutes(1))) func theRealDownloaderWritesTheBodyWithinTheLimitAndStopsOverIt() async throws {
         let scratch = try Scratch()
         defer { scratch.cleanup() }
         let downloader = URLSessionTrivyDownloader(protocolClasses: [ChunkedProtocol.self])

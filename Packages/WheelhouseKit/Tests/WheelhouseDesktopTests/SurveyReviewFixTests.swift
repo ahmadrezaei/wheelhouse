@@ -71,7 +71,7 @@ struct ScanQueueReviewTests {
         #expect(p.failed == 0 && p.queued == 5)
     }
 
-    @Test func noScanStartsAfterCancelAllReturns() async throws {
+    @Test(.timeLimit(.minutes(1))) func noScanStartsAfterCancelAllReturns() async throws {
         let scratch = try Scratch()
         defer { scratch.cleanup() }
         let runner = StubbornRunner()
