@@ -120,6 +120,7 @@ public actor ScanQueue {
 
     /// Resume after a pause (user or conditions), with `trigger` as the run's trigger.
     public func resume(trigger: ScanTrigger? = nil) {
+        guard cancelling == 0 else { return }
         if let trigger { runTrigger = trigger }
         if case .running = progress.state { return }
         launch()

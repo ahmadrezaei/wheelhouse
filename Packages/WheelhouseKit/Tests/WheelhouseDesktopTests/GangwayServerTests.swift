@@ -322,7 +322,7 @@ struct GangwayServerTests {
         #expect(confirmer.sheets.all.count == 2, "a later identical request is a new request with its own sheet")
     }
 
-    @Test("a cluster that turns read-only while a request is held refuses it after the approval")
+    @Test("a cluster that turns read-only while a request is held refuses it after the approval", .timeLimit(.minutes(1)))
     func readOnlyDuringHold() async throws {
         let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in
@@ -548,7 +548,7 @@ struct GangwayServerTests {
         #expect(rig.upstream.received.count == 1)
     }
 
-    @Test("the app locking while a request is held refuses it after the approval; nothing reaches the API server")
+    @Test("the app locking while a request is held refuses it after the approval; nothing reaches the API server", .timeLimit(.minutes(1)))
     func lockDuringHold() async throws {
         let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in
@@ -688,7 +688,7 @@ struct GangwayServerTests {
         b.close()
     }
 
-    @Test("a request refused at the last look (the session ended while it waited) is not logged as forwarded")
+    @Test("a request refused at the last look (the session ended while it waited) is not logged as forwarded", .timeLimit(.minutes(1)))
     func abortedIsNotForwarded() async throws {
         let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in

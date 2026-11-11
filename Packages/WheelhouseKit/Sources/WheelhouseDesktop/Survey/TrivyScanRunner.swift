@@ -77,6 +77,9 @@ public struct TrivyScanRunner: ScanRunner {
         guard parsed.usesJavaDatabase, let java = TrivyCLI.javaDatabaseMetadata(cacheDirectory: options.cacheDirectory),
               DBUpdatePolicy.needsDownload(metadata: java, now: now()) else { return parsed }
         try await cli.downloadDatabase(options: options, java: true, trigger: trigger)
+        // trivy skips the download while its own next-update time is in the future and leaves the metadata alone: then the first
+        // scan already used the current DB and a second one would only repeat it.
+        guard TrivyCLI.javaDatabaseMetadata(cacheDirectory: options.cacheDirectory) != java else { return parsed }
         return try await scanOnce(ref, cluster: cluster, trigger: trigger, architecture: architecture)
     }
 

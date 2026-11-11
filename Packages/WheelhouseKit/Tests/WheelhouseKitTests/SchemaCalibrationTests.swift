@@ -23,12 +23,13 @@ struct SchemaCalibrationTests {
         let b = BundledSchemas.standard
         _ = b.load(minor: "1.32")                      // warm up lazy tables and caches before the fork, so the child takes no lock another thread holds
         var fds: [Int32] = [0, 0]
-        #expect(pipe(&fds) == 0)
+        try #require(pipe(&fds) == 0)
         let forkFunction = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "fork"))   // RTLD_DEFAULT; Swift marks `fork` unavailable
         let pid = unsafeBitCast(forkFunction, to: (@convention(c) () -> pid_t).self)()
+        try #require(pid >= 0, "fork failed")
         if pid == 0 {
             // Child: measure, report two Ints through the pipe, and leave without running any exit handler of the test runner.
-            alarm(120)
+            alarm(30)
             let before = Self.heapInUse()
             let docs = b.load(minor: "1.32")
             let after = Self.heapInUse()               // the documents are alive here

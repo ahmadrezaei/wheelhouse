@@ -186,6 +186,22 @@ struct RunnerReviewTests {
         #expect(fake.log.components(separatedBy: "ARGS image --format").count == 4)      // nojar once, web twice
     }
 
+    @Test func aRefreshThatChangesNothingDoesNotScanTwice() async throws {
+        let fake = try FakeTrivy()
+        defer { fake.scratch.cleanup() }
+        try fake.seedDB()
+        let java = fake.options.cacheDirectory.appending(path: "java-db")
+        try FileManager.default.createDirectory(at: java, withIntermediateDirectories: true)
+        let old = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3 * 86_400))
+        try Data(#"{"Version":1,"DownloadedAt":"\#(old)","UpdatedAt":"\#(old)"}"#.utf8).write(to: java.appending(path: "metadata.json"))
+        try Data().write(to: fake.options.cacheDirectory.appending(path: "java-download-noop"))
+        let store = try SurveyStore(url: fake.scratch.root.appending(path: "survey.sqlite"))
+        let runner = TrivyScanRunner(cli: fake.cli, options: fake.options, store: store, paths: fake.paths)
+        _ = try await runner.scan(ScanQueueItem(id: 1, image: "registry.example.com/team/web:1", isMutable: true, clusters: ["c1"]), trigger: .manual)
+        #expect(fake.log.contains("--download-java-db-only"))
+        #expect(fake.log.components(separatedBy: "--skip-java-db-update").count == 2)    // one scan only
+    }
+
     @Test func aScanIsReusedOnlyWithinOneDBUpdate() async throws {
         let fake = try FakeTrivy()
         defer { fake.scratch.cleanup() }
