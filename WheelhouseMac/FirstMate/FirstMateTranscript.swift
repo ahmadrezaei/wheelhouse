@@ -12,7 +12,7 @@ struct TranscriptRow: View, Equatable {
     let showTools: Bool
     let review: (String) -> Void
 
-    static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool { lhs.item == rhs.item && lhs.showTools == rhs.showTools }
+    nonisolated static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool { lhs.item == rhs.item && lhs.showTools == rhs.showTools }
 
     var body: some View {
         switch item.kind {
