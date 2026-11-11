@@ -17,28 +17,39 @@ struct SchemaCalibrationTests {
         return Int(stats.size_in_use)
     }
 
+    /// The measuring runs in a forked child. A child has exactly one thread, so no other test's allocations (the runner executes suites
+    /// in parallel) can move the heap between the two readings: the reading is the documents and nothing else.
     @Test func theEstimateIsNotBelowTheMeasuredHeap() throws {
         let b = BundledSchemas.standard
-        _ = b.load(minor: "1.32")                      // warm up lazy tables
-        // Alone the reading is deterministic (0.85). Beside other tests the process heap also moves for reasons that are not the
-        // documents: frees read low, allocations read high. A reading below half the estimate saw something else and is not used;
-        // among the others noise only adds, so the smallest one is the truest.
-        var valid: [Double] = []
-        for run in 0..<15 {
-            autoreleasepool {
-                let before = Self.heapInUse()
-                let docs = b.load(minor: "1.32")
-                let after = Self.heapInUse()               // the documents are alive here
-                let estimated = (docs ?? [:]).values.reduce(0) { $0 + $1.cost }
-                let ratio = Double(max(0, after - before)) / Double(max(1, estimated))
-                print("SCHEMA calibration run \(run): estimated \(estimated / 1024) KB, ratio \(String(format: "%.2f", ratio))")
-                if ratio >= 0.5 { valid.append(ratio) }
-                withExtendedLifetime(docs) {}
-            }
-            if valid.count >= 5 { break }
+        _ = b.load(minor: "1.32")                      // warm up lazy tables and caches before the fork, so the child takes no lock another thread holds
+        var fds: [Int32] = [0, 0]
+        #expect(pipe(&fds) == 0)
+        let forkFunction = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "fork"))   // RTLD_DEFAULT; Swift marks `fork` unavailable
+        let pid = unsafeBitCast(forkFunction, to: (@convention(c) () -> pid_t).self)()
+        if pid == 0 {
+            // Child: measure, report two Ints through the pipe, and leave without running any exit handler of the test runner.
+            alarm(120)
+            let before = Self.heapInUse()
+            let docs = b.load(minor: "1.32")
+            let after = Self.heapInUse()               // the documents are alive here
+            let estimated = (docs ?? [:]).values.reduce(0) { $0 + $1.cost }
+            var result = [max(0, after - before), estimated]
+            _ = result.withUnsafeMutableBytes { write(fds[1], $0.baseAddress, $0.count) }
+            withExtendedLifetime(docs) {}
+            _exit(0)
         }
-        #expect(valid.count >= 1, "no reading measured the documents")
-        #expect((valid.min() ?? 2) <= 1.0, "the estimate is lower than the heap the documents hold (\(valid.min() ?? 0)x)")
+        close(fds[1])
+        defer { close(fds[0]) }
+        var result = [0, 0]
+        let got = result.withUnsafeMutableBytes { read(fds[0], $0.baseAddress, $0.count) }
+        var status: Int32 = 0
+        waitpid(pid, &status, 0)
+        try #require(got == MemoryLayout<Int>.size * 2, "the measuring child did not report")
+        let (held, estimated) = (result[0], result[1])
+        let ratio = Double(held) / Double(max(1, estimated))
+        print("SCHEMA calibration: estimated \(estimated / 1024) KB, held \(held / 1024) KB, ratio \(String(format: "%.2f", ratio))")
+        #expect(estimated > 0 && held > 0, "nothing was measured")
+        #expect(ratio <= 1.0, "the estimate is lower than the heap the documents hold (\(ratio)x)")
     }
 }
 #endif
