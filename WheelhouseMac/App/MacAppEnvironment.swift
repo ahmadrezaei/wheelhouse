@@ -40,6 +40,13 @@ final class MacAppEnvironment {
     // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
     @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths, activity: activity)
     // end M5a
+    // M5b: the Deck Terminal's confirmation sheets. Created before the first Gangway session, so the real confirmer is in place when the service starts.
+    @ObservationIgnored private(set) lazy var gangwaySheets: GangwaySheetCoordinator = {
+        let coordinator = GangwaySheetCoordinator(registry: registry, activity: activity)
+        gangway.confirmer = coordinator.confirmer
+        return coordinator
+    }()
+    // end M5b
     init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
          paths: AppPaths, safetySummary: String, gateActive: Bool, activity: ActivityLog, workspaceStore: WorkspaceStore) {
         self.registry = registry
@@ -194,6 +201,7 @@ final class MacAppEnvironment {
         energy.start()
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
+        gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
         // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a

@@ -35,6 +35,7 @@
 		15826E13273EE73D277F3B64 /* DebugKeychainProbe+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */; };
 		15D2F487E5F9A9373DF19140 /* WheelhouseMacWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04AC2DD8945C0CABBA449B0A /* WheelhouseMacWidgets.swift */; };
 		1738F7D4BBEEC1F2C6B65DCB /* WheelhouseMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E530C6D3731258C4406AD97 /* WheelhouseMacApp.swift */; };
+		17B9B04B55D25D61D4BE3A34 /* DeckTerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CBFFF52A43FFF1133622421 /* DeckTerminalSession.swift */; };
 		1A26BB81A9A24ACB54922CB5 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F9D4A84E3A52C0FA4CF0E97A /* SwiftTerm */; };
 		1B6CC29FBFE79FAB6D1CA590 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
 		1B881DEAAE26133A890CCB7F /* ActionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */; };
@@ -78,6 +79,7 @@
 		359760C380DF57A340370A9B /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6B3291FEF6F8D11DF43494 /* SearchView.swift */; };
 		360ADE1BA8A4DBB767950EC1 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */; };
 		36714B263349F5C3A45B66C5 /* TidesOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92939BAB81753820027D51F /* TidesOverviewView.swift */; };
+		396E32BAD645F530830A9E40 /* GangwaySheetCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E300E1754A22253076ADD0 /* GangwaySheetCoordinator.swift */; };
 		3A30743D1B8FB2AC3D4A7326 /* AboutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */; };
 		3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CDDBFC44EFBFF404C6330B /* FleetDashboardView.swift */; };
 		3CC774EDEF69536BDF54621B /* TidesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 922C20DFD7456D7C813FEC15 /* TidesFeature.swift */; };
@@ -263,10 +265,12 @@
 		D93BFC6950ACF2C590D4DA8C /* ClusterDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4271F087BBF30B039F71536D /* ClusterDashModel.swift */; };
 		D9E226ACD67DB36AB8481A31 /* ConnectionTestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */; };
 		DB4B9B5939F1F8087389A62F /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F908929F7BCCEE3FA17EF43C /* MacCommands.swift */; };
+		DC0259D9A3AFCD5792B2E29D /* DeckTerminalPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A43C5B81D83E9FE392C9BBC /* DeckTerminalPane.swift */; };
 		DCC66D7775FA277338BB3FBE /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = 232D035F499F84A794B0EC68 /* WheelhouseUI */; };
 		DEFF68112A5ACF3051748C20 /* MacAppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F48152520311B2144B42D8 /* MacAppEnvironment.swift */; };
 		DF315D7E31A5FE615B0263E5 /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
 		DF3B0CCFB70A6260A4E37283 /* MacGangway.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */; };
+		DF71F7F704246DB1A5617F9D /* GangwaySheetBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB8863A45D80A2FB96C5603 /* GangwaySheetBuilder.swift */; };
 		E01E0309129F97B081507F13 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
 		E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D69759772CB358A9BC5703 /* ActionSheets.swift */; };
 		E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
@@ -422,6 +426,7 @@
 		166984FE9106E528F020B771 /* GangwayTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GangwayTestHooks.swift; sourceTree = "<group>"; };
 		18E629946671A1519BEFD10D /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
 		194E572C05497A3D3C488831 /* TidesConfirmations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesConfirmations.swift; sourceTree = "<group>"; };
+		1A43C5B81D83E9FE392C9BBC /* DeckTerminalPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalPane.swift; sourceTree = "<group>"; };
 		1A704C901EBD79BFF4AEB47A /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
 		1D0DD6C5827213D05E2799CF /* SwiftTermSurface+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftTermSurface+macOS.swift"; sourceTree = "<group>"; };
 		1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallFeature.swift; sourceTree = "<group>"; };
@@ -495,6 +500,7 @@
 		6C4D1EF468A8ADA929B8E309 /* SwiftTerm */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SwiftTerm; path = Packages/Vendor/SwiftTerm; sourceTree = SOURCE_ROOT; };
 		6C7BAF4AFA921DEF8FCD1930 /* LaunchPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPathTests.swift; sourceTree = "<group>"; };
 		6CB64CAF809897C486C3B9B9 /* ChartRoomMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomMemory.swift; sourceTree = "<group>"; };
+		6CBFFF52A43FFF1133622421 /* DeckTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalSession.swift; sourceTree = "<group>"; };
 		6E288B89CF351561D932D450 /* KubeconfigImportPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigImportPolicy.swift; sourceTree = "<group>"; };
 		6F011FE1F7367C6C3CCC2EE9 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 		71CB2A41DC3B8EE0923DA621 /* FirstMateFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMateFeature.swift; sourceTree = "<group>"; };
@@ -597,6 +603,8 @@
 		D625134AC4DAB151A6616D8B /* SurveyViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyViews.swift; sourceTree = "<group>"; };
 		D83C8128E5F48D7BA516AADD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D8E75C16150CB0AB7FF57D50 /* AlertsInboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsInboxView.swift; sourceTree = "<group>"; };
+		D9E300E1754A22253076ADD0 /* GangwaySheetCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GangwaySheetCoordinator.swift; sourceTree = "<group>"; };
+		DAB8863A45D80A2FB96C5603 /* GangwaySheetBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GangwaySheetBuilder.swift; sourceTree = "<group>"; };
 		DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSafetyTests.swift; sourceTree = "<group>"; };
 		DCBEB32ACB248A15C67DE849 /* KubeconfigImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigImportView.swift; sourceTree = "<group>"; };
 		DE2713DE052490928090B44C /* ClustersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClustersPane.swift; sourceTree = "<group>"; };
@@ -971,6 +979,10 @@
 			isa = PBXGroup;
 			children = (
 				5FCEDBB89271DC053053A7B7 /* DeckTerminalFeature.swift */,
+				1A43C5B81D83E9FE392C9BBC /* DeckTerminalPane.swift */,
+				6CBFFF52A43FFF1133622421 /* DeckTerminalSession.swift */,
+				DAB8863A45D80A2FB96C5603 /* GangwaySheetBuilder.swift */,
+				D9E300E1754A22253076ADD0 /* GangwaySheetCoordinator.swift */,
 			);
 			path = DeckTerminal;
 			sourceTree = "<group>";
@@ -1765,6 +1777,8 @@
 				C4EA83932F9B86D57C4B4CDE /* CrowsNestPanel.swift in Sources */,
 				AE517472D6BE9FC52D56073B /* DashboardComponents.swift in Sources */,
 				3D5DE625BC0C231E4FAC513C /* DeckTerminalFeature.swift in Sources */,
+				DC0259D9A3AFCD5792B2E29D /* DeckTerminalPane.swift in Sources */,
+				17B9B04B55D25D61D4BE3A34 /* DeckTerminalSession.swift in Sources */,
 				5656C07222A53BD7357E20F4 /* DeepLink+Routes.swift in Sources */,
 				C256F63C5F12C71F2350B17D /* Destinations.swift in Sources */,
 				A7A6FE9D2EDEE2E650AEA7F0 /* DetailKinds.swift in Sources */,
@@ -1778,6 +1792,8 @@
 				C9A2A781E09873B3D02FD3DF /* FirstMatePane.swift in Sources */,
 				3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */,
 				4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */,
+				DF71F7F704246DB1A5617F9D /* GangwaySheetBuilder.swift in Sources */,
+				396E32BAD645F530830A9E40 /* GangwaySheetCoordinator.swift in Sources */,
 				870D80CFCB11DE4B3513F26A /* GangwayTestHooks.swift in Sources */,
 				14BEFAA11F49757B563200AF /* GeneralPane.swift in Sources */,
 				7530D2CE52F321690788A5AD /* ICloudPane.swift in Sources */,
