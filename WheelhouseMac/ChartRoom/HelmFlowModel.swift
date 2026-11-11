@@ -201,12 +201,18 @@ final class HelmFlowModel: Identifiable {
         let rendered = review.rendered
         let client = session.client
         let namespace = op.namespace
+        var creating = false
+        if case .install(_, _, _, _, true) = op { creating = true }
+        let willCreateNamespace = creating
         let discovery = Task { try? await client.discovery() }
         var dryRun: (@MainActor @Sendable () async -> DryRunOutcome)?
         if op.rendersWithHelm {
             dryRun = { @MainActor in
                 let found = await discovery.value
-                return await HelmFlowModel.serverDryRun(objects: rendered, namespace: namespace, client: client, discovery: found)
+                // A namespace the install itself creates does not exist yet: what goes into it cannot be dry-run.
+                var missing: String?
+                if willCreateNamespace, (try? await client.getRaw(.namespace, name: namespace, namespace: nil)) == nil { missing = namespace }
+                return await HelmFlowModel.serverDryRun(objects: rendered, namespace: namespace, client: client, discovery: found, skippingNamespace: missing)
             }
         }
         return ConfirmRequest(
@@ -228,10 +234,12 @@ final class HelmFlowModel: Identifiable {
 
     /// A server-side apply dry run of every rendered object (four at a time): admission and validation errors that `helm --dry-run` does not
     /// see. A kind the cluster does not know yet (a CRD the chart installs) is skipped, not failed.
-    static func serverDryRun(objects: [HelmManifestObject], namespace: String, client: any KubeClientProtocol, discovery: DiscoveryInfo?) async -> DryRunOutcome {
+    static func serverDryRun(objects: [HelmManifestObject], namespace: String, client: any KubeClientProtocol, discovery: DiscoveryInfo?,
+                       skippingNamespace: String? = nil) async -> DryRunOutcome {
         enum Result: Sendable { case accepted, skipped, failed(String) }
         func check(_ object: HelmManifestObject) async -> Result {
             let kind = HelmManifest.resourceKind(for: object, discovery: discovery)
+            if let skippingNamespace, kind.namespaced, (object.namespace ?? namespace) == skippingNamespace { return .skipped }
             if let discovery, !kind.group.isEmpty, !discovery.topLevel.contains(where: { $0.kind == object.kind && ($0.group ?? "") == kind.group }) { return .skipped }
             do {
                 _ = try await client.patch(kind, name: object.name, namespace: kind.namespaced ? (object.namespace ?? namespace) : nil, subresource: nil,
@@ -272,7 +280,11 @@ final class HelmFlowModel: Identifiable {
         if case .refuse(let reason) = MutationPolicy.decide(.mutation(dryRun: false), cluster: session.config, origin: .chartRoom) {
             throw HelmCLIError.unsupported(reason)
         }
-        let op = operation, options = applyOptions, values = valuesText, cluster = session.config.id, plan = review.plan
+        var op = operation
+        // Apply the chart that was reviewed: an empty version would resolve again and could pick up a newer one.
+        if case .install(let r, let c, nil, let n, let create) = op, let pinned = pinnedVersion(for: c) { op = .install(release: r, chart: c, version: pinned, namespace: n, createNamespace: create) }
+        if case .upgrade(let r, let c, nil, let n, let strategy) = op, let pinned = pinnedVersion(for: c) { op = .upgrade(release: r, chart: c, version: pinned, namespace: n, strategy: strategy) }
+        let options = applyOptions, values = valuesText, cluster = session.config.id, plan = review.plan
         step = .running
         output = ""
         let sink: @Sendable (String) -> Void = { [weak self] chunk in Task { @MainActor in self?.append(chunk) } }
@@ -281,12 +293,18 @@ final class HelmFlowModel: Identifiable {
             do {
                 let exit = try await helm.apply(op, plan: plan, cluster: cluster, valuesYAML: values, options: options, output: sink)
                 success = exit.succeeded
-                if !success { await self?.fail(exit.timedOut ? "helm did not finish in time." : "helm exited with code \(exit.code.map(String.init) ?? "?").") }
+                if !success { await self?.fail(exit.signal != nil ? "helm was stopped." : "helm exited with code \(exit.code.map(String.init) ?? "?").") }
             } catch {
                 await self?.fail((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             }
             await self?.finish(success: success)
         }
+    }
+
+    /// The version helm rendered, for a chart that comes from a repository or a registry (a local path is what it is).
+    private func pinnedVersion(for chart: String) -> String? {
+        let local = chart.hasPrefix("/") || chart.hasPrefix("./") || chart.hasPrefix("../") || chart.hasPrefix("~") || FileManager.default.fileExists(atPath: chart)
+        return local ? nil : renderedRelease?.chart.metadata.version
     }
 
     private func append(_ chunk: String) {

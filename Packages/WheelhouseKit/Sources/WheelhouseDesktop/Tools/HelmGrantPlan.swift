@@ -41,15 +41,19 @@ public struct HelmGrantPlan: Sendable, Equatable {
     public static func build(_ input: Inputs) -> HelmGrantPlan {
         let op = input.operation
         var objects = Set<GrantedObject>()
+        let crdKinds = crdKinds(in: input.crdsYAML)
         func add(manifest: String) {
-            for object in HelmManifest.objects(in: manifest) { objects.insert(grant(for: object, releaseNamespace: op.namespace, discovery: input.discovery)) }
+            for object in HelmManifest.objects(in: manifest) { objects.insert(grant(for: object, releaseNamespace: op.namespace, discovery: input.discovery, crdKinds: crdKinds)) }
         }
+        let events = hookEvents(for: op)
+        func runs(_ hook: HelmRelease.Hook) -> Bool { !Set(hook.events).isDisjoint(with: events) }
         for release in [input.next, input.current].compactMap({ $0 }) {
             add(manifest: release.manifest)
-            for hook in release.hooks { add(manifest: hook.manifest) }
+            for hook in release.hooks where runs(hook) { add(manifest: hook.manifest) }
         }
-        let hooks = (input.next ?? input.current)?.hooks ?? []
-        if !input.skipCRDs, let crds = input.crdsYAML { add(manifest: crds) }
+        let hooks = ((input.next ?? input.current)?.hooks ?? []).filter(runs)
+        // Only `helm install` applies the chart's crds/ folder.
+        if case .install = op, !input.skipCRDs, let crds = input.crdsYAML { add(manifest: crds) }
         // helm's own records: a new revision, status updates of old ones, and `--history-max` pruning.
         let prefix = "sh.helm.release.v1.\(op.release).v"
         objects.insert(GrantedObject(resource: "secrets", namespace: op.namespace, namePrefix: prefix))
@@ -58,13 +62,38 @@ public struct HelmGrantPlan: Sendable, Equatable {
         return HelmGrantPlan(objects: objects, hooks: hooks, warnings: warnings(from: input.current, to: input.next, op: op))
     }
 
-    static func grant(for object: HelmManifestObject, releaseNamespace: String, discovery: DiscoveryInfo?) -> GrantedObject {
-        let kind = HelmManifest.resourceKind(for: object, discovery: discovery)
+    /// The hook events that run for an operation (`test` hooks never do).
+    static func hookEvents(for op: HelmOperation) -> Set<String> {
+        switch op {
+        case .install: ["pre-install", "post-install"]
+        case .upgrade: ["pre-upgrade", "post-upgrade"]
+        case .rollback: ["pre-rollback", "post-rollback"]
+        case .uninstall: ["pre-delete", "post-delete"]
+        }
+    }
+
+    /// Plural and scope of the kinds the chart's own CRDs define: they are not in discovery at review time.
+    static func crdKinds(in yaml: String?) -> [String: (plural: String, namespaced: Bool)] {
+        var out: [String: (String, Bool)] = [:]
+        for crd in HelmManifest.objects(in: yaml ?? "") where crd.kind == "CustomResourceDefinition" {
+            guard let group = crd.value.value(at: "spec.group")?.stringValue, let kind = crd.value.value(at: "spec.names.kind")?.stringValue,
+                  let plural = crd.value.value(at: "spec.names.plural")?.stringValue else { continue }
+            out["\(group)/\(kind)"] = (plural, crd.value.value(at: "spec.scope")?.stringValue != "Cluster")
+        }
+        return out
+    }
+
+    static func grant(for object: HelmManifestObject, releaseNamespace: String, discovery: DiscoveryInfo?,
+                      crdKinds: [String: (plural: String, namespaced: Bool)] = [:]) -> GrantedObject {
+        var kind = HelmManifest.resourceKind(for: object, discovery: discovery)
+        if let own = crdKinds["\(kind.group)/\(object.kind)"] {
+            kind = .custom(group: kind.group, version: kind.version, kind: object.kind, plural: own.plural, namespaced: own.namespaced)
+        }
         let namespace = kind.namespaced ? (object.namespace ?? releaseNamespace) : nil
-        let hasName = !(object.value.value(at: "metadata.name")?.stringValue ?? "").isEmpty
-        return hasName
-            ? GrantedObject(group: kind.group, resource: kind.plural, namespace: namespace, name: object.name)
-            : GrantedObject(group: kind.group, resource: kind.plural, namespace: namespace, generateNamePrefix: object.name)
+        let name = object.value.value(at: "metadata.name")?.stringValue ?? ""
+        if !name.isEmpty { return GrantedObject(group: kind.group, resource: kind.plural, namespace: namespace, name: name) }
+        let prefix = object.value.value(at: "metadata.generateName")?.stringValue ?? object.name
+        return GrantedObject(group: kind.group, resource: kind.plural, namespace: namespace, generateNamePrefix: prefix)
     }
 
     // MARK: Warnings (ARCHITECTURE-MAC section 5.3)

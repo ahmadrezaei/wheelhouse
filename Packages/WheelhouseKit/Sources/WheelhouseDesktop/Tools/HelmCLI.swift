@@ -173,6 +173,12 @@ public struct HelmCLI: Sendable {
 
     private func chartArguments(_ op: HelmOperation, valuesFile: URL?) throws -> [String] {
         var args: [String]
+        let refs: [String]
+        switch op {
+        case .install(let r, let c, _, _, _), .upgrade(let r, let c, _, _, _): refs = [r, c]
+        case .rollback, .uninstall: refs = []
+        }
+        if refs.contains(where: { $0.hasPrefix("-") || $0.isEmpty }) { throw HelmCLIError.unsupported("A release name or chart that starts with - is refused.") }
         switch op {
         case .install(let release, let chart, let chartVersion, let namespace, let create):
             args = ["install", release, chart, "--namespace", namespace]
@@ -199,8 +205,8 @@ public struct HelmCLI: Sendable {
     /// `kubeconfig` is the Gangway session file: helm reaches the cluster only through it.
     public func spec(arguments: [String], kubeconfig: URL?, timeout: Duration, newSession: Bool = false,
                      spawnGate: (@Sendable (pid_t) -> Bool)? = nil) -> ProcessSpec {
-        var additions: [String: String] = [:]
-        if let kubeconfig { additions["KUBECONFIG"] = kubeconfig.path }
+        // A run without a session (repo, pull, show, version) never reads a kubeconfig at all.
+        let additions = ["KUBECONFIG": kubeconfig?.path ?? "/dev/null"]
         return ProcessSpec(executable: executable, arguments: arguments, environment: environment.build(profile: .helm, additions: additions),
                            timeout: timeout, stdoutLimit: 64 << 20, quitGroup: Self.quitGroup, newSession: newSession, spawnGate: spawnGate)
     }

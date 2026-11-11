@@ -89,6 +89,33 @@ struct HelmGrantTests {
         #expect(set.contains(GrantedObject(group: "apps", resource: "deployments", namespace: "other", name: "web")))
     }
 
+    @Test("only the hooks of the operation's events are granted, test hooks never, and CRDs only on install")
+    func hooksAndCRDs() throws {
+        let rendered = try release(manifest: manifest, hooks: [("migrate", hookManifest)])       // a pre-install hook
+        let op = HelmOperation.upgrade(release: "web", chart: "./c", version: nil, namespace: "shop", strategy: .reset)
+        let plan = HelmGrantPlan.build(.init(operation: op, next: rendered, crdsYAML: crds))
+        #expect(plan.hooks.isEmpty, "a pre-install hook does not run on upgrade")
+        #expect(!plan.objects.contains { $0.generateNamePrefix != nil })
+        #expect(!plan.objects.contains { $0.resource == "customresourcedefinitions" }, "helm upgrade does not apply crds/")
+        #expect(HelmGrantPlan.hookEvents(for: .uninstall(release: "w", namespace: "n", keepHistory: false)) == ["pre-delete", "post-delete"])
+    }
+
+    @Test("a custom resource of a CRD in crds/ gets that CRD's plural and scope, and a generateName hook its own prefix")
+    func crdKindsAndGenerateName() throws {
+        let crd = """
+        apiVersion: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        metadata: {name: gadgets.example.test}
+        spec: {group: example.test, scope: Cluster, names: {kind: Gadget, plural: gadgetries}}
+        """
+        let rendered = try release(manifest: "apiVersion: example.test/v1\nkind: Gadget\nmetadata:\n  name: g1\n")
+        let set = objects(.init(operation: install, next: rendered, crdsYAML: crd))
+        #expect(set.contains(GrantedObject(group: "example.test", resource: "gadgetries", namespace: nil, name: "g1")))
+        let generated = HelmManifest.objects(in: "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: \"\"\n  generateName: mig-\n")
+        #expect(generated.count == 1)
+        #expect(HelmGrantPlan.grant(for: generated[0], releaseNamespace: "shop", discovery: nil).generateNamePrefix == "mig-")
+    }
+
     @Test("a rollback and an uninstall are built from the current and target revisions")
     func rollbackAndUninstall() throws {
         let current = try release(manifest: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: now\n")
@@ -216,12 +243,35 @@ struct HelmCLITests {
         #expect(throws: HelmCLIError.self) { try cli(HelmVersion(4, 0, 0)).renderArguments(.uninstall(release: "w", namespace: "n", keepHistory: false), valuesFile: nil) }
     }
 
+    @Test("a release name or chart that starts with a dash is refused")
+    func dashRefused() {
+        let bad = HelmOperation.install(release: "web", chart: "--post-renderer=/tmp/x", version: nil, namespace: "shop", createNamespace: false)
+        #expect(throws: HelmCLIError.self) { try cli(HelmVersion(4, 0)).renderArguments(bad, valuesFile: nil) }
+        let bad2 = HelmOperation.upgrade(release: "-x", chart: "r/c", version: nil, namespace: "shop", strategy: .reset)
+        #expect(throws: HelmCLIError.self) { try cli(HelmVersion(4, 0)).applyArguments(bad2, valuesFile: nil, options: HelmApplyOptions()) }
+    }
+
+    @Test("an isolated build takes no HELM_ variable from the shell, and a run without a cluster reads no kubeconfig")
+    func isolatedEnvironment() {
+        let paths = AppPaths(gateActive: true, bundleID: nil, home: URL(fileURLWithPath: "/tmp/wh-iso"))
+        let snapshot = ShellSnapshot(path: "/usr/bin", kubeconfig: nil, vars: ["HELM_PLUGINS": "/evil", "HELM_DRIVER": "sql", "HELM_CACHE_HOME": "/real"], shell: "/bin/sh")
+        let helm = HelmCLI(executable: URL(fileURLWithPath: "/bin/helm"), version: HelmVersion(4, 0), environment: EnvironmentBuilder(snapshot: snapshot, paths: paths, home: paths.home))
+        let env = helm.spec(arguments: ["repo", "list"], kubeconfig: nil, timeout: .seconds(5)).environment
+        #expect(env["HELM_DRIVER"] == nil && env["HELM_CACHE_HOME"] == paths.helmEnvironment["HELM_CACHE_HOME"])
+        #expect(env["HELM_PLUGINS"]?.hasPrefix(paths.helmRoot.path) == true)
+        #expect(env["KUBECONFIG"] == "/dev/null")
+        let open = AppPaths(gateActive: false, bundleID: AppPaths.releaseBundleID, home: URL(fileURLWithPath: "/tmp/wh-open"))
+        let real = HelmCLI(executable: URL(fileURLWithPath: "/bin/helm"), version: HelmVersion(4, 0), environment: EnvironmentBuilder(snapshot: snapshot, paths: open, home: open.home))
+        let realEnv = real.spec(arguments: ["list"], kubeconfig: nil, timeout: .seconds(5)).environment
+        #expect(realEnv["HELM_DRIVER"] == nil && realEnv["HELM_PLUGINS"] == "/evil", "outside the gate the user's own helm setup applies, but a driver other than secret or configmap never does")
+    }
+
     @Test("values never reach argv, and the environment carries the session kubeconfig and no inherited KUBECONFIG")
     func environment() {
         let spec = cli(HelmVersion(3, 14, 0)).spec(arguments: ["list"], kubeconfig: URL(fileURLWithPath: "/s/kubeconfig"), timeout: .seconds(5), newSession: true)
         #expect(spec.environment["KUBECONFIG"] == "/s/kubeconfig")
         #expect(spec.newSession && spec.quitGroup == "helm")
-        #expect(cli(HelmVersion(3, 14, 0)).spec(arguments: ["show"], kubeconfig: nil, timeout: .seconds(5)).environment["KUBECONFIG"] == nil)
+        #expect(cli(HelmVersion(3, 14, 0)).spec(arguments: ["show"], kubeconfig: nil, timeout: .seconds(5)).environment["KUBECONFIG"] == "/dev/null")
         #expect(cli(HelmVersion(3, 14, 0)).showCRDsArguments(chart: "r/c", version: "1.0") == ["show", "crds", "r/c", "--version", "1.0"])
     }
 }

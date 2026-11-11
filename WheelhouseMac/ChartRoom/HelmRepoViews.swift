@@ -73,7 +73,7 @@ struct AddRepositorySheet: View {
                 TextField("URL (https:// or oci://)", text: $url)
                 TextField("Username (optional)", text: $username)
                 SecureField("Password (optional)", text: $password)
-                Text("A password is passed to helm through a pipe and kept in the Keychain on this Mac only.").font(.footnote).foregroundStyle(.secondary)
+                Text("A password is passed to helm through a pipe. Helm keeps it in its own repositories file; a copy is kept in the Keychain on this Mac only.").font(.footnote).foregroundStyle(.secondary)
                 if let message = actions.message, actions.failed { Label(message, systemImage: "xmark.octagon.fill").foregroundStyle(Palette.criticalText).font(.footnote).textSelection(.enabled) }
             }
             .formStyle(.grouped)

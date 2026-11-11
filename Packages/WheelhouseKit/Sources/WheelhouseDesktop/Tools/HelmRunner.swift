@@ -1,4 +1,5 @@
 #if os(macOS)
+import Darwin
 import Foundation
 import WheelhouseKit
 
@@ -56,19 +57,27 @@ public struct HelmRunner: Sendable {
         defer { gangway.closeSession(handle, reason: "helm finished") }
         let values = op.rendersWithHelm ? try Self.writeValues(valuesYAML, in: handle.directory) : nil
         let args = try cli.applyArguments(op, valuesFile: values, options: options)
-        let lifetime = TimeInterval(options.timeout.components.seconds) + 120
-        gangway.grants.setObjects(session: handle.session, objects: plan.objects, lifetime: lifetime)
+        // `--timeout` is per phase in helm (each hook, the wait, and the rollback that automatic rollback runs), so the budget is several of it.
+        let budget = options.timeout * (options.rollbackOnFailure ? 4 : 3) + .seconds(120)
+        gangway.grants.setObjects(session: handle.session, objects: plan.objects, lifetime: TimeInterval(budget.components.seconds))
         let session = handle.session
-        let spec = cli.spec(arguments: args, kubeconfig: handle.kubeconfig, timeout: options.timeout + .seconds(120), newSession: true,
-                            spawnGate: { session.bindIsolatedGroup($0) })
-        var exit: ProcessExit?
-        for try await event in Subprocess.stream(spec) {
-            switch event {
-            case .stdout(let data), .stderr(let data): output(String(decoding: data, as: UTF8.self))
-            case .exit(let e): exit = e
+        let child = ChildPID()
+        let spec = cli.spec(arguments: args, kubeconfig: handle.kubeconfig, timeout: budget, newSession: true,
+                            spawnGate: { pid in child.set(pid); return session.bindIsolatedGroup(pid) })
+        // The stream is read by a task of its own: cancelling the caller (Stop) asks helm to stop with SIGTERM and keeps reading until it
+        // exits, so helm can still write its failed status through the grant before the session closes.
+        let consumer = Task { () throws -> ProcessExit? in
+            var exit: ProcessExit?
+            for try await event in Subprocess.stream(spec) {
+                switch event {
+                case .stdout(let data), .stderr(let data): output(String(decoding: data, as: UTF8.self))
+                case .exit(let e): exit = e
+                }
             }
+            return exit
         }
-        guard let exit else { throw HelmCLIError.unreadableOutput }
+        let exit = try await withTaskCancellationHandler { try await consumer.value } onCancel: { child.terminate() }
+        guard let exit else { throw HelmCLIError.failed(code: nil, message: "helm ended without reporting an exit status.") }
         return exit
     }
 
@@ -83,5 +92,13 @@ public struct HelmRunner: Sendable {
         let text = result.stderrString.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "exit code \(result.exitCode.map(String.init) ?? "none")" : text
     }
+}
+
+/// The pid of the helm child, set by the spawn gate; Stop sends SIGTERM to its process group.
+final class ChildPID: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pid: pid_t?
+    func set(_ value: pid_t) { lock.withLock { pid = value } }
+    func terminate() { if let pid = lock.withLock({ pid }) { kill(-pid, SIGTERM) } }
 }
 #endif

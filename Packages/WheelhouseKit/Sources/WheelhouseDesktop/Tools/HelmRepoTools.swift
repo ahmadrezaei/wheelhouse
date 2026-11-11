@@ -6,7 +6,7 @@ import WheelhouseKit
 /// and cache (the isolated `HELM_*` homes while the safety gate is active). A password travels only through `--password-stdin`.
 public extension HelmCLI {
     func repoAddArguments(name: String, url: String, username: String?, usesPassword: Bool) -> [String] {
-        var args = ["repo", "add", name, url, "--force-update"]
+        var args = ["repo", "add", name, url]
         if let username, !username.isEmpty {
             args += ["--username", username]
             if usesPassword { args.append("--password-stdin") }

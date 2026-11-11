@@ -13,9 +13,9 @@ struct HelmRepoToolsTests {
     @Test("argv")
     func argv() {
         let helm = cli()
-        #expect(helm.repoAddArguments(name: "bitnami", url: "https://x.test", username: nil, usesPassword: false) == ["repo", "add", "bitnami", "https://x.test", "--force-update"])
+        #expect(helm.repoAddArguments(name: "bitnami", url: "https://x.test", username: nil, usesPassword: false) == ["repo", "add", "bitnami", "https://x.test"])
         #expect(helm.repoAddArguments(name: "p", url: "https://x.test", username: "me", usesPassword: true)
-            == ["repo", "add", "p", "https://x.test", "--force-update", "--username", "me", "--password-stdin"])
+            == ["repo", "add", "p", "https://x.test", "--username", "me", "--password-stdin"])
         #expect(helm.repoUpdateArguments(names: []) == ["repo", "update"])
         #expect(helm.repoUpdateArguments(names: ["a", "b"]) == ["repo", "update", "a", "b"])
         #expect(helm.repoRemoveArguments(name: "a") == ["repo", "remove", "a"])
