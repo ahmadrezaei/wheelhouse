@@ -40,6 +40,13 @@ final class MacAppEnvironment {
     // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
     @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths, activity: activity)
     // end M5a
+    // M12: Beacon (MCP over a Unix socket). Created on first use; it listens only after the person turns it on and authenticates.
+    @ObservationIgnored private(set) lazy var beacon: BeaconModel = {
+        let model = BeaconModel(registry: registry, paths: paths, activity: activity, gateActive: gateActive, lock: lock)
+        BeaconModelHub.shared.model = model
+        return model
+    }()
+    // end M12
     init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
          paths: AppPaths, safetySummary: String, gateActive: Bool, activity: ActivityLog, workspaceStore: WorkspaceStore) {
         self.registry = registry
@@ -194,6 +201,10 @@ final class MacAppEnvironment {
         energy.start()
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
+        // M12: Beacon starts OFF (a launch with -WHBeaconLaunch does not turn it on). Only the helper symlink and the lock observer.
+        beacon.maintainHelperLink()
+        beacon.follow(lock: lock)
+        // end M12
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
         // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a
