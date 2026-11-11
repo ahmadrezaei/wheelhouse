@@ -55,7 +55,7 @@ private struct ChartRoomContent: View {
             Divider()
             switch section {
             case .releases: ReleasesView(model: releases)
-            case .charts: ChartsView(model: repositories)
+            case .charts: ChartsView(model: repositories, session: session)
             case .repositories: RepositoriesView(model: repositories)
             }
         }

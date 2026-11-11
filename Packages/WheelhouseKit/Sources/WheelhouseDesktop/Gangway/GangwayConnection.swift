@@ -304,10 +304,37 @@ final class GangwayConnection: @unchecked Sendable {
             return try await finishRefusal(head, framing: framing, code: 403, message: "Wheelhouse: Wheelhouse is locked", bufferedBody: bufferedBody)
         }
         var verdict = MutationPolicy.decide(gangway: classified, cluster: cluster, origin: session.origin.changeOrigin)
+        var objectPeer: PeerProcess?
+        if session.scope == .objects {
+            // Every request of a Chart Room or Tides run, reads included, must come from the process it was opened for. Checked before
+            // any body is buffered.
+            objectPeer = resolvePeer(session: session)
+            if !GrantStore.peerIsBound(objectPeer, to: session.binding) {
+                let denial = "Wheelhouse: this request does not come from the reviewed operation"
+                auditBase.result = "refused: \(denial)" + impersonationNote(classified)
+                auditIfNeeded(auditBase, classified: classified)
+                return try await finishRefusal(head, framing: framing, code: 403, message: denial, bufferedBody: bufferedBody)
+            }
+        }
         if session.scope == .objects, classified.kind == .mutation {
             // A Chart Room or Tides run: covered by its grant or refused, on every cluster; never a sheet from Gangway.
             if case .refuse = verdict {} else {
-                let covered = ctx.grants.covers(GrantRequest(kind: .mutation, shape: analysis.shape, method: head.method), session: session, peer: nil)
+                // A create names its object in the body: read it (bounded), after the session, policy and peer checks.
+                var createdName: CreatedName?
+                let isCreate = head.method == "POST" && analysis.shape.isResourcePath && analysis.shape.name == nil && analysis.shape.legacyVerb == nil
+                if isCreate, bufferedBody == nil {
+                    if head.value("Expect") != nil {
+                        return try await finishRefusal(head, framing: framing, code: 403, message: "Wheelhouse: Expect is not supported in a Chart Room run", bufferedBody: nil)
+                    }
+                    do { bufferedBody = try await bufferDeleteBody(framing: framing, limit: GrantBody.maxCreateBody) } catch let r as GangwayRejection {
+                        try await respond(r.status, r.reason, close: true)
+                        await lingerDiscard()
+                        return .close
+                    }
+                }
+                if isCreate { createdName = GrantBody.createdName(body: bufferedBody, headers: head.headers, pathNamespace: analysis.shape.namespace) }
+                let covered = ctx.grants.covers(GrantRequest(kind: .mutation, shape: analysis.shape, method: head.method, createdName: createdName),
+                                                session: session, peer: objectPeer)
                 verdict = covered ? .pass : .refuse("Wheelhouse: this change is not part of the reviewed operation")
             }
         }
@@ -392,6 +419,7 @@ final class GangwayConnection: @unchecked Sendable {
         case .dryRunOnly:
             return isHarmless(classified.kind) && classified.impersonation.isEmpty ? nil : "Wheelhouse: this session may only read and dry-run on \(cluster.name)"
         case .objects:
+            if !classified.impersonation.isEmpty { return "Wheelhouse: impersonation is not allowed in a Chart Room run" }
             switch classified.kind {
             case .stream, .proxy: return "Wheelhouse: this session may not open streams or proxy requests"
             default: return nil
@@ -401,13 +429,15 @@ final class GangwayConnection: @unchecked Sendable {
 
     private func resolvePeer(session: GangwaySession) -> PeerProcess? {
         if peerMemo.resolved { return peerMemo.peer.flatMap { ctx.resolver.refresh($0) } }
+        // A session that is not bound yet (a helm run between its spawn and its bind) is looked up again on the next request.
+        if case .none = session.binding { return nil }
         peerMemo.resolved = true
         guard let port = downstream.remotePort else { return nil }
         let scope: PeerSearchScope
         switch session.binding {
         case .none: return nil
         case .pty(let device, _, _): scope = .tty(device)
-        case .processGroup(let group): scope = .processGroup(group)
+        case .processGroup(let group), .isolatedGroup(let group): scope = .processGroup(group)
         }
         peerMemo.peer = ctx.resolver.resolve(clientPort: port, listenerPort: ctx.listenerPort, scope: scope)
         return peerMemo.peer
@@ -416,13 +446,13 @@ final class GangwayConnection: @unchecked Sendable {
     // MARK: Delete bodies
 
     /// Buffers the body of a DELETE or an eviction (at most 64 KB; larger is 413). The bytes never reach the buffer again.
-    private func bufferDeleteBody(framing: HTTPFraming) async throws -> Data {
-        let limit = RequestClassifier.maxDeleteBody
+    private func bufferDeleteBody(framing: HTTPFraming, limit: Int = RequestClassifier.maxDeleteBody) async throws -> Data {
+        let limitText = limit >= 1 << 20 ? "\(limit >> 20) MB" : "\(limit >> 10) KB"
         switch framing {
         case .none:
             return Data()
         case .length(let n):
-            guard n <= limit else { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit 64 KB)") }
+            guard n <= limit else { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit \(limitText))") }
             var body = Data()
             while body.count < n {
                 if !buffer.isEmpty {
@@ -448,7 +478,7 @@ final class GangwayConnection: @unchecked Sendable {
                     body.append(out)
                     buffer.removeFirst(used)
                 } catch let e as HTTPParseError { throw GangwayRejection(status: 400, reason: "Wheelhouse: \(e.reason)") }
-                if body.count > limit { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit 64 KB)") }
+                if body.count > limit { throw GangwayRejection(status: 413, reason: "Wheelhouse: the request body is too large to check (limit \(limitText))") }
             }
             return body
         }
