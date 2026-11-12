@@ -1,5 +1,5 @@
 # Wheelhouse shell integration (fish), sourced through `fish --init-command 'source <this>'` for ONE session.
-# fish reads the user's config.fish before this runs; the app points XDG_CONFIG_HOME at an empty folder while development safety is active.
+# fish reads the user's config.fish before this runs; the app points XDG_CONFIG_HOME at an empty folder while development safety is active (DeckTerminalSession.configuration).
 
 # The nonce is read first, kept in a global, unexported variable, and the file is removed.
 if status is-interactive; and not set -q __wh_nonce; and set -q WH_SESSION_DIR; and test -r "$WH_SESSION_DIR/nonce"
@@ -25,7 +25,7 @@ function __wh_emit
 end
 
 function __wh_escape
-    string replace -a '\\' '\\\\' -- $argv[1] | string replace -a ';' '\\x3b' | string replace -a \n '\\x0a' | string replace -a \r '\\x0d' | string replace -a \e '\\x1b'
+    string replace -a '\\' '\\\\' -- $argv[1] | string replace -a ';' '\\x3b' | string replace -a \n '\\x0a' | string replace -a \r '\\x0d' | string replace -a \e '\\x1b' | string replace -a \a '\\x07' | string replace -a \cX '\\x18' | string replace -a \cZ '\\x1a'
 end
 
 function __wh_report_state

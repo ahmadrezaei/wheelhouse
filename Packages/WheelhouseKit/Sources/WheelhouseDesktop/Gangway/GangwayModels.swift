@@ -104,7 +104,6 @@ public final class GangwaySession: Sendable {
             guard scope == .objects, !s.revoked, pgid > 1, case .none = s.binding else { return false }
             s.binding = .isolatedGroup(pgid)
             return true
-            return true
         }
     }
 

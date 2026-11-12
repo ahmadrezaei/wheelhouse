@@ -29,6 +29,8 @@ public struct OSCScanner: Sendable {
     private var relevant = true
     /// True once a sequence is known not to be ours: its bytes go straight through.
     private var passthrough = false
+    /// A mark longer than ``maxLength``: swallowed without being kept.
+    private var overflowed = false
 
     public init() {}
 
@@ -75,20 +77,25 @@ public struct OSCScanner: Sendable {
                     switch byte {
                     case Self.bel: emit(byte, &out); finish(&found, &out)
                     case Self.esc: emit(byte, &out); state = .oscEscape
-                    case Self.can, Self.sub: emit(byte, &out); abandon(&out)
+                    case Self.can, Self.sub: emit(byte, &out); abandon()
                     default: emit(byte, &out); append(byte, &out)
                     }
                 case .oscEscape:
                     if byte == Self.backslash { emit(byte, &out); finish(&found, &out) }
                     else if byte == Self.rightBracket {
-                        // The ESC that began a new sequence is the last byte emitted; take it back out of whichever buffer holds it.
-                        if passthrough { out.removeLast() } else { held.removeLast() }
-                        flushHeld(&out)
+                        // A new sequence starts. The ESC that began it is the last byte emitted; take it back out of whichever buffer holds it.
+                        // A mark that was cut short is dropped, never passed on: the terminal would act on it when the ESC ends it.
+                        if passthrough { out.removeLast() } else { held = [] }
                         held = [Self.esc, byte]
                         begin()
+                    } else if passthrough {
+                        out.append(byte)
+                        abandon()
                     } else {
-                        emit(byte, &out)
-                        abandon(&out)
+                        // The mark body is dropped; the ESC and the byte after it are ordinary output again.
+                        out.append(Self.esc)
+                        out.append(byte)
+                        abandon()
                     }
                 }
             }
@@ -110,24 +117,29 @@ public struct OSCScanner: Sendable {
         buffer.removeAll(keepingCapacity: true)
         relevant = true
         passthrough = false
+        overflowed = false
     }
 
-    /// The sequence was cut short: its bytes were not ours, so they go on to the terminal.
-    private mutating func abandon(_ out: inout Data) {
-        flushHeld(&out)
+    /// The sequence was cut short. Bytes of one that was ours are dropped, never passed on.
+    private mutating func abandon() {
+        held = []
         buffer.removeAll(keepingCapacity: true)
         passthrough = false
+        overflowed = false
         state = .ground
     }
 
     private mutating func append(_ byte: UInt8, _ out: inout Data) {
-        guard relevant else { return }
+        guard relevant, !overflowed else { return }
         buffer.append(byte)
-        // The first four bytes decide: only `133;` and `633;` are kept; anything else is passed on without being stored.
-        if buffer.count == 4, !(buffer == Array("133;".utf8) || buffer == Array("633;".utf8)) {
+        // Each of the first four bytes must continue `133;` or `633;`; the first that does not makes the sequence somebody else's, and its
+        // bytes go straight through. A sequence that is ours is held and, one way or another, never reaches the terminal.
+        if buffer.count <= 4, !(Array("133;".utf8).starts(with: buffer) || Array("633;".utf8).starts(with: buffer)) {
             makeIrrelevant(&out)
         } else if buffer.count > Self.maxLength {
-            makeIrrelevant(&out)
+            // Too long to keep: swallowed up to its terminator.
+            overflowed = true
+            buffer.removeAll(keepingCapacity: true)
         }
     }
 
@@ -143,13 +155,15 @@ public struct OSCScanner: Sendable {
             buffer.removeAll(keepingCapacity: true)
             held = []
             passthrough = false
+            overflowed = false
             state = .ground
         }
-        if relevant, buffer.count >= 4, let code = Int(String(decoding: buffer[0..<3], as: UTF8.self)) {
+        if relevant, !overflowed, buffer.count >= 4, let code = Int(String(decoding: buffer[0..<3], as: UTF8.self)) {
             found.append(OSCSequence(code: code, payload: String(decoding: buffer[4...], as: UTF8.self)))
             return      // a mark: its bytes are dropped
         }
-        flushHeld(&out)
+        // A short sequence that is not a mark (`ESC ] 1 BEL`, OSC 1) goes on; `ESC ] 1 3 3 BEL` is the mark's own code and is dropped.
+        if !overflowed, buffer.count < 4, buffer != Array("133".utf8), buffer != Array("633".utf8) { flushHeld(&out) }
     }
 }
 #endif

@@ -59,6 +59,8 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         bridge.surface = self
         terminalView.terminalDelegate = bridge
         terminalView.optionAsMetaKey = true
+        // Click-to-move-cursor from OSC 133 marks writes keys to the program: no program's output may switch it on.
+        terminalView.semanticPromptClickBehavior = .disabled
         terminalView.nativeBackgroundColor = TerminalTheme.background
         terminalView.nativeForegroundColor = TerminalTheme.foreground
         terminalView.installColors(TerminalTheme.ansi.map(Self.swiftTermColor))

@@ -139,6 +139,16 @@ struct LocalShellModelTests {
         await model.close()
     }
 
+    @Test func aTerminalClosedBeforeItsShellStartsSpawnsNothingAndLeavesNoSession() async throws {
+        let rig = try await GangwayRig()
+        defer { rig.stop() }
+        let model = try makeModel(rig)
+        await model.close()
+        await #expect(throws: CancellationError.self) { try await model.start(gangway: rig.service) }
+        #expect(model.ptyProcessID == nil)
+        #expect(rig.service.registry.sessions.allSatisfy { $0.isRevoked })
+    }
+
     @Test func directModeIsRefusedForProductionClusters() async throws {
         let rig = try await GangwayRig()
         defer { rig.stop() }

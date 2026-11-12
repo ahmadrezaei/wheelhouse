@@ -113,7 +113,7 @@ private struct DeckBanner: View {
         case .perRequest(let why): (why + ".", Palette.infoText, "exclamationmark.shield")
         case .unguarded(let why): ("Unguarded: \(why)", Palette.criticalText, "lock.open")
         case .integrationLost: ("This shell stopped reporting to Wheelhouse; KUBECONFIG is not verified.", Palette.infoText, "questionmark.shield")
-        case .noIntegration: ("This shell has no Wheelhouse integration: every change asks for confirmation, one request at a time.", Palette.infoText, "shield")
+        case .noIntegration: ("This shell has no Wheelhouse integration: changes it makes through Gangway ask for confirmation one request at a time, but its startup files may point it elsewhere.", Palette.infoText, "shield")
         case .direct: ("Direct: this shell is not guarded. Changes are not confirmed.", Palette.criticalText, "lock.open")
         case .sessionEnded(let why): ("The guarded session ended (\(why)). Restore opens a new shell.", Palette.infoText, "lock.slash")
         case .ended: ("The shell exited.", .secondary, "xmark.circle")

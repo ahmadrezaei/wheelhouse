@@ -78,9 +78,11 @@ struct TerminalLiveTests {
         if case .command(let line) = first.first?.kind { #expect(line.contains("rollout restart")) } else { Issue.record("expected a command sheet, got \(String(describing: first.first?.kind))") }
         #expect(first.first?.requiresTyping == true)
         // The next command gets its own sheet: a grant never carries over.
+        // kubectl itself refuses a second restart within a second.
+        try await Task.sleep(for: .seconds(3))
         terminal.model.write(Data("kubectl rollout restart deployment/web -n wh-m5b\r".utf8))
         for _ in 0..<600 where sheets.list.withLock({ $0.count }) < 2 { try await Task.sleep(for: .milliseconds(100)) }
-        #expect(sheets.list.withLock { $0.count } == 2)
+        #expect(sheets.list.withLock { $0.count } == 2, "terminal: \(terminal.text().suffix(1500))")
     }
 
     @Test("a joined command and kubectl proxy get per-request sheets")
@@ -123,8 +125,9 @@ struct TerminalLiveTests {
         chmod(file.path, 0o600)
         for _ in 0..<50 { terminal.model.checkIntegrity(); if case .unguarded = terminal.model.banner { break }; try await Task.sleep(for: .milliseconds(100)) }
         guard case .unguarded = terminal.model.banner else { Issue.record("expected unguarded"); return }
-        try await type("kubectl get ns", into: terminal, waitFor: "Unauthorized")
-        #expect(terminal.text().contains("Unauthorized") || terminal.text().contains("session ended"))
+        // The revoked session's file is deleted, so kubectl has no server of its own to reach: it falls back to localhost:8080, never to a cluster.
+        try await type("kubectl get ns", into: terminal, waitFor: "refused")
+        #expect(terminal.text().contains("localhost:8080") || terminal.text().contains("session ended") || terminal.text().contains("Unauthorized"), "terminal: \(terminal.text().suffix(1500))")
     }
 }
 #endif

@@ -20,6 +20,7 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
     @ObservationIgnored private let env: MacAppEnvironment
     @ObservationIgnored private let spec: TerminalSpec
     @ObservationIgnored private var starting = false
+    @ObservationIgnored private var closed = false
 
     init(env: MacAppEnvironment, spec: TerminalSpec) {
         self.env = env
@@ -39,7 +40,7 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
     // MARK: Start and stop
 
     func start(direct: Bool = false) async {
-        guard !starting, model == nil else { return }
+        guard !starting, model == nil, !closed else { return }
         guard let cluster else { startError = "Choose a cluster for this terminal."; return }
         starting = true
         defer { starting = false }
@@ -53,10 +54,12 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
         let shell = LocalShellModel(configuration: configuration)
         shell.onOutput = { [weak self] in self?.surface.feed($0) }
         shell.bracketedPasteProvider = { [weak self] in self?.surface.isBracketedPasteEnabled ?? false }
+        // Visible to close() from the start, so a pane closed while the shell is starting ends it.
+        model = shell
         do {
             let service = direct ? nil : try await env.gangway.service()
+            if closed { throw CancellationError() }
             try await shell.start(gangway: service)
-            model = shell
             if let command = Self.perfCommand(title: spec.title) {
                 // Measurement runs only (the safety gate is active): the scenario's command is typed once, after the first prompt.
                 await shell.waitForFirstPrompt()
@@ -64,7 +67,8 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
             }
             if let restored = restoredDirectory(), spec.startDirectory == nil { restoredFrom = restored }
         } catch {
-            startError = error.localizedDescription
+            model = nil
+            if !(error is CancellationError) { startError = error.localizedDescription }
         }
     }
 
@@ -79,6 +83,7 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
     }
 
     func close() async {
+        closed = true
         if let last = model?.workingDirectory { rememberDirectory(last) }
         await model?.close()
         env.gangwaySheets.unregister(pane: paneID)
@@ -123,6 +128,15 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
         var base = snapshot?.vars ?? [:]
         for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "__CF_USER_TEXT_ENCODING"] where base[key] == nil {
             if let value = ProcessInfo.processInfo.environment[key] { base[key] = value }
+        }
+        if gate.isActive {
+            // Nothing of the person's own configuration may be reached through a variable of their shell: fish and XDG tools read their
+            // config from these, and non-interactive bash and sh source whatever BASH_ENV and ENV name.
+            base["XDG_CONFIG_HOME"] = empty.appending(path: "config", directoryHint: .isDirectory).path
+            base["XDG_DATA_HOME"] = empty.appending(path: "data", directoryHint: .isDirectory).path
+            base["XDG_CACHE_HOME"] = empty.appending(path: "cache", directoryHint: .isDirectory).path
+            base["BASH_ENV"] = nil
+            base["ENV"] = nil
         }
         base["PATH"] = snapshot?.path ?? ShellEnvironment.fallbackPath(home: account)
         let zshDir = gate.isActive ? empty : URL(fileURLWithPath: base["ZDOTDIR"] ?? base["HOME"] ?? account.path, isDirectory: true)

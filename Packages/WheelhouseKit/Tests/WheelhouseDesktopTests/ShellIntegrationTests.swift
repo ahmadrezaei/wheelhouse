@@ -135,6 +135,14 @@ struct ShellIntegrationTests {
         #expect(run.text.contains("after:\(run.kubeconfig.path)"))
     }
 
+    @Test func typesetInAUserZshrcStaysGlobalAndHistoryLeavesTheSessionFolder() async throws {
+        let run = try await Shell.run("/bin/zsh", script: ["echo path:${path[1]}", "echo assoc:${(k)m}", "echo hist:$HISTFILE"],
+                                      userFiles: [".zshrc": "typeset -U path; path=(/wh-test $path); typeset -A m; m[a]=1\n"])
+        #expect(run.text.contains("path:/wh-test"))
+        #expect(run.text.contains("assoc:a"))
+        #expect(!run.text.contains("hist:\(run.sessionDir.path)"))
+    }
+
     @Test func onlyTheNamedUserDirectoryIsEverRead() async throws {
         // A canary under the HOME of the test would run if the integration fell back to $HOME.
         let canary = try Shell.temp("canary").appending(path: "ran")

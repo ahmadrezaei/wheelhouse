@@ -1,5 +1,16 @@
 # Wheelhouse shell integration (zsh): the user's .zshrc, the guard, then the hooks.
-__wh_user_source .zshrc
+# /etc/zshrc keeps history next to ZDOTDIR, which is the session folder: put it with the user's files, where their own history lives.
+[[ ${HISTFILE-} == "$ZDOTDIR/.zsh_history" ]] && HISTFILE="$WH_ORIG_ZDOTDIR/.zsh_history"
+if [[ -n "${WH_ORIG_ZDOTDIR-}" && -r "$WH_ORIG_ZDOTDIR/.zshrc" ]]; then
+  # Sourced at the top level, never inside a function: a `typeset` in the user's file must stay global. ZDOTDIR points at the user's
+  # directory while their file runs (a file that moves it moves where later user files are read from) and is taken back after.
+  __wh_ours=$ZDOTDIR
+  ZDOTDIR=$WH_ORIG_ZDOTDIR
+  builtin source "$WH_ORIG_ZDOTDIR/.zshrc"
+  WH_ORIG_ZDOTDIR=$ZDOTDIR
+  ZDOTDIR=$__wh_ours
+  builtin unset __wh_ours
+fi
 __wh_reguard
 
 # A nested or non-integrated shell has no nonce and says nothing.

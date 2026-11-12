@@ -164,6 +164,11 @@ public final class LocalShellModel: TerminalInsertTarget {
         case .guarded:
             guard let service else { throw SessionKubeconfigError.writeFailed("Gangway is not available") }
             let handle = try await service.openSession(clusterID: cfg.cluster.id, origin: .terminal(paneID: cfg.paneID), namespace: cfg.namespace)
+            // The pane was closed while the session was opening: nothing may be spawned.
+            if closed {
+                service.closeSession(handle, reason: "the terminal was closed before its shell started")
+                throw CancellationError()
+            }
             do {
                 let nonce = ShellNonce.make()
                 let launch = try ShellIntegration.prepare(shell: cfg.shell, directory: handle.directory, nonce: nonce, kubeconfig: handle.kubeconfig, user: cfg.userFiles)
@@ -255,6 +260,9 @@ public final class LocalShellModel: TerminalInsertTarget {
         }
         if let directDirectory { DirectKubeconfig.remove(directory: directDirectory) }
         directDirectory = nil
+        // Torn down once: a close racing the shell's own exit must not revoke the session a second time (the reason would be overwritten).
+        handle = nil
+        gangway = nil
     }
 
     /// Suspends until the shell has reported its first verified prompt (or ended). No timer: the mark resumes it.

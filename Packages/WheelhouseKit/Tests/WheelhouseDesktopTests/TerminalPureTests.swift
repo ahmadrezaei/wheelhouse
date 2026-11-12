@@ -92,9 +92,20 @@ struct OSCFilterTests {
         #expect(run(whole.map { Data([$0]) }).output == expected)
     }
 
-    @Test func anAbortedOrShortSequenceIsPassedOn() {
-        let text = "x\u{1B}]133;A\u{18}y\u{1B}]1\u{07}z\u{1B}]133;A\u{1B}[0mq"
-        #expect(run([Data(text.utf8)]).output == text)
+    @Test func aMarkThatIsCutShortIsDroppedNotPassedOn() {
+        // The terminal acts on an OSC 133 when an ESC ends it, so a cut-short mark must never reach it.
+        #expect(run([Data("\u{1B}]133;A\u{1B}[0m".utf8)]).output == "\u{1B}[0m")
+        #expect(run([Data("x\u{1B}]633;E;ls\u{1B}]0;t\u{07}y".utf8)]).output == "x\u{1B}]0;t\u{07}y")
+        #expect(run([Data("a\u{1B}]133;A\u{18}b".utf8)]).output == "ab")
+        // Other sequences, short ones included, are never touched.
+        let other = "x\u{1B}]1\u{07}y\u{1B}]0;t\u{1B}[0mz"
+        #expect(run([Data(other.utf8)]).output == other)
+    }
+
+    @Test func anOverlongMarkIsSwallowedUpToItsTerminator() {
+        let long = "p\u{1B}]133;" + String(repeating: "x", count: OSCScanner.maxLength + 50) + "\u{07}q"
+        let result = run([Data(long.utf8)])
+        #expect(result.output == "pq" && result.marks == 0)
     }
 }
 
