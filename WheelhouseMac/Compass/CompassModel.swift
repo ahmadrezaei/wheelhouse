@@ -157,11 +157,13 @@ final class CompassModel {
         let names = Dictionary(uniqueKeysWithValues: registry.clusters.map { ($0.id, $0.name) })
         let problems = problemKeys()
         let pinned = Set(rail.items.compactMap(\.resource).map { CompassHit.key(cluster: $0.clusterID, kindID: $0.kind.id, namespace: $0.namespace, name: $0.name) })
+        // Only clusters that exist now, and none in Demo mode: stale entries wait for the next prune but never show.
+        let allowed: Set<ClusterID> = registry.isDemoMode ? [] : Set(registry.clusters.map(\.id))
         let frecency = self.frecency
         let index = self.index
         let environments = Dictionary(uniqueKeysWithValues: registry.clusters.map { ($0.id, $0.environment) })
         searchTask = Task { [weak self] in
-            let hits = await index.search(parsed, limit: 30, clusters: names, problems: problems, pinned: pinned, frecency: { frecency.boost($0) })
+            let hits = await index.search(parsed, limit: 30, clusters: names, allowed: allowed, problems: problems, pinned: pinned, frecency: { frecency.boost($0) })
             let stats = await index.stats
             guard !Task.isCancelled, let self, self.generation == myGeneration else { return }
             self.stats = stats
@@ -323,8 +325,8 @@ final class CompassModel {
         switch r.target {
         case .hint: return
         case .command(let id):
-            close()
             frecency.record("cmd|" + id)
+            close()
             if let c = commands().first(where: { $0.id == id }), c.isEnabled() { c.perform() }
             return
         case .object(let hit):

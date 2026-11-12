@@ -39,7 +39,9 @@ final class MacPreferences {
     /// Clusters Crow's Nest checks besides Production, Staging and Rail clusters.
     var watchedClusterIDs: Set<String> { didSet { save(watchedClusterIDs.sorted(), "watchedClusterIDs") } }
     /// Clusters whose objects the Compass metadata index lists every 5 minutes (opt-in; other clusters contribute live items only).
-    var compassIndexedClusterIDs: Set<String> { didSet { save(compassIndexedClusterIDs.sorted(), "compassIndexedClusterIDs") } }
+    var compassIndexedClusterIDs: Set<String> { didSet { save(compassIndexedClusterIDs.sorted(), "compassIndexedClusterIDs"); compassIndexChanged?() } }
+    /// Called when the set of clusters the Compass index lists changes (an opt-out prunes the index at once).
+    @ObservationIgnored var compassIndexChanged: (() -> Void)?
 
     enum MenuBarBadge: String, CaseIterable, Sendable { case dot, dotAndCount, off }
 

@@ -157,8 +157,10 @@ struct WorkspaceWindowContent: View {
             model.sidebar.rebuild()
             env.rail.prefillOnce()      // M4b
             env.rail.pinNewClusters()   // M4b
+            env.pruneCompass()          // M4b
         }
         .onChange(of: registry.isDemoMode) { _, _ in
+            env.pruneCompass()   // M4b: nothing of a real cluster stays searchable in Demo mode
             model.sidebar.rebuild()
             model.mutate { state in for pane in state.selected.panes where !pane.isPlaceholder { state.setRoot(.route(.fleet), in: pane.id) } }
         }
@@ -180,7 +182,7 @@ struct WorkspaceWindowContent: View {
         } detail: {
             VStack(spacing: 0) {
                 // M4b: the Rail (⇧⌘B).
-                if env.macPreferences.showsRail, !model.isDetachedScope { RailBar(model: model); Divider() }
+                if env.macPreferences.showsRail, !model.isDetachedScope, !registry.isDemoMode { RailBar(model: model); Divider() }
                 // end M4b
                 TabBar(model: model)
                 Divider()

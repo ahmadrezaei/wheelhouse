@@ -14,11 +14,13 @@ struct CrowsNestLabel: View {
     var body: some View {
         let summary = env.fleet.summary
         let badge = env.macPreferences.menuBarBadge
+        // While App Lock is on the glyph says nothing about the fleet: no level, no count.
+        let locked = env.lock.isLocked
         HStack(spacing: 2) {
-            Image(systemName: summary.level == .healthy || badge == .off ? "steeringwheel" : "steeringwheel.badge.exclamationmark")
-            if badge == .dotAndCount, summary.attentionCount > 0 { Text("\(summary.attentionCount)") }
+            Image(systemName: locked || summary.level == .healthy || badge == .off ? "steeringwheel" : "steeringwheel.badge.exclamationmark")
+            if !locked, badge == .dotAndCount, summary.attentionCount > 0 { Text("\(summary.attentionCount)") }
         }
-        .accessibilityLabel(summary.level == .healthy ? "Crow's Nest, all clear" : "Crow's Nest, \(summary.attentionCount) need attention")
+        .accessibilityLabel(locked ? "Crow's Nest, locked" : (summary.level == .healthy ? "Crow's Nest, all clear" : "Crow's Nest, \(summary.attentionCount) need attention"))
         .onAppear { register() }
     }
 
@@ -151,13 +153,8 @@ struct CrowsNestPanel: View {
     }
 
     /// Brings a workspace window forward (opening one first when none exists) and then runs `then` on its model.
-    private func showWorkspace(then: @escaping @MainActor () -> Void = {}) {
-        env.showWorkspace()
-        Task { @MainActor in
-            // The window opens on the next turn; its model is the active one by then.
-            try? await Task.sleep(for: .milliseconds(150))
-            then()
-        }
+    private func showWorkspace(then: (@MainActor () -> Void)? = nil) {
+        env.showWorkspace(then: then)
     }
 
     private func open(_ item: AttentionItem) {

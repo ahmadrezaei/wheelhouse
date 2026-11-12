@@ -63,16 +63,31 @@ final class CompassMetadataIndexer {
         await refresh()
     }
 
+    /// Takes out of the index everything that must no longer be searchable, with no network: a removed cluster, one that opted out
+    /// (its Secret and ConfigMap names included), and every real cluster while Demo mode shows sample data. Called when those change
+    /// and before every refresh, so Compass does not wait for the next scheduled listing.
+    func prune() async {
+        guard !registry.isDemoMode else { metadataIndexed = []; await index.removeAll(); return }
+        let opted = mac.compassIndexedClusterIDs
+        let present = Set(registry.clusters.map(\.id))
+        for gone in await index.indexedClusters where !present.contains(gone) { await index.drop(cluster: gone) }
+        for out in metadataIndexed where !opted.contains(out) || !present.contains(out) { await index.drop(cluster: out); metadataIndexed.remove(out) }
+    }
+
+    /// True while a refresh runs; a second one (the launch refresh and a scheduled tick can meet) is skipped, so two runs never share
+    /// the staging area.
+    private(set) var isRefreshing = false
+    private(set) var overlapsSkipped = 0
+
     /// Refreshes every cluster now (the first run after launch, and when a cluster opts in).
     func refresh() async {
         guard !stopped else { return }
-        // Demo mode shows sample data only: nothing of a real cluster stays searchable.
-        guard !registry.isDemoMode else { metadataIndexed = []; await index.removeAll(); return }
+        guard !isRefreshing else { overlapsSkipped += 1; return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await prune()
+        guard !registry.isDemoMode else { return }
         let opted = mac.compassIndexedClusterIDs
-        // A removed cluster, or one that opted out, leaves the index (its Secret and ConfigMap names included).
-        let present = Set(registry.clusters.map(\.id))
-        for gone in await index.indexedClusters where !present.contains(gone) { await index.drop(cluster: gone) }
-        for out in metadataIndexed where !opted.contains(out) { await index.drop(cluster: out); metadataIndexed.remove(out) }
         for cluster in registry.clusters {
             guard let session = registry.session(for: cluster.id) else { continue }
             if opted.contains(cluster.id) {
@@ -90,7 +105,7 @@ final class CompassMetadataIndexer {
 
     func refreshMetadata(cluster: ClusterID, fetch: PageFetch) async {
         for kind in Self.kinds {
-            if stopped || !periodicRegistry.windowsVisible { return }
+            if stopped || Task.isCancelled || !periodicRegistry.windowsVisible { return }
             await index.beginRefresh(cluster: cluster, kind: kind)
             var token: String?
             do {
@@ -99,7 +114,8 @@ final class CompassMetadataIndexer {
                     await index.stage(cluster: cluster, kind: kind, items: page.items)
                     token = page.continueToken
                 } while token != nil && !Task.isCancelled && !stopped
-                if stopped { await index.abortRefresh(cluster: cluster, kind: kind) } else { await index.commit(cluster: cluster, kind: kind) }
+                // A cancelled or stopped run holds a partial kind: it is never committed.
+                if stopped || Task.isCancelled { await index.abortRefresh(cluster: cluster, kind: kind) } else { await index.commit(cluster: cluster, kind: kind) }
             } catch {
                 // Forbidden or unsupported kind, or a dropped connection: the previous entries of the kind stay.
                 await index.abortRefresh(cluster: cluster, kind: kind)

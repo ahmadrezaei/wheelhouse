@@ -174,6 +174,29 @@ struct CompassIndexTests {
         FrecencyStore(file: nil).flush()
     }
 
+    @Test func clustersThatAreGoneOrNotAllowedNeverShow() async {
+        let index = CompassIndex()
+        await index.replace(cluster: "kept", kind: .pod, items: items(["web-1"]))
+        await index.replace(cluster: "removed", kind: .pod, items: items(["web-2"]))
+        #expect(await index.search(.parse("web"), allowed: ["kept"]).map(\.cluster) == ["kept"])
+        #expect(await index.search(.parse("web"), allowed: []).isEmpty)                   // demo mode
+        #expect(await index.search(.parse("web")).count == 2)
+    }
+
+    @Test func frecencyForgetsTheKeysOfARemovedCluster() {
+        let store = FrecencyStore(file: nil)
+        store.record("obj|gone|v1/pods||a"); store.record("obj|kept|v1/pods||b"); store.record("cl|gone")
+        store.removeKeys { $0.hasPrefix("obj|gone|") || $0 == "cl|gone" }
+        #expect(Set(store.records.keys) == ["obj|kept|v1/pods||b"])
+    }
+
+    @Test func boldCharactersAreCharacterOffsetsNotBytes() {
+        // "…" is three UTF-8 bytes: a byte offset would mark the wrong characters.
+        #expect(CompassMatcher.matchedCharacterOffsets(query: "api", in: "web…api") == [4, 5, 6])
+        #expect(CompassMatcher.matchedOffsets(query: "api", in: "web…api") == [6, 7, 8])
+        #expect(CompassMatcher.matchedCharacterOffsets(query: "zzz", in: "web").isEmpty)
+    }
+
     /// ARCHITECTURE-MAC 12.4: first results at most 50 ms warm over 100,000 objects, and the index within 64 MB. The tight bound
     /// applies to an optimised build (`swift test -c release`); a debug build keeps a loose one so the test still catches a
     /// quadratic scan.

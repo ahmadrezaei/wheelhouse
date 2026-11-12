@@ -263,6 +263,100 @@ struct MenuBarAndRailTests {
         #expect(session?.health?.isReachable == true)
     }
 
+    @Test func pruneHidesRemovedOptedOutAndDemoClustersWithoutAListing() async throws {
+        let f = fixture(environments: [.development, .staging])
+        let a = try #require(f.ids[.development]), b = try #require(f.ids[.staging])
+        let index = CompassIndex()
+        let indexer = CompassMetadataIndexer(index: index, registry: f.registry, mac: f.mac, periodicRegistry: PeriodicTaskRegistry())
+        f.mac.compassIndexedClusterIDs = [a, b]
+        await index.replace(cluster: "removed", kind: .configMap, items: [CompassMetadataItem(name: "old-config", namespace: "n")])
+        await index.replace(cluster: a, kind: .configMap, items: [CompassMetadataItem(name: "a-config", namespace: "n")])
+        await index.replace(cluster: b, kind: .configMap, items: [CompassMetadataItem(name: "b-config", namespace: "n")])
+        await indexer.refresh()                                                   // marks a and b as metadata-indexed
+        await index.replace(cluster: a, kind: .configMap, items: [CompassMetadataItem(name: "a-config", namespace: "n")])
+        await index.replace(cluster: "removed", kind: .configMap, items: [CompassMetadataItem(name: "old-config", namespace: "n")])
+        let before = indexer.refreshes
+        await indexer.prune()
+        let afterPrune = await index.indexedClusters
+        #expect(!afterPrune.contains("removed"))                                   // no refresh, no listing
+        f.mac.compassIndexedClusterIDs = [b]
+        await indexer.prune()
+        let aHits = await index.search(.parse("a-config")), bHits = await index.search(.parse("b-config"))
+        #expect(aHits.isEmpty && !bHits.isEmpty)
+        f.registry.enterDemoMode(persist: false)
+        await indexer.prune()
+        let remaining = await index.indexedClusters
+        #expect(remaining.isEmpty && indexer.refreshes == before)
+    }
+
+    @Test func theOptInChangeAndTheClusterListPruneTheIndexAtOnce() async throws {
+        let env = MacAppEnvironment.live()
+        let id = try #require(env.registry.clusters.first?.id) as ClusterID
+        env.frecency.record("obj|gone-cluster|v1/pods|n|a"); env.frecency.record("obj|\(id)|v1/pods|n|b"); env.frecency.record("cmd|x")
+        await env.compassIndex.replace(cluster: "gone-cluster", kind: .pod, items: [CompassMetadataItem(name: "ghost", namespace: "n")])
+        env.pruneCompass()
+        for _ in 0..<50 where !(await env.compassIndex.indexedClusters).isEmpty { try? await Task.sleep(for: .milliseconds(20)) }
+        let left = await env.compassIndex.indexedClusters
+        #expect(left.isEmpty)
+        #expect(env.frecency.records.keys.contains("cmd|x") && !env.frecency.records.keys.contains("obj|gone-cluster|v1/pods|n|a"))
+    }
+
+    @Test func aCancelledRefreshNeverCommitsAPartialKind() async throws {
+        let f = fixture(environments: [.development])
+        let id = try #require(f.registry.clusters.first?.id)
+        let index = CompassIndex()
+        let indexer = CompassMetadataIndexer(index: index, registry: f.registry, mac: f.mac, periodicRegistry: PeriodicTaskRegistry())
+        await index.replace(cluster: id, kind: .pod, items: [CompassMetadataItem(name: "keep-me", namespace: "n")])
+        let task = Task { @MainActor in
+            await indexer.refreshMetadata(cluster: id, fetch: { kind, token, _ in
+                // The first page of Pods arrives and the task is cancelled before the second.
+                if kind.kind == "Pod", token == nil {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return CompassMetadataPage(items: [CompassMetadataItem(name: "partial", namespace: "n")], continueToken: "more")
+                }
+                return CompassMetadataPage(items: [])
+            })
+        }
+        await task.value
+        #expect(await index.search(.parse("partial")).isEmpty)
+        #expect(await index.search(.parse("keep-me")).map(\.name) == ["keep-me"])
+    }
+
+    @Test func twoRefreshesNeverRunTogether() async {
+        let f = fixture()
+        f.mac.compassIndexedClusterIDs = Set(f.registry.clusters.map(\.id))
+        let periodic = PeriodicTaskRegistry()
+        let indexer = CompassMetadataIndexer(index: CompassIndex(), registry: f.registry, mac: f.mac, periodicRegistry: periodic)
+        async let first: Void = indexer.refresh()
+        async let second: Void = indexer.refresh()
+        _ = await (first, second)
+        #expect(indexer.refreshes + indexer.overlapsSkipped == 2 && !indexer.isRefreshing)
+    }
+
+    @Test func aRailItemKeepsTheFieldsAThisBuildDoesNotKnowThroughRenameAndMove() throws {
+        let f = fixture()
+        let b = try #require(f.ids[.staging])
+        let future: JSONValue = ["id": "k1", "kind": "cluster", "clusterID": .string(b), "shortcut": "F5", "pack": ["name": "x"]]
+        f.controller.store.setRail([future, ["id": "k2", "kind": "cluster", "clusterID": .string(b), "title": "Old"]])
+        f.rail.rename("k1", to: "Renamed")
+        f.rail.move("k1", before: nil)
+        f.rail.rename("k2", to: "")
+        let stored = f.controller.store.rail
+        guard case .object(let first) = stored[1], case .object(let second) = stored[0] else { Issue.record("shape"); return }
+        #expect(first["shortcut"] == "F5" && first["pack"] == ["name": "x"] && first["title"] == "Renamed")
+        #expect(second["title"] == nil && second["id"] == "k2")                  // an emptied name is removed, not kept from the old JSON
+    }
+
+    @Test func demoModeHidesTheRailAndNumbersFallBackToTheClusters() {
+        let f = fixture()
+        f.rail.pin(.cluster("gone"))                                              // a Rail with nothing available
+        #expect(f.rail.shortcutItems.count == 3 && f.rail.shortcutItems.allSatisfy { f.rail.isAvailable($0) })
+        f.rail.pin(.cluster(f.registry.clusters[0].id))
+        #expect(f.rail.shortcutItems.count == 2)                                  // one available item: the Rail itself
+        f.registry.enterDemoMode(persist: false)
+        #expect(f.rail.shortcutItems.allSatisfy { $0.id.hasPrefix("auto-") } && !f.rail.shortcutItems.isEmpty)
+    }
+
     // MARK: Activation policy
 
     @Test func theActivationPolicyIsAccessoryOnlyWithNoWindowAndKeepRunning() {
@@ -386,10 +480,10 @@ struct MenuBarAndRailTests {
     @Test func prefillRunsOnceNinePinnedAndNewClustersJoinUntilFive() throws {
         let f = fixture(environments: Array(repeating: .development, count: 11))
         f.rail.prefillOnce()
-        #expect(f.rail.items.count == 9 && f.mac.railPrefilled)
+        #expect(f.rail.items.count == 5 && f.mac.railPrefilled)
         f.rail.remove(f.rail.items[0].id)
         f.rail.prefillOnce()
-        #expect(f.rail.items.count == 8)                                           // never refilled
+        #expect(f.rail.items.count == 4)                                           // never refilled
         // A fresh install: the first clusters pin themselves as they are added.
         let g = fixture(environments: [.development])
         g.rail.pinNewClusters()

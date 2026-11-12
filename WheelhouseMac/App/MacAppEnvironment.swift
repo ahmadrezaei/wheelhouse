@@ -272,6 +272,7 @@ final class MacAppEnvironment {
     // M4b
     private func startMenuBarServices() {
         macPreferences.menuBarChanged = { [unowned self] in applyMenuBarPreferences() }
+        macPreferences.compassIndexChanged = { [unowned self] in pruneCompass() }
         activationPolicy.isInert = PerfScenarioRunner.keepsAccessory
         activationPolicy.start()
         // A new window or a tap on a notification with no window open asks for one.
@@ -292,6 +293,18 @@ final class MacAppEnvironment {
                 if !macPreferences.compassIndexedClusterIDs.isEmpty { await indexer.refresh() }
             }
         }
+    }
+
+    /// Clusters or Demo mode or the index opt-ins changed: nothing of a removed, opted-out or demo-mode cluster stays searchable, and
+    /// the frecency of a removed cluster's objects is forgotten.
+    func pruneCompass() {
+        let present = Set(registry.clusters.map(\.id))
+        frecency.removeKeys { key in
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count > 1, ["obj", "cl"].contains(parts[0]) else { return false }
+            return !present.contains(String(parts[1]))
+        }
+        Task { await indexer.prune() }
     }
 
     /// The menu bar item or "keep running" changed: Crow's Nest checks replace the alert monitor while the item is on, and the
@@ -318,8 +331,21 @@ final class MacAppEnvironment {
         applyMenuBarPreferences()
     }
 
-    /// Brings a workspace window forward, opening one first when none exists (from the menu bar panel, a notification, a reopen).
-    func showWorkspace() {
+    /// Brings a workspace window forward, opening one first when none exists (from the menu bar panel, a notification, a reopen). `then`
+    /// runs once a window is there: at once when one already was, else when the first one registers.
+    func showWorkspace(then: (@MainActor () -> Void)? = nil) {
+        let hadWindow = WorkspaceWindows.all.contains { $0.isVisible || $0.isMiniaturized }
+        openWorkspaceWindowNow()
+        guard let then else { return }
+        if hadWindow { then(); return }
+        Task { @MainActor in
+            for await _ in NotificationCenter.default.notifications(named: WorkspaceWindows.didChange).prefix(1) { break }
+            await Task.yield()
+            then()
+        }
+    }
+
+    private func openWorkspaceWindowNow() {
         activationPolicy.prepareForWindow()
         NSApp.activate()
         if let window = WorkspaceWindows.all.first(where: { $0.isVisible || $0.isMiniaturized }) {

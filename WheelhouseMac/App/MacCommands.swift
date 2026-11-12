@@ -77,6 +77,10 @@ struct MacCommands: Commands {
         CommandGroup(after: .sidebar) {
             Group {
                 Button("Show Inspector") { model?.isInspectorOpen.toggle() }.keyboardShortcut("0", modifiers: [.command, .option]).disabled(!hasWindow)
+                // M4b: the Rail (DESIGN-MAC section 8, View).
+                Button(env.macPreferences.showsRail ? "Hide Rail" : "Show Rail") { env.macPreferences.showsRail.toggle() }.keyboardShortcut("b", modifiers: [.command, .shift])
+                Button("Pin to Rail") { if let m = model { env.rail.pinSelection(of: m) } }.keyboardShortcut("b", modifiers: [.command, .option]).disabled(!hasWindow)
+                // end M4b
                 Divider()
                 Button("Filter Sidebar…") { filterFocus?.run() }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(filterFocus == nil)
                 Toggle("Show Forbidden Kinds", isOn: Binding(get: { model?.sidebar.showsForbiddenKinds ?? false }, set: { model?.sidebar.showsForbiddenKinds = $0 }))
@@ -89,12 +93,18 @@ struct MacCommands: Commands {
         // Go
         CommandMenu("Go") {
             Group {
+                // M4b: Compass lives in the window, so both commands need one (the menu bar panel opens a window first).
+                Button("Compass…") { env.compass.toggle() }.keyboardShortcut("k").disabled(!hasWindow)
+                Button("Go to Kind…") { env.compass.open(seed: "go ") }.keyboardShortcut("k", modifiers: [.command, .shift]).disabled(!hasWindow)
+                // end M4b
+                Divider()
                 Button("Search…") { go(.search) }.keyboardShortcut("f").disabled(!hasWindow)
                 Divider()
                 Button("Fleet") { go(.fleet) }.keyboardShortcut("0").disabled(!hasWindow)
                 // M4b: ⌘1 ... ⌘9 are Rail items 1 to 9 (the Rail is pre-filled with the first clusters, so these still reach them).
                 ForEach(Array(env.rail.shortcutItems.prefix(9).enumerated()), id: \.element.id) { index, item in
-                    Button("Rail Item \(index + 1): \(env.rail.title(for: item))") {
+                    // The cluster's name is not shown while App Lock is on: the menu bar stays readable to anyone at the screen.
+                    Button(locked ? "Rail Item \(index + 1)" : "Rail Item \(index + 1): \(env.rail.title(for: item))") {
                         if let m = model { env.rail.activate(item, in: m, placement: .here, controller: workspace) }
                     }
                     .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
@@ -112,19 +122,6 @@ struct MacCommands: Commands {
             }
             .disabled(locked)
         }
-
-        // M4b: Compass and the Rail.
-        CommandGroup(after: .textEditing) {
-            Group {
-                Button("Compass…") { env.compass.toggle() }.keyboardShortcut("k")
-                Button("Go to Kind…") { env.compass.open(seed: "go ") }.keyboardShortcut("k", modifiers: [.command, .shift]).disabled(!hasWindow)
-                Divider()
-                Button(env.macPreferences.showsRail ? "Hide Rail" : "Show Rail") { env.macPreferences.showsRail.toggle() }.keyboardShortcut("b", modifiers: [.command, .shift])
-                Button("Pin to Rail") { if let m = model { env.rail.pinSelection(of: m) } }.keyboardShortcut("b", modifiers: [.command, .option]).disabled(!hasWindow)
-            }
-            .disabled(locked)
-        }
-        // end M4b
 
         // Window: tabs, panes, Stations and Activity
         CommandGroup(after: .windowArrangement) {

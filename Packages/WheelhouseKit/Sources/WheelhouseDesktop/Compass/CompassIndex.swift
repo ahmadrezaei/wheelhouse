@@ -191,9 +191,9 @@ public actor CompassIndex {
         })
     }
 
-    /// Objects matching `query`, best first. `clusters` maps a cluster ID to its name (for `@cluster`), `problems` holds the
+    /// Objects matching `query`, best first. `allowed` limits the search to clusters that exist now (nil = every indexed cluster). `clusters` maps a cluster ID to its name (for `@cluster`), `problems` holds the
     /// ``CompassHit/key`` of failing objects, `pinned` those on the Rail (`is:pinned`), `frecency` the per-item bonus.
-    public func search(_ query: CompassQuery, limit: Int = 50, clusters: [ClusterID: String] = [:], problems: Set<String> = [],
+    public func search(_ query: CompassQuery, limit: Int = 50, clusters: [ClusterID: String] = [:], allowed: Set<ClusterID>? = nil, problems: Set<String> = [],
                        pinned: Set<String> = [], frecency: (@Sendable (String) -> Int)? = nil) -> [CompassHit] {
         var tokens = query.tokens.map(CompassMatcher.fold).filter { !$0.isEmpty }
         // A kind name first narrows the search to that kind: `po crash`, `deploy web`.
@@ -216,6 +216,8 @@ public actor CompassIndex {
         let cap = Self.candidateLimit * 2
         var floorScore = Int.min
         for (cluster, bucket) in buckets {
+            // A removed or demo-mode cluster's entries wait for the next prune, but never show.
+            if let allowed, !allowed.contains(cluster) { continue }
             if let clusterToken {
                 let name = CompassMatcher.fold(clusters[cluster] ?? cluster)
                 if CompassMatcher.score(clusterToken, in: name) == nil { continue }

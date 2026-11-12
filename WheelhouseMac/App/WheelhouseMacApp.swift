@@ -166,6 +166,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         env.workspace.syncSidebarState()
         env.workspace.store.isTerminating = true
         env.activationPolicy.isTerminating = true
+        env.frecency.flush()
         env.workspace.store.flush()
         // From here on every activity record is written before `record` returns: the `willTerminate` observers (Gangway's revoked
         // sessions, Landfall, the scanner) may record after the delegate's own last flush.

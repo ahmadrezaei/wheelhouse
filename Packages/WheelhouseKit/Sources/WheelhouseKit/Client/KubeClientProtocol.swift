@@ -332,13 +332,10 @@ public extension KubeClientProtocol {
     func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
         throw KubeError.unsupported("Metadata-only listing is not available for this client.")
     }
-    /// Default: one `listMetadata` page (no continuation), reduced to the fields the index keeps.
+    /// Default: unsupported. A client that is not live (and is not the Demo client) has no metadata-only page, and Compass never
+    /// falls back to a full list for it.
     func listCompassPage(kind: ResourceKind, namespace: String?, continueToken: String?, limit: Int) async throws -> CompassMetadataPage {
-        guard continueToken == nil else { return CompassMetadataPage(items: []) }
-        let list = try await listMetadata(kind: kind, namespace: namespace, labelSelector: nil, limit: limit)
-        return CompassMetadataPage(items: list.items.map {
-            CompassMetadataItem(name: $0.name, namespace: $0.namespace, labels: $0.labels, ownerKind: $0.ownerReferences.first?.kind, ownerName: $0.ownerReferences.first?.name)
-        })
+        throw KubeError.unsupported("Metadata-only paging is not available for this client.")
     }
     func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                       headers: [String: String], body: Data?) async throws -> ProxyResponse {

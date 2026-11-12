@@ -50,7 +50,8 @@ struct MenuBarSettingsSection: View {
     @ViewBuilder private var loginToggle: some View {
         let item = env.loginItem
         let status = item.status
-        Toggle("Open Wheelhouse at login", isOn: Binding(get: { env.macPreferences.opensAtLogin }, set: { on in
+        // The system is the source of truth when it answers (the person can remove the item in System Settings).
+        Toggle("Open Wheelhouse at login", isOn: Binding(get: { status == .unavailable ? env.macPreferences.opensAtLogin : status != .disabled }, set: { on in
             do { try item.setEnabled(on); env.macPreferences.opensAtLogin = on; loginError = nil } catch { loginError = error.localizedDescription }
         }))
         .disabled(status == .unavailable)

@@ -107,6 +107,21 @@ public enum CompassMatcher {
         return qi == q.count ? subsequence - min(max(span - q.count, 0), 250) : nil
     }
 
+    /// The same match as ``matchedOffsets(query:in:)`` as offsets of `Character`s of `name`, which is what a rendering needs (a name
+    /// with a multi-byte character such as "…" has fewer characters than UTF-8 bytes).
+    public static func matchedCharacterOffsets(query: String, in name: String) -> Set<Int> {
+        let bytes = Set(matchedOffsets(query: query, in: name))
+        guard !bytes.isEmpty else { return [] }
+        var out = Set<Int>()
+        var start = 0
+        for (i, ch) in name.enumerated() {
+            let width = String(ch).utf8.count
+            if (start..<(start + width)).contains(where: bytes.contains) { out.insert(i) }
+            start += width
+        }
+        return out
+    }
+
     /// Offsets in `name` of the characters a query matched, for the bold rendering of result rows.
     public static func matchedOffsets(query: String, in name: String) -> [Int] {
         let q = fold(query.trimmingCharacters(in: .whitespaces)), t = fold(name)

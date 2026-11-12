@@ -186,6 +186,17 @@ struct CompassModelTests {
         #expect(f.performed.ids.isEmpty)
     }
 
+    @Test func removedAndDemoClustersNeverShowEvenBeforeAPrune() async {
+        let f = fixture()
+        await f.index.replace(cluster: "removed-cluster", kind: .pod, items: [CompassMetadataItem(name: "ghost-1", namespace: "n")])
+        await f.index.replace(cluster: f.cluster, kind: .pod, items: [CompassMetadataItem(name: "ghost-2", namespace: "n")])
+        f.model.open()
+        f.model.query = "ghost"
+        await settle(f.model) { $0.results.contains { r in if case .object = r.target { true } else { false } } }
+        let names = f.model.results.compactMap { r -> String? in if case .object(let h) = r.target { h.name } else { nil } }
+        #expect(names == ["ghost-2"])
+    }
+
     @Test func theFooterSaysWhatIsIndexed() async {
         let f = fixture()
         #expect(f.model.footer.hasPrefix("No objects indexed"))

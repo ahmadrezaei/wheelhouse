@@ -78,6 +78,15 @@ public final class FrecencyStore: Sendable {
         try? data.write(to: file, options: .atomic)
     }
 
+    /// Forgets every key for which `isStale` is true (the keys of a removed cluster).
+    public func removeKeys(where isStale: (String) -> Bool) {
+        state.withLock { s in
+            let before = s.records.count
+            s.records = s.records.filter { !isStale($0.key) }
+            if s.records.count != before { s.dirty = true }
+        }
+    }
+
     public func clear() {
         state.withLock { $0.records = [:]; $0.dirty = true }
         flush()

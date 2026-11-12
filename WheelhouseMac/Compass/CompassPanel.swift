@@ -117,7 +117,7 @@ private struct CompassRow: View {
     }
 
     private var highlighted: Text {
-        let offsets = Set(CompassMatcher.matchedOffsets(query: result.highlight, in: result.title))
+        let offsets = CompassMatcher.matchedCharacterOffsets(query: result.highlight, in: result.title)
         guard !offsets.isEmpty else { return Text(result.title) }
         return result.title.enumerated().reduce(Text("")) { text, pair in
             text + (offsets.contains(pair.offset) ? Text(String(pair.element)).bold() : Text(String(pair.element)))

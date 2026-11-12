@@ -34,7 +34,10 @@ final class RailModel {
     private let preferences: MacPreferences
 
     /// The stored array, decoded per element.
-    enum Slot: Equatable { case item(RailItem), opaque(JSONValue) }
+    /// An element of the stored array. A readable item keeps the JSON it was read from, so fields this build does not know survive a
+    /// rename or a move: only the fields it knows are written over it.
+    enum Slot: Equatable { case item(RailItem, raw: JSONValue?), opaque(JSONValue) }
+    private static let knownKeys: Set<String> = ["id", "kind", "title", "clusterID", "namespace", "resource", "stationID"]
 
     init(store: WorkspaceStore, registry: ClusterRegistry, preferences: MacPreferences) {
         self.store = store
@@ -43,12 +46,12 @@ final class RailModel {
     }
 
     private var slots: [Slot] {
-        store.rail.map { value in (try? value.decode(RailItem.self)).map(Slot.item) ?? .opaque(value) }
+        store.rail.map { value in (try? value.decode(RailItem.self)).map { Slot.item($0, raw: value) } ?? .opaque(value) }
     }
 
     /// The items the Rail shows, in order. Items for a removed cluster stay (shown dimmed, disabled), so a cluster that comes back
     /// finds its pin.
-    var items: [RailItem] { slots.compactMap { if case .item(let i) = $0 { i } else { nil } } }
+    var items: [RailItem] { slots.compactMap { if case .item(let i, _) = $0 { i } else { nil } } }
 
     func isAvailable(_ item: RailItem) -> Bool {
         switch item.kind {
@@ -77,7 +80,13 @@ final class RailModel {
         let values: [JSONValue] = slots.compactMap { slot in
             switch slot {
             case .opaque(let v): return v
-            case .item(let i): return (try? encoder.encode(i)).flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+            case .item(let i, let raw):
+                guard let fresh = (try? encoder.encode(i)).flatMap({ try? JSONDecoder().decode(JSONValue.self, from: $0) }) else { return raw }
+                // Unknown fields of the stored element stay; the known ones are replaced by what this build holds.
+                guard case .object(var merged)? = raw, case .object(let known) = fresh else { return fresh }
+                for key in Self.knownKeys { merged[key] = nil }
+                for (key, value) in known { merged[key] = value }
+                return .object(merged)
             }
         }
         store.setRail(values)
@@ -87,21 +96,21 @@ final class RailModel {
     @discardableResult
     func pin(_ item: RailItem) -> Bool {
         if items.contains(where: { $0.samePin(as: item) }) { return false }
-        write(slots + [.item(item)])
+        write(slots + [.item(item, raw: nil)])
         return true
     }
 
     func remove(_ id: String) {
         preferences.railCustomised = true
-        write(slots.filter { if case .item(let i) = $0 { i.id != id } else { true } })
+        write(slots.filter { if case .item(let i, _) = $0 { i.id != id } else { true } })
     }
 
     func rename(_ id: String, to title: String) {
         preferences.railCustomised = true
         write(slots.map { slot in
-            guard case .item(var i) = slot, i.id == id else { return slot }
+            guard case .item(var i, let raw) = slot, i.id == id else { return slot }
             i.title = title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title
-            return .item(i)
+            return .item(i, raw: raw)
         })
     }
 
@@ -109,20 +118,20 @@ final class RailModel {
     func move(_ id: String, before target: String?) {
         preferences.railCustomised = true
         var all = slots
-        guard let from = all.firstIndex(where: { if case .item(let i) = $0 { i.id == id } else { false } }) else { return }
+        guard let from = all.firstIndex(where: { if case .item(let i, _) = $0 { i.id == id } else { false } }) else { return }
         let moving = all.remove(at: from)
-        let to = target.flatMap { t in all.firstIndex { if case .item(let i) = $0 { i.id == t } else { false } } } ?? all.count
+        let to = target.flatMap { t in all.firstIndex { if case .item(let i, _) = $0 { i.id == t } else { false } } } ?? all.count
         all.insert(moving, at: to)
         write(all)
     }
 
-    /// The first run with clusters pins the first nine, so ⌘1 ... ⌘9 keep reaching what they reached before the Rail existed
-    /// (DESIGN-MAC section 6.6). Runs once and never refills a Rail the person emptied.
+    /// The first run with clusters pins the first five (⌘1 ... ⌘5, DESIGN-MAC section 6.6). Runs once and never refills a Rail the
+    /// person emptied.
     func prefillOnce() {
         guard !preferences.railPrefilled, !registry.isDemoMode, !registry.clusters.isEmpty else { return }
         preferences.railPrefilled = true
         guard items.isEmpty else { return }
-        write(registry.clusters.prefix(9).map { .item(.cluster($0.id)) })
+        write(registry.clusters.prefix(5).map { .item(.cluster($0.id), raw: nil) })
     }
 
     /// A cluster added later joins the Rail while the Rail still holds fewer than five clusters and the person has not arranged it
@@ -136,10 +145,11 @@ final class RailModel {
         }
     }
 
-    /// What ⌘1 ... ⌘9 reach: the Rail, or the first clusters while the Rail is empty (Demo mode, a Rail not filled yet), as before the Rail.
+    /// What ⌘1 ... ⌘9 reach: the Rail, or the first clusters in Demo mode and while no Rail item is available (an empty Rail, or one
+    /// that holds only removed clusters), as before the Rail existed.
     var shortcutItems: [RailItem] {
         let list = items
-        guard list.isEmpty else { return list }
+        if !registry.isDemoMode, list.contains(where: isAvailable) { return list }
         return registry.clusters.prefix(9).map { RailItem(id: "auto-\($0.id)", kind: .cluster, clusterID: $0.id) }
     }
 
