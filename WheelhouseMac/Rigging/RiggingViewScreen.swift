@@ -54,7 +54,11 @@ struct RiggingViewScreen: View {
         }
         .confirmSheet(Binding(get: { rigging.confirm.pending }, set: { rigging.confirm.pending = $0 }))
         .onAppear { rigging.confirm.hosts += 1 }
-        .onDisappear { rigging.confirm.hosts -= 1 }
+        .onDisappear {
+            rigging.confirm.hosts -= 1
+            if rigging.confirm.hosts <= 0 { rigging.confirm.pending = nil }
+        }
+        .onChange(of: env.lock.isLocked) { _, locked in if locked { rigging.confirm.pending = nil } }
         .accessibilityIdentifier("rigging-view")
     }
 

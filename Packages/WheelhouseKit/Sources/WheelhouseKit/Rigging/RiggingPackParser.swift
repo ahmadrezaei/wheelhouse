@@ -101,11 +101,22 @@ public enum RiggingPackValidator {
             if c.duration != nil, !(allowDuration && hasCondition) { out.append("\(context): “for” is only valid on a condition check in a health rule.") }
         }
 
+        func notSecret(_ k: RiggingPack.KindMatch, _ ctx: String) {
+            if k.group.isEmpty, k.kind.lowercased() == "secret" { out.append("\(ctx): packs cannot read Secrets.") }
+        }
+        func clean(_ text: String?, _ ctx: String) {
+            if let text, text.unicodeScalars.contains(where: RiggingTemplate.isUnsafe) { out.append("\(ctx): contains a control, hidden or bidirectional character.") }
+        }
+        clean(pack.metadata.name, "metadata"); clean(pack.metadata.description, "metadata description"); clean(pack.metadata.author, "metadata author")
         var ids = Set<String>()
         for (i, view) in pack.allViews.enumerated() {
             let ctx = "views[\(i)] (\(view.match.kind))"
             if !ids.insert(view.viewID).inserted { out.append("\(ctx): the view id “\(view.viewID)” is used twice; give each view an “id”.") }
-            for c in view.columns ?? [] { path(c.path, "\(ctx) column “\(c.name)”") }
+            notSecret(view.match, ctx)
+            clean(view.title, ctx)
+            for c in view.columns ?? [] { path(c.path, "\(ctx) column “\(c.name)”"); clean(c.name, ctx) }
+            for r in view.related ?? [] { clean(r.label, ctx) }
+            for s in view.status ?? [] { clean(s.label, ctx) }
             var seen = Set<String>()
             for f in view.fields ?? [] {
                 path(f.path, "\(ctx) field “\(f.name)”")
@@ -121,8 +132,12 @@ public enum RiggingPackValidator {
         for (i, group) in pack.allSidebar.enumerated() where group.title == nil && group.kinds == nil {
             out.append("sidebar[\(i)]: give a “title” or “kinds”.")
         }
+        var commandIDs = Set<String>(), ruleIDs = Set<String>()
         for (i, command) in pack.allCommands.enumerated() {
             let ctx = "commands[\(i)] “\(command.title)”"
+            clean(command.title, ctx)
+            if let f = command.for { notSecret(f, ctx) }
+            if !commandIDs.insert(command.id).inserted { out.append("\(ctx): another command has the same title for the same kind.") }
             let objectVars: Set<String> = command.for.map { Set(["name", "namespace", "cluster", "kind"]).union(pack.fields(for: $0).map(\.name)) } ?? ["cluster"]
             switch (command.terminal, command.portForward) {
             case (.some(let t), nil): template(t, mode: .shell, allowed: objectVars, ctx)
@@ -141,6 +156,8 @@ public enum RiggingPackValidator {
         }
         for (i, rule) in pack.allHealthRules.enumerated() {
             let ctx = "healthRules[\(i)] (\(rule.for.kind))"
+            notSecret(rule.for, ctx)
+            if !ruleIDs.insert(rule.id).inserted { out.append("\(ctx): another health rule has the same kind and message.") }
             condition(rule.when, allowDuration: true, ctx)
             if let d = rule.when.duration, durationSeconds(d) == nil { out.append("\(ctx): “\(d)” is not a duration such as 30m, 1h or 2d.") }
             template(rule.message, mode: .plain, allowed: Set(["name", "namespace", "cluster", "kind"]).union(pack.fields(for: rule.for).map(\.name)), "\(ctx) message")

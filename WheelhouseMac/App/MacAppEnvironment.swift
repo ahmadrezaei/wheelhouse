@@ -246,6 +246,7 @@ final class MacAppEnvironment {
         beacon.maintainHelperLink()
         beacon.follow(lock: lock)
         // end M12
+        rigging.isLocked = { [lock] in lock.isLocked }
         rigging.start()      // M13: pack health rules, sidebar layouts and resource-menu commands
         gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
         // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.

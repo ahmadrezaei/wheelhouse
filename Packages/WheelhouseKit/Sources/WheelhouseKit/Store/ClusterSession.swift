@@ -200,6 +200,7 @@ public final class ClusterSession: Identifiable {
         var h = HealthEvaluator.evaluate(snapshot)
         if let healthAugmenter {
             let extra = await healthAugmenter(self)
+            if Task.isCancelled { return health ?? ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: "Timed out") }
             if !extra.isEmpty {
                 h.items = (h.items + extra).sorted { a, b in
                     a.severity != b.severity ? a.severity > b.severity : (a.since ?? .distantPast) > (b.since ?? .distantPast)

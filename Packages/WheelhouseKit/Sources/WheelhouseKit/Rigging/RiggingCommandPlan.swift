@@ -72,6 +72,7 @@ public enum RiggingDeclaration {
         if !pack.allViews.isEmpty {
             out.append(Section(title: "Reads these kinds (through the cluster connection you already use)", lines: pack.allViews.map { view in
                 var text = "\(view.title ?? view.match.kind): \(kind(view.match))"
+                if let f = view.fields, !f.isEmpty { text += " · values for commands: " + f.map { "\($0.name) = \($0.path)" }.joined(separator: ", ") }
                 if let c = view.columns, !c.isEmpty { text += " · columns: " + c.map(\.name).joined(separator: ", ") }
                 if let r = view.related, !r.isEmpty { text += " · related: " + r.map(\.label).joined(separator: ", ") }
                 return text
@@ -91,7 +92,7 @@ public enum RiggingDeclaration {
             }))
         }
         if !pack.allHealthRules.isEmpty {
-            out.append(Section(title: "Adds health rules to Alerts", lines: pack.allHealthRules.map { "\(kind($0.for)): \($0.message) (\($0.tone.rawValue))" }))
+            out.append(Section(title: "Adds health rules to Alerts", lines: pack.allHealthRules.map { "reads \(kind($0.for)) (a list, about every five minutes): \($0.message) (\($0.tone.rawValue))" }))
         }
         out.append(Section(title: "Cannot", lines: ["Run code, make network calls, read files, or change anything in a cluster."]))
         return out

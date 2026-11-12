@@ -91,11 +91,16 @@ public struct RiggingTemplate: Hashable, Sendable {
     /// What a shell-mode value may be made of.
     static let plainValue = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/@=+,%-".unicodeScalars)
 
+    /// Commands that run or re-parse their arguments; a value must not reach them.
+    private static let wrappers: Set<String> = ["env", "sudo", "exec", "eval", "command", "builtin", "xargs", "sh", "bash", "zsh", "fish", "dash", "ksh", "ssh", "nohup", "time", "watch", "su", "doas", "timeout", "nice"]
+
     private static func checkShell(_ parts: [Part]) throws -> [Part] {
         enum State { case plain, single, double }
         var state = State.plain
         var word = ""                 // the current word so far; "q" stands for a quoted piece, "v" for a variable
         var words = 0                 // words started since the start or the last `|`
+        var assignments = 0           // leading NAME=value words of the current command (they are not the command)
+        var commandWord: String?      // the command's own word, once complete
         var previous: Unicode.Scalar?
         var afterVariable = false
         var out: [Part] = []
@@ -111,8 +116,12 @@ public struct RiggingTemplate: Hashable, Sendable {
                         if ch == "'" { startWord(); state = .single; word += "q" }
                         else if ch == "\"" { startWord(); state = .double; word += "q" }
                         else if plainLiteral.contains(ch) {
-                            if ch == " " { word = "" }
-                            else if ch == "|" { word = ""; words = 0 }
+                            if ch == " " {
+                                if word.range(of: "^[A-Za-z_][A-Za-z0-9_]*=", options: .regularExpression) != nil, words == assignments + 1 { assignments += 1 }
+                                else if words == assignments + 1, !word.isEmpty { commandWord = word }
+                                word = ""
+                            }
+                            else if ch == "|" { word = ""; words = 0; assignments = 0; commandWord = nil }
                             else { startWord(); word.unicodeScalars.append(ch) }
                         } else {
                             throw TemplateError(message: "The character “\(ch)” is not allowed in the unquoted text of a terminal template; put it inside quotes.")
@@ -133,7 +142,11 @@ public struct RiggingTemplate: Hashable, Sendable {
                 guard let before = previous, beforeVariable.contains(before) else {
                     throw TemplateError(message: "“{{\(name)}}” must follow a space or a word character, not a quote, an operator or the start of the command.")
                 }
-                guard words >= (before == " " ? 1 : 2) else { throw TemplateError(message: "“{{\(name)}}” cannot be the command itself.") }
+                if let command = commandWord ?? (words == assignments + 1 && before != " " ? word : nil),
+                   Self.wrappers.contains((command as NSString).lastPathComponent) {
+                    throw TemplateError(message: "“{{\(name)}}” cannot be an argument of “\(command)”, which runs what it is given.")
+                }
+                guard words - assignments >= (before == " " ? 1 : 2) else { throw TemplateError(message: "“{{\(name)}}” cannot be the command itself.") }
                 if before == "=", word == "=" { throw TemplateError(message: "“{{\(name)}}” cannot follow a leading “=”.") }
                 if word.range(of: "^[A-Za-z_][A-Za-z0-9_]*=", options: .regularExpression) != nil {
                     throw TemplateError(message: "“{{\(name)}}” cannot be the value of a variable assignment.")
@@ -207,7 +220,8 @@ public enum RiggingValues {
     /// template that needs it fail to render.
     public static func make(subject: Subject?, cluster: String, fields: [RiggingPack.Field] = [], localPort: Int? = nil) -> [String: String] {
         var out: [String: String] = ["cluster": cluster]
-        if let subject {
+        // Secret objects never feed a template, whatever a pack declares.
+        if let subject, subject.kind?.lowercased() != "secret" {
             if let name = subject.name, KubeNames.isObjectName(name) { out["name"] = name }
             if let ns = subject.namespace, KubeNames.isDNSLabel(ns) { out["namespace"] = ns }
             if let kind = subject.kind, isKindName(kind) { out["kind"] = kind }

@@ -63,6 +63,8 @@ final class RiggingRuntime {
         if let window = NSApp.keyWindow { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
+    @ObservationIgnored var isLocked: @MainActor () -> Bool = { false }
+
     init(store: RiggingStore, registry: ClusterRegistry, workspace: WorkspaceController, activity: any ActivityLogging) {
         self.store = store
         self.registry = registry
@@ -87,12 +89,14 @@ final class RiggingRuntime {
             self?.healthCache = [:]
             self?.workspace.allModels.forEach { $0.sidebarIfCreated?.rebuild() }
         }
+        store.onChange()   // the store loaded before this hook existed
         ResourceRowExtensions.provider = { [weak self] ref, raw in self?.menuActions(for: ref, raw: raw) ?? [] }
     }
 
     // MARK: Kinds
 
     func resourceKind(_ match: RiggingPack.KindMatch, in discovery: DiscoveryInfo?) -> ResourceKind? {
+        if match.group.isEmpty, match.kind.lowercased() == "secret" { return nil }   // packs never read Secrets
         if let known = ResourceKind.builtIn.first(where: { $0.group == match.group && $0.kind == match.kind }) { return known }
         guard let r = discovery?.topLevel.first(where: { ($0.group ?? "") == match.group && $0.kind == match.kind && $0.verbs.contains("list") }), let version = r.version else { return nil }
         return .custom(group: match.group, version: version, kind: match.kind, plural: r.name, namespaced: r.namespaced)
@@ -122,6 +126,17 @@ final class RiggingRuntime {
         case .insert(let text): Task { await insert(text, item: item, subject: subject, cluster: cluster) }
         case .portForward(let forward): requestPortForward(forward, item: item, cluster: cluster)
         }
+    }
+
+    /// The object's JSON from a store that already runs (never creates one), for commands that use a view's fields.
+    private func liveObject(_ ref: ResourceRef) -> JSONValue? {
+        guard let session = registry.session(for: ref.clusterID) else { return nil }
+        for ns in [ref.namespace, nil] {
+            if let store = session.existingUnstructuredStore(kind: ref.kind, namespace: ns), let found = store.items.first(where: { $0.metadata.name == ref.name && $0.metadata.namespace == ref.namespace }) {
+                return found.raw
+            }
+        }
+        return nil
     }
 
     // MARK: Terminal
@@ -154,6 +169,11 @@ final class RiggingRuntime {
 
     func requestPortForward(_ plan: PortForwardPlan, item: RiggingCommandItem, cluster: ClusterConfig) {
         guard let session = registry.session(for: cluster.id) else { return }
+        // The sheet is shown by a pack view. With none on screen and none to open, refuse rather than leave a request waiting.
+        if confirm.hosts == 0, item.pack.allViews.isEmpty {
+            notify("The port forward was not started", "The “\(item.pack.metadata.name)” pack has no view to show the confirmation in.")
+            return
+        }
         confirm.pending = RiggingConfirmations.portForward(plan: plan, pack: item.pack.metadata.name, title: item.command.title, cluster: cluster, session: session,
                                                            activity: activity)
         // A pack view shows the sheet. From Compass or the Rail one is opened for the pack when none is on screen.
@@ -196,7 +216,7 @@ final class RiggingRuntime {
         switch item.kind {
         case .resource:
             guard let ref = item.resource else { return [] }
-            let raw = registry.session(for: ref.clusterID)?.unstructuredStore(kind: ref.kind, namespace: ref.namespace).items.first { $0.metadata.name == ref.name }?.raw
+            let raw = liveObject(ref)
             let subject = RiggingValues.Subject(name: ref.name, namespace: ref.namespace, kind: ref.kind.kind, raw: raw)
             commands(for: Self.match(for: ref.kind)).forEach { add($0, subject: subject) }
         case .cluster: globalCommands.forEach { add($0, subject: nil) }
@@ -215,11 +235,11 @@ final class RiggingRuntime {
         var out: [CompassCommand] = []
         func add(_ item: RiggingCommandItem, subject: RiggingValues.Subject?) {
             out.append(CompassCommand(id: "rigging.\(item.id).\(clusterID)", title: item.command.title, menuPath: "Rigging ▸ \(item.pack.metadata.name)", shortcut: nil,
-                                      symbol: "puzzlepiece.extension", isEnabled: { true }, perform: { [weak self] in self?.perform(item, subject: subject, cluster: cluster) }))
+                                      symbol: "puzzlepiece.extension", isEnabled: { [weak self] in !(self?.isLocked() ?? false) }, perform: { [weak self] in self?.perform(item, subject: subject, cluster: cluster) }))
         }
         for item in globalCommands { add(item, subject: nil) }
         if let ref = destination {
-            let raw = registry.session(for: ref.clusterID)?.unstructuredStore(kind: ref.kind, namespace: ref.namespace).items.first { $0.metadata.name == ref.name }?.raw
+            let raw = liveObject(ref)
             let subject = RiggingValues.Subject(name: ref.name, namespace: ref.namespace, kind: ref.kind.kind, raw: raw)
             for item in commands(for: Self.match(for: ref.kind)) { add(item, subject: subject) }
         }
@@ -238,12 +258,19 @@ final class RiggingRuntime {
         guard let discovery = session.discovery else { return [] }
         var lists: [String: [JSONValue]] = [:]
         var items: [AttentionItem] = []
+        let revision = store.revision
+        var complete = true
         for pack in packs {
             for rule in pack.allHealthRules {
                 guard let kind = resourceKind(rule.for, in: discovery) else { continue }
                 if lists[kind.id] == nil {
-                    let raw = try? await session.client.listRaw(kind, namespace: nil, options: ListOptions(limit: 500))
-                    lists[kind.id] = raw?["items"]?.arrayValue ?? []
+                    do {
+                        let raw = try await session.client.listRaw(kind, namespace: nil, options: ListOptions(limit: 500))
+                        lists[kind.id] = raw["items"]?.arrayValue ?? []
+                    } catch {
+                        complete = false
+                        lists[kind.id] = []
+                    }
                 }
                 for f in RiggingEngine.findings(of: rule, pack: pack, objects: lists[kind.id] ?? [], cluster: session.config.name) {
                     items.append(AttentionItem(id: "rigging/\(pack.metadata.name)/\(session.id)/\(kind.id)/\(f.namespace ?? "-")/\(f.name)/\(rule.id)", clusterID: session.id,
@@ -253,7 +280,7 @@ final class RiggingRuntime {
                 }
             }
         }
-        healthCache[session.id] = (Date(), store.revision, items)
+        if complete, !Task.isCancelled, revision == store.revision { healthCache[session.id] = (Date(), revision, items) }
         return items
     }
 }
