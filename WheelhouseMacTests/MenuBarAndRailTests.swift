@@ -203,6 +203,66 @@ struct MenuBarAndRailTests {
         #expect(await index.search(.parse("web")).filter { $0.kind == .pod }.count == 2)         // the failed refresh left them
     }
 
+    @Test func theIndexerStartsOverAfterACriticalWarningEvenWithAWindowVisible() async {
+        let f = fixture()
+        let periodic = PeriodicTaskRegistry()
+        f.mac.compassIndexedClusterIDs = Set(f.registry.clusters.map(\.id))
+        let indexer = CompassMetadataIndexer(index: CompassIndex(), registry: f.registry, mac: f.mac, periodicRegistry: periodic)
+        indexer.memoryPressure(critical: true, focused: [])
+        await indexer.tick()
+        #expect(indexer.refreshes == 0 && indexer.stopped)
+        await indexer.tick()                                        // one scheduled interval later
+        #expect(!indexer.stopped && indexer.refreshes == 1)
+    }
+
+    @Test func removedOptedOutAndDemoClustersLeaveTheIndex() async throws {
+        let f = fixture(environments: [.development, .staging])
+        let a = try #require(f.ids[.development]), b = try #require(f.ids[.staging])
+        let index = CompassIndex()
+        let periodic = PeriodicTaskRegistry()
+        f.mac.compassIndexedClusterIDs = [a, b]
+        let indexer = CompassMetadataIndexer(index: index, registry: f.registry, mac: f.mac, periodicRegistry: periodic)
+        await index.replace(cluster: "removed-cluster", kind: .secret, items: [CompassMetadataItem(name: "old-secret", namespace: "n")])
+        await indexer.refresh()
+        await index.replace(cluster: a, kind: .secret, items: [CompassMetadataItem(name: "a-secret", namespace: "n")])
+        #expect(!(await index.indexedClusters).contains("removed-cluster"))
+        f.mac.compassIndexedClusterIDs = [b]                        // a opts out
+        await indexer.refresh()
+        #expect(await index.search(.parse("a-secret")).isEmpty)
+        f.registry.enterDemoMode(persist: false)
+        await indexer.refresh()
+        #expect(await index.indexedClusters.isEmpty)
+    }
+
+    @Test func commandNumbersReachTheFirstClustersWhileTheRailIsEmpty() throws {
+        let f = fixture()
+        #expect(f.rail.items.isEmpty && f.rail.item(number: 2)?.clusterID == f.registry.clusters[1].id && f.rail.shortcutItems.count == 3)
+        f.rail.pin(.cluster(f.registry.clusters[2].id))
+        #expect(f.rail.item(number: 1)?.clusterID == f.registry.clusters[2].id && f.rail.item(number: 2) == nil)
+    }
+
+    @Test func aLinkWhileLockedWithNoWindowAsksForAWindowThatShowsTheLockScreen() {
+        let f = fixture()
+        var asked = 0
+        f.controller.needsWindow = { asked += 1 }
+        f.controller.isLocked = { true }
+        f.controller.handle(url: URL(string: "wheelhouse://cluster/x")!)
+        #expect(asked == 1 && f.controller.pendingURL != nil)
+    }
+
+    @Test func aRecoveredClusterIsEvaluatedAtTheNextMenuBarCheck() async {
+        let f = fixture(environments: [.production])
+        let periodic = PeriodicTaskRegistry()
+        periodic.setWindowsVisible(false)
+        let box = ClockBox(Date(timeIntervalSince1970: 1_800_000_000))
+        let monitor = MacFleetMonitor(registry: f.registry, preferences: AppPreferences(defaults: defaults()), mac: f.mac, railClusters: { [] },
+                                      process: { _, _ in }, now: { box.value }, alertSettings: { AlertSettings() }, periodicRegistry: periodic)
+        await monitor.tick()                                        // evaluated once, healthy
+        #expect(monitor.deepChecks == 1)
+        let session = f.registry.session(for: f.registry.clusters[0].id)
+        #expect(session?.health?.isReachable == true)
+    }
+
     // MARK: Activation policy
 
     @Test func theActivationPolicyIsAccessoryOnlyWithNoWindowAndKeepRunning() {

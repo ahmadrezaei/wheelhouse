@@ -25,6 +25,9 @@ final class CompassMetadataIndexer {
     private var task: PeriodicTask?
     private var skipNext = false
     private(set) var stopped = false
+    private var stoppedTicks = 0
+    /// Clusters indexed with the metadata list, so an opt-out can drop what that list added.
+    private var metadataIndexed: Set<ClusterID> = []
     private(set) var refreshes = 0
 
     init(index: CompassIndex, registry: ClusterRegistry, mac: MacPreferences, onBattery: @escaping @MainActor () -> Bool = { false },
@@ -53,18 +56,27 @@ final class CompassMetadataIndexer {
 
     /// One scheduled refresh. On battery every second tick is skipped (10 minutes).
     func tick() async {
-        guard !stopped, periodicRegistry.windowsVisible else { return }
+        guard periodicRegistry.windowsVisible else { return }
+        // After a critical memory warning the indexer waits one scheduled interval, then starts over (a window stayed visible).
+        if stopped { stoppedTicks += 1; guard stoppedTicks >= 2 else { return }; stopped = false }
         if onBattery() { skipNext.toggle(); if skipNext { return } } else { skipNext = false }
         await refresh()
     }
 
     /// Refreshes every cluster now (the first run after launch, and when a cluster opts in).
     func refresh() async {
-        guard !stopped, !registry.isDemoMode else { return }
+        guard !stopped else { return }
+        // Demo mode shows sample data only: nothing of a real cluster stays searchable.
+        guard !registry.isDemoMode else { metadataIndexed = []; await index.removeAll(); return }
         let opted = mac.compassIndexedClusterIDs
+        // A removed cluster, or one that opted out, leaves the index (its Secret and ConfigMap names included).
+        let present = Set(registry.clusters.map(\.id))
+        for gone in await index.indexedClusters where !present.contains(gone) { await index.drop(cluster: gone) }
+        for out in metadataIndexed where !opted.contains(out) { await index.drop(cluster: out); metadataIndexed.remove(out) }
         for cluster in registry.clusters {
             guard let session = registry.session(for: cluster.id) else { continue }
             if opted.contains(cluster.id) {
+                metadataIndexed.insert(cluster.id)
                 let client = session.client
                 await refreshMetadata(cluster: cluster.id, fetch: { kind, token, limit in try await client.listCompassPage(kind: kind, namespace: nil, continueToken: token, limit: limit) })
             } else { await indexLive(cluster: cluster.id, session: session) }
@@ -121,6 +133,7 @@ final class CompassMetadataIndexer {
     func memoryPressure(critical: Bool, focused: Set<ClusterID>) {
         if critical {
             stopped = true
+            stoppedTicks = 0
             Task { await index.removeAll() }
         } else {
             Task { await index.keepOnly(focused) }

@@ -42,6 +42,8 @@ struct CrowsNestPanel: View {
                 Label("Locked", systemImage: "lock.fill").font(.headline).frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 24)
                     .accessibilityIdentifier("crowsnest.locked")
                 Divider()
+                // A window opens with the lock screen on it: menu-bar mode has no other way back to the unlock.
+                Button("Unlock…") { env.showWorkspace() }.buttonStyle(.plain).accessibilityIdentifier("crowsnest.unlock")
                 Button("Quit Wheelhouse") { NSApp.terminate(nil) }.buttonStyle(.plain)
             } else {
                 header

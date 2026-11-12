@@ -136,9 +136,16 @@ final class RailModel {
         }
     }
 
+    /// What ⌘1 ... ⌘9 reach: the Rail, or the first clusters while the Rail is empty (Demo mode, a Rail not filled yet), as before the Rail.
+    var shortcutItems: [RailItem] {
+        let list = items
+        guard list.isEmpty else { return list }
+        return registry.clusters.prefix(9).map { RailItem(id: "auto-\($0.id)", kind: .cluster, clusterID: $0.id) }
+    }
+
     /// Rail item `number` (1-based) for ⌘1 ... ⌘9.
     func item(number: Int) -> RailItem? {
-        let list = items
+        let list = shortcutItems
         return list.indices.contains(number - 1) ? list[number - 1] : nil
     }
 }

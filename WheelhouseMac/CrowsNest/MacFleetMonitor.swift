@@ -36,6 +36,7 @@ final class MacFleetMonitor {
     static let interval: TimeInterval = 60
     static let tolerance: TimeInterval = 30
     static let staleAfter: TimeInterval = 45
+    static let nonProductionProbeEvery = 3
     static let deepInterval: TimeInterval = 900
     static let deepIntervalProduction: TimeInterval = 300
 
@@ -56,6 +57,7 @@ final class MacFleetMonitor {
     @ObservationIgnored private let alertSettings: @Sendable () -> AlertSettings
     /// Called after every check (development builds publish the periodic-work report for the performance sampler).
     @ObservationIgnored var didTick: (@MainActor () -> Void)?
+    @ObservationIgnored private var menuBarTicks = 0
     @ObservationIgnored private var deepChecked: [ClusterID: Date] = [:]
     @ObservationIgnored private var task: PeriodicTask?
     @ObservationIgnored private let periodicRegistry: PeriodicTaskRegistry
@@ -105,14 +107,19 @@ final class MacFleetMonitor {
     func pause(for interval: TimeInterval = 3_600) { pausedUntil = now().addingTimeInterval(interval) }
     func resume() { pausedUntil = nil }
 
-    /// With no window open a check is a probe of every watched cluster (`/version`, a few hundred bytes, and an unreachable cluster is
+    /// With no window open a check is a probe of the watched clusters (`/version`, a few hundred bytes; Production every check, the others every third, and an unreachable cluster is
     /// recorded at once). The full health evaluation, which lists pods, nodes, workloads, jobs and events, runs per cluster every
     /// `deepInterval` (5 minutes for Production, 15 for the others), one cluster per check and the never-checked ones first (so the first
     /// minutes after launch do not decode every cluster's lists at once): a fixture cluster with 550 pods and 430 jobs answers 3.5 MB of pods alone, and that list every minute is most of
     /// the CPU and the memory peak a menu-bar-only app is allowed (hidden budget 0.1 % and 100 MB).
     private func menuBarCheck(_ sessions: [ClusterSession], date: Date) async {
-        for s in sessions {
-            if await s.connect().isFailed {
+        menuBarTicks += 1
+        // Production is probed every check; the others every third (3 minutes): with no window the whole budget is 0.1 % CPU.
+        let probing = sessions.filter { $0.config.environment == .production || menuBarTicks % Self.nonProductionProbeEvery == 1 || deepChecked[$0.id] == nil }
+        for s in probing {
+            // A failed probe, or a good one for a cluster still recorded as unreachable or stale, evaluates it now: the glyph and the
+            // "unreachable" alert recover at the next check, not at the next full evaluation.
+            if await s.connect().isFailed || s.health?.isReachable == false || s.health?.isStale == true {
                 _ = await s.refreshHealth()
                 deepChecked[s.id] = date
                 deepChecks += 1

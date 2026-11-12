@@ -195,7 +195,7 @@ final class WorkspaceController {
     /// active window's focused pane. Links never open a terminal or start a mutation (DESIGN-MAC section 3.5).
     func handle(url: URL) {
         // The lock comes first, for every link (a Station link too): it waits and replays after unlock.
-        guard !isLocked() else { pendingURL = url; return }
+        guard !isLocked() else { pendingURL = url; if activeModel == nil { needsWindow?() }; return }
         if url.scheme == "wheelhouse", url.host == "station" {
             let id = url.pathComponents.dropFirst().first ?? ""
             if let station = store.stations.first(where: { $0.id.rawValue == id }), confirmsLinkedStation(station) { open(station: station, fromLink: true) }

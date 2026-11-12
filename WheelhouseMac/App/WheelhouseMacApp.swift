@@ -58,7 +58,7 @@ struct WheelhouseMacApp: App {
         MenuBarExtra(isInserted: Binding(get: { env.macPreferences.showsCrowsNest }, set: { inserted in
             guard !inserted, env.macPreferences.showsCrowsNest else { return }
             env.macPreferences.showsCrowsNest = false
-            env.showWorkspace()
+            Task { @MainActor in env.showWorkspace() }
         })) {
             CrowsNestPanel(env: env)
         } label: {
@@ -139,6 +139,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
                 env.importer.presentOpenPanel(whileLocked: env.lock.isLocked)
             } else if env.lock.isLocked {
                 env.workspace.pendingURL = url      // replayed after unlock
+                if env.workspace.activeModel == nil { env.showWorkspace() }   // menu-bar mode: a window with the lock screen
             } else {
                 env.workspace.handle(url: url)
             }

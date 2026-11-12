@@ -22,7 +22,7 @@ struct MenuBarSettingsSection: View {
             Toggle("Show the Rail (⇧⌘B)", isOn: $mac.showsRail)
             loginToggle
         } header: { Text("Menu bar and Rail") } footer: {
-            Text("Crow's Nest checks Production, Staging, Rail and watched clusters once a minute, including with every window closed. It never starts a watch.")
+            Text("Crow's Nest checks Production, Staging, Rail and watched clusters once a minute. With every window closed a check is a short probe, and the full evaluation (the notifications) runs every 5 minutes for Production and every 15 for the others. It never starts a watch.")
         }
         if !registry.clusters.isEmpty {
             Section {
@@ -51,8 +51,7 @@ struct MenuBarSettingsSection: View {
         let item = env.loginItem
         let status = item.status
         Toggle("Open Wheelhouse at login", isOn: Binding(get: { env.macPreferences.opensAtLogin }, set: { on in
-            env.macPreferences.opensAtLogin = on
-            do { try item.setEnabled(on); loginError = nil } catch { loginError = error.localizedDescription }
+            do { try item.setEnabled(on); env.macPreferences.opensAtLogin = on; loginError = nil } catch { loginError = error.localizedDescription }
         }))
         .disabled(status == .unavailable)
         if status == .unavailable { Text("Not available in development builds.").font(.caption).foregroundStyle(.secondary) }

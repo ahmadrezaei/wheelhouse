@@ -93,7 +93,7 @@ struct MacCommands: Commands {
                 Divider()
                 Button("Fleet") { go(.fleet) }.keyboardShortcut("0").disabled(!hasWindow)
                 // M4b: ⌘1 ... ⌘9 are Rail items 1 to 9 (the Rail is pre-filled with the first clusters, so these still reach them).
-                ForEach(Array(env.rail.items.prefix(9).enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(env.rail.shortcutItems.prefix(9).enumerated()), id: \.element.id) { index, item in
                     Button("Rail Item \(index + 1): \(env.rail.title(for: item))") {
                         if let m = model { env.rail.activate(item, in: m, placement: .here, controller: workspace) }
                     }
