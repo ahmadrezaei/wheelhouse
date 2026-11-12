@@ -45,7 +45,7 @@ struct MacClusterWidget: Widget {
                 .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
         }
         .configurationDisplayName("Cluster")
-        .description("Health, CPU, memory and failing pods for one cluster.")
+        .description("Health, nodes and failing pods for one cluster.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }

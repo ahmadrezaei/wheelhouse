@@ -19,7 +19,7 @@ struct WidgetSnapshotWriterTests {
 
     private func writer(_ box: Box) -> MacWidgetSnapshotWriter {
         MacWidgetSnapshotWriter(
-            make: { var s = box.snapshot; s.generatedAt = box.date; return s },
+            make: { _ in var s = box.snapshot; s.generatedAt = box.date; return s },
             write: { if box.failWrites { throw SinkError() }; box.written.append($0) },
             reload: { box.reloads += 1 },
             now: { box.date })
@@ -34,14 +34,72 @@ struct WidgetSnapshotWriterTests {
         #expect(box.reloads == 1)
     }
 
-    @Test("An unchanged fleet is not written again, even long after the interval")
-    func unchangedIsSkipped() {
+    @Test("An unchanged fleet is not written again inside the heartbeat")
+    func unchangedSkippedWithinHeartbeat() {
         let box = Box()
         let w = writer(box)
         w.consider()
-        box.date += 3_600
+        box.date += MacWidgetSnapshotWriter.heartbeat - 60
         #expect(!w.consider())
         #expect(box.written.count == 1)
+    }
+
+    @Test("An unchanged fleet is written again once the heartbeat is due, so the widget never goes stale")
+    func heartbeatWrites() {
+        let box = Box()
+        let w = writer(box)
+        w.consider()
+        box.date += MacWidgetSnapshotWriter.heartbeat
+        #expect(w.consider())
+        #expect(box.written.count == 2)
+        #expect(box.written[1].generatedAt > box.written[0].generatedAt)
+    }
+
+    @Test("A restart count changing alone is not a change")
+    func restartsIgnored() {
+        let box = Box()
+        box.snapshot.clusters[0].failingPodList = [.init(name: "api", namespace: "shop", reason: "CrashLoopBackOff", restarts: 3)]
+        let w = writer(box)
+        w.consider()
+        box.snapshot.clusters[0].failingPodList[0].restarts = 9
+        box.date += MacWidgetSnapshotWriter.minimumInterval
+        #expect(!w.consider())
+    }
+
+    @Test("Force skips the five-minute floor but never writes unchanged content")
+    func forceSkipsFloorOnly() {
+        let box = Box()
+        let w = writer(box)
+        w.consider()
+        box.date += 10
+        #expect(!w.consider(force: true))
+        box.snapshot.clusters = []
+        #expect(w.consider(force: true))
+        #expect(box.written.last?.clusters.isEmpty == true)
+    }
+
+    @Test("Demo mode writes an empty snapshot, never the demo fleet")
+    func demoWritesEmpty() {
+        let box = Box()
+        box.snapshot.isDemo = true
+        let w = writer(box)
+        #expect(w.consider())
+        #expect(box.written[0].clusters.isEmpty)
+        #expect(!box.written[0].isDemo)
+    }
+
+    @Test("The writer is handed the last written snapshot as the previous one")
+    func previousPassedBack() {
+        let box = Box()
+        var seen: [FleetSnapshot?] = []
+        let w = MacWidgetSnapshotWriter(make: { previous in seen.append(previous); return box.snapshot }, write: { box.written.append($0) },
+                                        reload: {}, now: { box.date })
+        w.consider()
+        box.snapshot.clusters[0].status = .critical
+        box.date += MacWidgetSnapshotWriter.minimumInterval
+        w.consider()
+        #expect(seen[0] == nil)
+        #expect(seen[1]?.clusters.first?.status == .healthy)
     }
 
     @Test("A change inside five minutes waits, then goes out at the first check after the interval")
@@ -103,12 +161,25 @@ struct WidgetSnapshotWriterTests {
 
     @Test("The alert monitor reports every check to the writer hook")
     func monitorHook() async {
-        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(),
-                                       defaults: UserDefaults(suiteName: "wh.widget.tests") ?? .standard)
-        let monitor = MacAlertMonitor(registry: registry, preferences: AppPreferences(defaults: UserDefaults(suiteName: "wh.widget.tests") ?? .standard))
+        let suite = "wh.widget.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore(), defaults: defaults)
+        let monitor = MacAlertMonitor(registry: registry, preferences: AppPreferences(defaults: defaults))
         var checks = 0
         monitor.didCheck = { checks += 1 }
         await monitor.tick()
         #expect(checks == 1)
+    }
+
+    @Test("Crow's Nest checks reach the writer, and the perf report publishes only when the gate is active")
+    func fleetTickWiring() {
+        let env = MacAppEnvironment.live()
+        let box = Box()
+        var published = 0
+        env.wireFleetTick(snapshots: writer(box), publish: { published += 1 })
+        env.fleet.didTick?()
+        #expect(box.written.count == 1)
+        #expect(published == (env.gateActive ? 1 : 0))
     }
 }

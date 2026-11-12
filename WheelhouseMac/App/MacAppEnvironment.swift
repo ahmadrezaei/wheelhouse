@@ -100,6 +100,11 @@ final class MacAppEnvironment {
         self.widgetSnapshots = MacWidgetSnapshotWriter.live(registry: registry)
         let widgetSnapshots = self.widgetSnapshots
         self.alerts.didCheck = { widgetSnapshots.consider() }
+        // A cluster removed or changed, or Demo mode toggled: write at once (never the demo fleet), without waiting for a check.
+        // Deferred one turn: the registry posts this before it flips its own state.
+        NotificationCenter.default.addObserver(forName: ClusterEvents.invalidated, object: nil, queue: .main) { _ in
+            Task { @MainActor in widgetSnapshots.consider(force: true) }
+        }
         // end M14a
         self.activity = activity
         self.workspace = WorkspaceController(store: workspaceStore, registry: registry, activity: activity,
@@ -291,8 +296,7 @@ final class MacAppEnvironment {
         energy.windowsBecameVisible = { [unowned self] in indexer.resumeIfStopped() }
         indexer.start()
         // M14a: Crow's Nest checks feed the widget snapshot too (the writer limits itself to a change, at most every 5 minutes).
-        let widgetSnapshots = widgetSnapshots, publishReport = gateActive
-        fleet.didTick = { widgetSnapshots.consider(); if publishReport { PeriodicReport.publish(.shared) } }
+        wireFleetTick()
         // end M14a
         rail.prefillOnce()
         applyMenuBarPreferences()
@@ -315,6 +319,13 @@ final class MacAppEnvironment {
         }
         Task { await indexer.prune() }
     }
+
+    // M14a: Crow's Nest checks feed the widget snapshot; the perf report still publishes only in a development build.
+    func wireFleetTick(snapshots: MacWidgetSnapshotWriter? = nil, publish: @escaping @MainActor () -> Void = { PeriodicReport.publish(.shared) }) {
+        let widgetSnapshots = snapshots ?? widgetSnapshots, publishReport = gateActive
+        fleet.didTick = { widgetSnapshots.consider(); if publishReport { publish() } }
+    }
+    // end M14a
 
     /// The menu bar item or "keep running" changed: Crow's Nest checks replace the alert monitor while the item is on, and the
     /// activation policy follows.
