@@ -58,6 +58,8 @@ struct MacCommands: Commands {
                 Button("Close Tab") { if let m = model { m.closeTab(m.selectedTab.id) } }.keyboardShortcut("w", modifiers: [.command, .option]).disabled(!hasWindow)
                 Divider()
                 Button("Add Cluster with Token…") { commandRouter?.push(.addCluster) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!hasWindow)
+                // Landfall (M10 follow-up): opens the cloud import screen in a new tab. Off while locked with the rest of this group.
+                Button("Add from Cloud…") { model?.openInNewTab(.landfall) }.disabled(!hasWindow)
                 Button("Import File…") { env.importer.presentOpenPanel(whileLocked: env.lock.isLocked) }
                 Button("Create from YAML…") {
                     if let id = focusedCluster?.id { commandRouter?.push(.createYAML(id, namespace: model?.focusedPane?.context.namespace ?? registry.namespace(for: id))) }

@@ -14,6 +14,7 @@ final class RedirectingProtocol: URLProtocol, @unchecked Sendable {
             let target = URLRequest(url: URL(string: "http://\(url.host()!):6443/version")!)
             let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": target.url!.absoluteString])!
             client?.urlProtocol(self, wasRedirectedTo: target, redirectResponse: response)
+            refusedRedirectEnds(response)
             return
         }
         if url.host()?.hasPrefix("redirecting-") == true {
@@ -21,6 +22,7 @@ final class RedirectingProtocol: URLProtocol, @unchecked Sendable {
             target.httpMethod = "GET"
             let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": "https://elsewhere.test/version"])!
             client?.urlProtocol(self, wasRedirectedTo: target, redirectResponse: response)
+            refusedRedirectEnds(response)
             return
         }
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
@@ -29,6 +31,14 @@ final class RedirectingProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+
+    /// When the session refuses a redirect the loading system does not end the load: the protocol must deliver the redirect response
+    /// itself and finish. Without this a refused redirect hangs until the request times out (30 s), and the test passed or failed on
+    /// that timeout. When the redirect IS followed the system stops this protocol first, so these calls are ignored.
+    private func refusedRedirectEnds(_ response: HTTPURLResponse) {
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
 }
 
 @Suite("Desktop host gate in LiveKubeClient")

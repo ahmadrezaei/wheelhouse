@@ -37,13 +37,15 @@ struct SubprocessTests {
     }
 
     @Test func noDescriptorsLeakIntoTheChild() async throws {
-        // Hold a descriptor open in this process, then list the child's descriptors.
-        let low = open("/dev/null", O_RDONLY)
-        let fd = fcntl(low, F_DUPFD, 100)          // a high number no child descriptor can coincide with
-        defer { close(fd); close(low) }
+        // Hold two descriptors open in this process at numbers above anything the child legitimately has (0-2 and the descriptor `ls`
+        // itself opens), so the check does not depend on how many descriptors the test runner happens to have.
+        let source = open("/dev/null", O_RDONLY)
+        let mid = fcntl(source, F_DUPFD, 10)
+        let high = fcntl(source, F_DUPFD, 100)
+        defer { close(high); close(mid); close(source) }
         let r = try await Subprocess.run(spec("/bin/sh", ["-c", "ls /dev/fd | sort -n | tr '\\n' ' '"]))
         let fds = r.stdoutString.split(separator: " ").compactMap { Int($0) }
-        #expect(!fds.contains(Int(fd)) && !fds.contains(Int(low)))
+        #expect(!fds.contains(Int(mid)) && !fds.contains(Int(high)))
         #expect(fds.allSatisfy { $0 <= 4 })   // 0, 1, 2 and the descriptor `ls` itself opened
     }
 
@@ -267,7 +269,12 @@ struct EnvironmentBuilderTests {
         #expect(b.build(profile: .azure)["AZURE_CONFIG_DIR"] == "/az")
         #expect(b.build(profile: .azure)["CLOUDSDK_CONFIG"] == nil)
         #expect(b.build(profile: .google)["CLOUDSDK_CONFIG"] == "/gc")
-        let helm = b.build(profile: .helm)
+        // An isolated (Debug or Profile) build takes no HELM_* from the shell; an ordinary build passes the non-credential ones.
+        #expect(b.build(profile: .helm)["HELM_NAMESPACE"] == nil)
+        let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
+        let ordinary = EnvironmentBuilder(snapshot: ShellSnapshot(path: "/usr/bin", kubeconfig: nil, vars: vars, shell: "/bin/zsh"),
+                                          paths: AppPaths(gateActive: false, bundleID: AppPaths.releaseBundleID, home: home), home: home)
+        let helm = ordinary.build(profile: .helm)
         #expect(helm["HELM_NAMESPACE"] == "x")
         #expect(helm["HELM_KUBEAPISERVER"] == nil && helm["HELM_KUBETOKEN"] == nil)
         #expect(b.build(profile: .docker)["DOCKER_CONFIG"] == "/d")
