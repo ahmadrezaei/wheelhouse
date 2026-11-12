@@ -340,6 +340,84 @@ struct FirstMateSessionTests {
         #expect(results.suffix(5).allSatisfy { $0["is_error"] == true && $0["content"]?.stringValue?.contains("budget_reached") == true })
     }
 
+    @Test func aStoppedStreamIsStillChargedForWhatTheApiStarted() async {
+        let daily = DailySpendStore(url: nil)
+        let slow = ReplayTransport([.paced(SSEScript.response(text: Array(repeating: "word ", count: 40), input: 50_000), every: .milliseconds(20))])
+        let session = makeSession(slow, daily: daily)
+        session.send("tell me a lot")
+        for _ in 0..<500 where session.liveText.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        session.stop()
+        await settle(session)
+        #expect(session.state == .idle)
+        #expect(session.spentDollars >= 50_000 * 4 / 1_000_000)      // at least the input counted at message_start
+        #expect(daily.today == session.spentDollars)
+        #expect(session.usage.inputTokens == 50_000)
+    }
+
+    @Test func aMidStreamErrorIsChargedToo() async {
+        let daily = DailySpendStore(url: nil)
+        let session = makeSession(ReplayTransport([.stream(try! AIFixtures.lines("error-mid-stream"))]), daily: daily)
+        session.send("x")
+        await settle(session)
+        guard case .failed = session.state else { Issue.record("expected a failure"); return }
+        #expect(session.spentDollars > 0 && daily.today > 0)
+    }
+
+    @Test func repeatedStopAndResendCannotPassTheCap() async {
+        let transport = ReplayTransport([], then: { _ in .paced(SSEScript.response(text: Array(repeating: "word ", count: 40), input: 100_000), every: .milliseconds(10)) })
+        let session = makeSession(transport, cap: 0.25)
+        for _ in 0..<6 {
+            session.send("again")
+            for _ in 0..<300 where session.liveText.isEmpty && session.isBusy { try? await Task.sleep(for: .milliseconds(10)) }
+            session.stop()
+            await settle(session)
+            if case .blocked = session.state { break }
+        }
+        #expect(session.spentDollars >= 0.25)
+        session.send("one more")
+        await settle(session)
+        guard case .blocked(.conversationCapReached) = session.state else { Issue.record("expected the cap, got \(session.state)"); return }
+    }
+
+    @Test func readToolResultsAreLabelledUntrustedAndErrorsAreNot() async {
+        let source = FakeToolboxSource([testCluster("dev")])
+        let policy = ToolboxPolicy(caller: .firstMate(conversation: "c"))
+        let runner = ToolboxRunner(toolbox: ClusterToolbox(source: source, policy: policy), proposals: ProposalTools(source: source, policy: policy, coordinator: ProposalCoordinator()))
+        let ok = await runner.run(name: "list_resources", input: ["cluster": "dev", "kind": "deployments"])
+        #expect(ok.json["untrusted_cluster_data"] == true && ok.json["cluster"] == "dev" && ok.json["data"] != nil)
+        let bad = await runner.run(name: "list_resources", input: ["cluster": "nope", "kind": "deployments"])
+        #expect(bad.isError && bad.json["untrusted_cluster_data"] == nil)
+        let proposal = await runner.run(name: "propose_command", input: ["cluster": "dev", "command": "kubectl get pods", "reason": "x"])
+        #expect(proposal.json["proposal_id"] != nil && proposal.json["untrusted_cluster_data"] == nil)
+    }
+
+    @Test func theContextNoteFollowsTheClusterPolicy() {
+        let dev = testCluster("dev"), prod = testCluster("prod", env: .production), secret = testCluster("sec")
+        let settings = StaticToolboxSettings(firstMate: [secret.id: .never])
+        let grants = ConversationGrants(conversation: "c")
+        let policy = ToolboxPolicy(caller: .firstMate(conversation: "c"), settings: settings, grants: grants)
+        let object = (kind: "Deployment", name: "web", namespace: Optional("apps"))
+        #expect(FirstMateContext.make(cluster: dev, policy: policy, object: object, namespace: nil)?.description.contains("Deployment web in namespace apps") == true)
+        #expect(FirstMateContext.make(cluster: secret, policy: policy, object: object, namespace: nil) == nil)      // Never: nothing at all
+        let asking = FirstMateContext.make(cluster: prod, policy: policy, object: object, namespace: "apps")?.description ?? ""
+        #expect(asking.contains("prod-name") && asking.contains("production") && !asking.contains("web") && !asking.contains("apps"))
+        grants.grant(prod.id)
+        #expect(FirstMateContext.make(cluster: prod, policy: policy, object: object, namespace: nil)?.description.contains("Deployment web") == true)
+    }
+
+    @Test func proposalIdsContinueAfterAReopenedConversation() throws {
+        let coordinator = ProposalCoordinator()
+        var record = ConversationRecord(id: "c")
+        record.messages = [.user("q"), AIMessage(role: .assistant, content: [["type": "tool_use", "id": "t", "name": "propose_command", "input": [:]]]),
+                           AIMessage(role: .user, content: [AIMessage.toolResult(id: "t", text: #"{"status":"pending_user_review","proposal_id":"p-7"}"#, isError: false)]), .assistant("ok")]
+        let session = FirstMateSession(id: "c", record: record, client: replayClient(ReplayTransport([])), tools: ScriptedTools(), coordinator: coordinator, daily: DailySpendStore(url: nil))
+        #expect(session.items.count > 0)
+        let change = try coordinator.submit(conversation: "c", cluster: "dev", payload: .command("x"), reason: "")
+        #expect(change.id == "p-8")
+        coordinator.continueNumbering(after: ["p-3"])      // never goes backwards
+        #expect(try coordinator.submit(conversation: "c", cluster: "dev", payload: .command("y"), reason: "").id == "p-9")
+    }
+
     @Test func stoppingAStreamRollsBackTheTurn() async {
         let slow = ReplayTransport([.paced(SSEScript.response(text: Array(repeating: "word ", count: 40)), every: .milliseconds(20))])
         let session = makeSession(slow)

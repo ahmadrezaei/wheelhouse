@@ -23,7 +23,7 @@ struct AnthropicClientTests {
         #expect(thinking["type"] == "thinking")
         #expect(thinking["thinking"] == "The pod was OOMKilled.")
         #expect(thinking["signature"] == "c2ln")
-        #expect(updates.withLock { $0 } == [.thinking("The pod was OOMKilled."), .text("The container hit "), .text("its memory limit.")])
+        #expect(updates.withLock { $0 }.filter { if case .usage = $0 { false } else { true } } == [.thinking("The pod was OOMKilled."), .text("The container hit "), .text("its memory limit.")])
         // message_delta usage is cumulative: it replaces the start value.
         #expect(response.finalUsage == AIUsage(inputTokens: 1500, outputTokens: 42, cacheCreationTokens: 2400, cacheReadTokens: 0, model: "claude-opus-5-5"))
     }

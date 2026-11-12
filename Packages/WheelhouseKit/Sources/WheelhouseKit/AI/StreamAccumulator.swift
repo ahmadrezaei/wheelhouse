@@ -46,7 +46,7 @@ public struct StreamAccumulator: Sendable {
             model = message["model"]?.stringValue
             start = AIUsage(json: message["usage"] ?? [:], model: model)
             delta = start
-            return []
+            return [.usage(start)]
         case "content_block_start":
             guard let index = event["index"]?.intValue, let block = event["content_block"] else { return [] }
             blocks[index] = block
@@ -109,6 +109,7 @@ public struct StreamAccumulator: Sendable {
                 if let list = usage["iterations"]?.arrayValue {
                     iterations = list.map { AIUsage(json: $0, model: model) }
                 }
+                return [.usage(delta)]
             }
             return []
         case "message_stop":

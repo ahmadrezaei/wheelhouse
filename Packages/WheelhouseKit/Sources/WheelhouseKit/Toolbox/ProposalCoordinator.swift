@@ -77,6 +77,12 @@ public final class ProposalCoordinator {
         return change
     }
 
+    /// Proposal ids are `p-N`. A reopened conversation already used some, so new ones start after the highest id found in its history.
+    public func continueNumbering(after ids: [String]) {
+        let used = ids.compactMap { $0.hasPrefix("p-") ? Int($0.dropFirst(2)) : nil }.max() ?? 0
+        nextNumber = max(nextNumber, used + 1)
+    }
+
     public func proposal(_ id: String) -> ProposedChange? { proposals.first { $0.id == id } }
     public func proposals(in conversation: String) -> [ProposedChange] { proposals.filter { $0.conversation == conversation } }
     public func openProposals(in conversation: String) -> [ProposedChange] { proposals(in: conversation).filter { $0.state.isOpen } }

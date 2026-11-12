@@ -45,9 +45,9 @@ func tempDirectory(_ name: String = "ai") -> URL {
 
 @MainActor
 func makeSession(_ transport: ReplayTransport, tools: (any FirstMateToolRunning)? = nil, coordinator: ProposalCoordinator = ProposalCoordinator(),
-                 store: ConversationStore? = nil, cap: Double = 2, profile: AIModelChoice = .standard) -> FirstMateSession {
+                 store: ConversationStore? = nil, cap: Double = 2, profile: AIModelChoice = .standard, daily: DailySpendStore = DailySpendStore(url: nil)) -> FirstMateSession {
     FirstMateSession(id: "c", client: replayClient(transport), tools: tools ?? ScriptedTools(), coordinator: coordinator, store: store,
-                     daily: DailySpendStore(url: nil), profile: profile, capDollars: cap)
+                     daily: daily, profile: profile, capDollars: cap)
 }
 
 /// Waits until the session is no longer busy.

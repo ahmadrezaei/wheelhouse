@@ -146,6 +146,8 @@ public enum AIStreamUpdate: Sendable, Equatable {
     case toolUseStarted(id: String, name: String)
     /// The API switched to a fallback model mid-stream; what was shown so far is dropped from the answer.
     case fallback
+    /// Usage so far (cumulative). The session keeps the latest, so a stream that is stopped or fails is still charged.
+    case usage(AIUsage)
 }
 
 /// Sorted-key, unescaped-slash JSON: the same value always encodes to the same bytes, which the prompt cache and "What was sent"

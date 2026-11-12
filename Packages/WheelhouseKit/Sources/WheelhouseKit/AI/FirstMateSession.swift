@@ -21,7 +21,18 @@ public struct ToolboxRunner: FirstMateToolRunning {
 
     public func run(name: String, input: JSONValue) async -> ToolOutput {
         if ProposalTool(rawValue: name) != nil { return await proposals.call(named: name, input: input) }
-        return await toolbox.call(named: name, input: input)
+        return Self.labelled(await toolbox.call(named: name, input: input), input: input)
+    }
+
+    /// Everything a read tool returns is data from a cluster: untrusted, and it may contain instructions. The result says so in the
+    /// same wrapper Beacon uses, so the model sees the label next to the data. Errors are Wheelhouse's own words and stay as they are.
+    static func labelled(_ output: ToolOutput, input: JSONValue) -> ToolOutput {
+        guard !output.isError else { return output }
+        var wrapped: JSONValue = ["untrusted_cluster_data": true, "data": output.json]
+        if let cluster = input["cluster"]?.stringValue { wrapped["cluster"] = .string(cluster) }
+        var out = output
+        out.json = wrapped
+        return out
     }
 }
 
@@ -29,6 +40,21 @@ public struct ToolboxRunner: FirstMateToolRunning {
 public struct FirstMateContext: Sendable, Equatable {
     public var description: String
     public init(description: String) { self.description = description }
+
+    /// The sentence for what the person is looking at, after the cluster policy: a cluster set to Never gives no context at all, and a
+    /// Production cluster that asks (not yet allowed in this conversation) gives its name and environment only, never the object.
+    public static func make(cluster: ClusterConfig, policy: ToolboxPolicy, object: (kind: String, name: String, namespace: String?)?, namespace: String?) -> FirstMateContext? {
+        let place = "cluster \(cluster.name) (\(cluster.environment.rawValue))"
+        switch policy.visibility(of: cluster) {
+        case .hidden: return nil
+        case .askPending: return FirstMateContext(description: "the user is working in \(place), which First Mate may not read until the user allows it")
+        case .full:
+            if let object {
+                return FirstMateContext(description: "the user is looking at \(object.kind) \(object.name)\(object.namespace.map { " in namespace \($0)" } ?? "") on \(place)")
+            }
+            return FirstMateContext(description: "the user is working in \(place)\(namespace.map { ", namespace \($0)" } ?? "")")
+        }
+    }
 }
 
 /// One row of the transcript. The view shows rows lazily; the session keeps them small.
@@ -143,6 +169,8 @@ public final class FirstMateSession {
     @ObservationIgnored private var lastCacheRead: Int?
     @ObservationIgnored private var lastRequestKey: String?
     @ObservationIgnored private var toolRowIndex: [String: Int] = [:]
+    @ObservationIgnored private var streamUsage: AIUsage?
+    @ObservationIgnored private var streamedCharacters = 0
 
     public init(id: String = UUID().uuidString, record: ConversationRecord? = nil, client: any AIMessaging, tools: any FirstMateToolRunning,
                 coordinator: ProposalCoordinator, grants: ConversationGrants? = nil, store: ConversationStore? = nil, daily: DailySpendStore,
@@ -159,6 +187,7 @@ public final class FirstMateSession {
         self.daily = daily
         self.redactor = redactor
         self.now = now
+        coordinator.continueNumbering(after: Self.proposalIDs(in: existing.messages))
         rebuildItems()
     }
 
@@ -336,6 +365,8 @@ public final class FirstMateSession {
                                        historyCount: record.messages.count, tail: pending, prefixHash: prefixHash, bodyHash: built.sha256,
                                        bytes: built.data.count, toolsAllowed: !budgetExhausted))
         resetLive()
+        streamUsage = nil
+        streamedCharacters = 0
         let (updates, continuation) = AsyncStream.makeStream(of: AIStreamUpdate.self)
         let consumer = Task { @MainActor [weak self] in
             for await update in updates { self?.apply(update) }
@@ -350,17 +381,33 @@ public final class FirstMateSession {
         } catch {
             continuation.finish()
             await consumer.value
+            chargePartial(choice: choice)
             resetLive()
             throw error
         }
+    }
+
+    /// A stream that was stopped or failed was still billed for what the API had started: the input counted at `message_start` and the
+    /// output so far (the `message_delta` count when one arrived, else an estimate from the streamed characters). Without this, Stop and
+    /// resend would slip past the caps unbilled.
+    private func chargePartial(choice: AIModelChoice) {
+        guard var usage = streamUsage else { return }
+        usage.outputTokens = max(usage.outputTokens, streamedCharacters / 4)
+        let cost = PriceTable.cost(of: [usage], defaultModel: choice.model)
+        record.spentDollars += cost
+        record.usage = record.usage + usage
+        lastInputTokens = usage.totalInput
+        daily.add(cost)
+        persist()
     }
 
     // MARK: Streaming to the view
 
     private func apply(_ update: AIStreamUpdate) {
         switch update {
-        case .text(let text): rawText += text
-        case .thinking(let text): rawThinking += text
+        case .usage(let usage): streamUsage = usage
+        case .text(let text): rawText += text; streamedCharacters += text.count
+        case .thinking(let text): rawThinking += text; streamedCharacters += text.count
         case .fallback: rawText = ""; rawThinking = ""
         case .toolUseStarted: break
         }
@@ -535,6 +582,16 @@ public final class FirstMateSession {
             items.insert(TranscriptItem(id: "p\(proposalID)", kind: .proposal(id: proposalID)), at: index + 1)
             toolRowIndex = toolRowIndex.mapValues { $0 > index ? $0 + 1 : $0 }
         }
+    }
+
+    /// The `proposal_id`s that earlier results of this conversation carry.
+    static func proposalIDs(in messages: [AIMessage]) -> [String] {
+        var ids: [String] = []
+        for block in messages.flatMap(\.content) where block["type"]?.stringValue == "tool_result" {
+            guard let text = block["content"]?.stringValue, let data = text.data(using: .utf8), let json = try? JSONValue.parse(data) else { continue }
+            if let id = json["proposal_id"]?.stringValue { ids.append(id) }
+        }
+        return ids
     }
 
     /// Rows for a conversation loaded from disk. Results are matched to their calls; proposals made in an earlier run are shown as

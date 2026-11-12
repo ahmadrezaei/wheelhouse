@@ -19,7 +19,7 @@ public struct ModelPrice: Sendable, Equatable {
 public enum PriceTable {
     public static let prices: [String: ModelPrice] = [
         "claude-opus-5-5": ModelPrice(input: 4, output: 20, cacheRead: 0.20),
-        "claude-sonnet-5-5": ModelPrice(input: 2, output: 10, cacheRead: 0.20),
+        "claude-sonnet-5-5": ModelPrice(input: 2, output: 10, cacheRead: 0.10),   // the API reference; ARCHITECTURE-MAC says 0.20
         "claude-opus-5": ModelPrice(input: 5, output: 25, cacheRead: 0.50),
         "claude-opus-4-8": ModelPrice(input: 5, output: 25, cacheRead: 0.50),
         "claude-sonnet-5": ModelPrice(input: 2, output: 10, cacheRead: 0.20),

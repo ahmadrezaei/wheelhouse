@@ -21,7 +21,7 @@ struct CostTests {
     @Test func theBundledPricesMatchTheDesign() {
         let opus = PriceTable.price(for: "claude-opus-5-5")
         #expect(opus.input == 4 && opus.output == 20 && opus.cacheRead == 0.20 && opus.cacheWrite == 5)
-        #expect(PriceTable.price(for: "claude-sonnet-5-5").input == 2)
+        #expect(PriceTable.price(for: "claude-sonnet-5-5").input == 2 && PriceTable.price(for: "claude-sonnet-5-5").cacheRead == 0.10)
         let usage = AIUsage(inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreationTokens: 1_000_000, cacheReadTokens: 1_000_000)
         #expect(abs(opus.cost(of: usage) - (4 + 20 + 5 + 0.2)) < 1e-9)
     }

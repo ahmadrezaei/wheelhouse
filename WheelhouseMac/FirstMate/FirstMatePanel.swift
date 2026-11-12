@@ -84,7 +84,7 @@ private struct ConversationView: View {
     @State private var pendingProfile: AIModelChoice?
     @FocusState private var composerFocused: Bool
 
-    private var context: FirstMateContext? { attachContext ? FirstMateContextReader.current(env: env) : nil }
+    private var context: FirstMateContext? { attachContext ? FirstMateContextReader.current(env: env, policy: hub.policy(for: session)) : nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -241,7 +241,7 @@ private struct ConversationView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let context = FirstMateContextReader.current(env: env) {
+            if let context = FirstMateContextReader.current(env: env, policy: hub.policy(for: session)) {
                 HStack(spacing: 6) {
                     Image(systemName: attachContext ? "paperclip" : "paperclip.badge.ellipsis").accessibilityHidden(true)
                     Text(context.description).lineLimit(1).truncationMode(.middle)

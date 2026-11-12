@@ -141,6 +141,11 @@ final class FirstMateHub {
         recent = []
     }
 
+    /// The access policy of one conversation (the same settings and grants its tools use).
+    func policy(for session: FirstMateSession) -> ToolboxPolicy {
+        ToolboxPolicy(caller: .firstMate(conversation: session.id), settings: settings, grants: session.grants)
+    }
+
     private func makeSession(id: String, record: ConversationRecord?) -> FirstMateSession {
         let grants = ConversationGrants(conversation: id)
         let policy = ToolboxPolicy(caller: .firstMate(conversation: id), settings: settings, grants: grants)
