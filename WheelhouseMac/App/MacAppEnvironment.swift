@@ -41,6 +41,13 @@ final class MacAppEnvironment {
     // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
     @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths, activity: activity)
     // end M5a
+    // M12: Beacon (MCP over a Unix socket). Created on first use; it listens only after the person turns it on and authenticates.
+    @ObservationIgnored private(set) lazy var beacon: BeaconModel = {
+        let model = BeaconModel(registry: registry, paths: paths, activity: activity, gateActive: gateActive, lock: lock)
+        BeaconModelHub.shared.model = model
+        return model
+    }()
+    // end M12
     // M5b: the Deck Terminal's confirmation sheets. Created before the first Gangway session, so the real confirmer is in place when the service starts.
     @ObservationIgnored private(set) lazy var gangwaySheets: GangwaySheetCoordinator = {
         let coordinator = GangwaySheetCoordinator(registry: registry, activity: activity)
@@ -212,6 +219,10 @@ final class MacAppEnvironment {
         energy.start()
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
+        // M12: Beacon starts OFF (a launch with -WHBeaconLaunch does not turn it on). Only the helper symlink and the lock observer.
+        beacon.maintainHelperLink()
+        beacon.follow(lock: lock)
+        // end M12
         gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
         // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.
         let root = paths.root
