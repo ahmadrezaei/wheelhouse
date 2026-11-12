@@ -25,12 +25,15 @@ struct PerfScenario: Codable, Equatable {
     /// Soak runs: seconds between navigation cycles (default 300). `scripts/perf-sample.sh` reads the same field to measure growth
     /// over whole cycles.
     var cycleSeconds: Double?
+    /// The scenario runs with Crow's Nest on: the menu bar item, keep-running, and every cluster of the scenario watched. Applied in
+    /// memory only (never saved to the defaults).
+    var crowsNest: Bool?
     /// `-WHPerfKeepVisible YES`: the workspace window floats on every Space, so a visible scenario measures a window that is really on
     /// screen even while another app is full screen or in front (the sampler checks it). Not part of the fixture file.
     var keepsWindowVisible = false
 
     private enum CodingKeys: String, CodingKey {
-        case name, description, clusters, windows, tabs, panes, hideWindowsAfterSeconds, windowAction, cycleSeconds
+        case name, description, clusters, windows, tabs, panes, hideWindowsAfterSeconds, windowAction, cycleSeconds, crowsNest
     }
 
     var minimises: Bool { windowAction == "minimise" }
@@ -67,12 +70,15 @@ struct PerfScenario: Codable, Equatable {
 @MainActor
 enum PerfScenarioRunner {
     private(set) static var keepsRunningWithoutWindows = false
+    /// A run that keeps its window visible starts as an accessory app on purpose: the activation policy controller stays out of it.
+    private(set) static var keepsAccessory = false
     private static var cycle: PeriodicTask?
 
     /// Before the first window exists (`applicationWillFinishLaunching`): a run that keeps its window visible starts as an accessory
     /// app (only an accessory app's window may join another app's full-screen Space) and floats each workspace window as it appears.
     static func prepare(_ scenario: PerfScenario) {
         guard scenario.keepsWindowVisible else { return }
+        keepsAccessory = true
         NSApp.setActivationPolicy(.accessory)
         // Synchronously, while the window registers (`viewDidMoveToWindow`), before SwiftUI first orders it in: a window first ordered
         // in without the all-Spaces behaviour stays on the Space it was placed on, and a later change does not bring it here.
@@ -152,6 +158,9 @@ enum PerfScenarioRunner {
         registry.select(first)
         let ordered = wanted.compactMap { ctx in ids[ctx.name].map { (name: ctx.name, id: $0) } }
         PerfLayout.apply(scenario, clusters: ordered, workspace: env.workspace)
+        // M4b: Crow's Nest on, watching every cluster of the scenario (in memory only, never saved).
+        if scenario.crowsNest == true { env.applyPerfCrowsNest(watching: Set(ids.values)) }
+        // end M4b
         if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
         // M11b: `-WHPerfFirstMate YES` replays a 50-turn First Mate conversation over each soak cycle (no network; gate-only).
         if scenario.name.hasPrefix("soak") { FirstMatePerfReplay.startIfRequested(env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }

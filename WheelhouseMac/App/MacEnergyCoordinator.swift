@@ -29,6 +29,10 @@ final class MacEnergyCoordinator {
     /// Set by the app: drops the sidebars' summary caches (memory warning) and the content of hidden windows (critical).
     @ObservationIgnored var trimSidebars: @MainActor () -> Void = {}
     @ObservationIgnored var releaseHiddenWindowContent: @MainActor () -> Void = {}
+    // M4b: the Compass indexer follows memory pressure and visibility.
+    @ObservationIgnored var compassMemoryPressure: @MainActor (_ critical: Bool) -> Void = { _ in }
+    @ObservationIgnored var windowsBecameVisible: @MainActor () -> Void = {}
+    // end M4b
     /// Counts for diagnostics and tests.
     private(set) var memoryWarnings = 0
     private(set) var memoryCriticals = 0
@@ -106,11 +110,12 @@ final class MacEnergyCoordinator {
     func evaluateVisibility() {
         let visible = visibility()
         periodicTasks.setWindowsVisible(visible)
-        if reportsVisibility { VisibilityReport.publish(visible) }
+        if reportsVisibility { VisibilityReport.publish(visible); PeriodicReport.publish(periodicTasks) }
         guard visible != windowsVisible else { return }
         windowsVisible = visible
         graceTask?.cancel(); graceTask = nil
         if visible {
+            windowsBecameVisible()
             guard released else { return }
             released = false
             registry.resumeAllSessions()
@@ -138,6 +143,7 @@ final class MacEnergyCoordinator {
         switch level {
         case .warning:
             memoryWarnings += 1
+            compassMemoryPressure(false)
             trimSidebars()
             trimLogBuffers()
             registry.trimCaches()
@@ -145,6 +151,7 @@ final class MacEnergyCoordinator {
             SchemaServices.trim()
         case .critical:
             memoryCriticals += 1
+            compassMemoryPressure(true)
             trimSidebars()
             releaseHiddenWindowContent()
             trimLogBuffers()
@@ -173,6 +180,22 @@ enum VisibilityReport {
     static func publish(_ visible: Bool) {
         if token < 0, notify_register_check(name, &token) != 0 { token = -1; return }
         notify_set_state(token, visible ? 1 : 2)          // 0 is "never published"
+        notify_post(name)
+    }
+}
+
+/// Development builds publish the shortest period of any task that runs while no window is visible (seconds, rounded down) as the state
+/// of a Darwin notification, so `scripts/perf-sample.sh` can record `minPeriodicIntervalSec` for the `hidden` scenarios (budget 60,
+/// ARCHITECTURE-MAC section 12.3.2). 86,400 means no task runs at all while hidden; 0 means nothing was published.
+@MainActor
+enum PeriodicReport {
+    static let name = "com.ahmadrezaei.wheelhouse.perf.min-periodic"
+    private static var token: Int32 = -1
+
+    static func publish(_ registry: PeriodicTaskRegistry) {
+        let shortest = registry.effectiveIntervals(windowsVisible: false).map(\.interval).min() ?? 86_400
+        if token < 0, notify_register_check(name, &token) != 0 { token = -1; return }
+        notify_set_state(token, UInt64(max(1, shortest.rounded(.down))))
         notify_post(name)
     }
 }

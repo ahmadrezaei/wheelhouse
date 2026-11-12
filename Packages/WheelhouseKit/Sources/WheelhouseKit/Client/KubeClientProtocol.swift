@@ -250,6 +250,9 @@ public protocol KubeClientProtocol: Sendable {
     // `LiveKubeClient+Metadata.swift` (M6a) and `LiveKubeClient+Proxy.swift` (M9) provide the live implementations).
     /// Lists only `metadata` (`Accept: application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1`).
     func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList
+    /// One page of the Compass index: name, namespace, labels and first owner only. Annotations and every other field are never decoded
+    /// (an applied Secret carries its whole data in `last-applied-configuration`). `continueToken` continues a previous page.
+    func listCompassPage(kind: ResourceKind, namespace: String?, continueToken: String?, limit: Int) async throws -> CompassMetadataPage
     /// Any HTTP method through the API server service proxy (generalised ``proxyGET(namespace:service:port:path:query:)``).
     func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                       headers: [String: String], body: Data?) async throws -> ProxyResponse
@@ -281,6 +284,32 @@ public struct ObjectMetadataList: Sendable {
     }
 }
 
+/// One object of the Compass metadata index: identity, labels and owner. Nothing else is ever read.
+public struct CompassMetadataItem: Sendable, Hashable {
+    public var name: String
+    public var namespace: String?
+    public var labels: [String: String]
+    public var ownerKind: String?
+    public var ownerName: String?
+    public init(name: String, namespace: String? = nil, labels: [String: String] = [:], ownerKind: String? = nil, ownerName: String? = nil) {
+        self.name = name
+        self.namespace = namespace
+        self.labels = labels
+        self.ownerKind = ownerKind
+        self.ownerName = ownerName
+    }
+}
+
+/// Result of ``KubeClientProtocol/listCompassPage(kind:namespace:continueToken:limit:)``.
+public struct CompassMetadataPage: Sendable {
+    public var items: [CompassMetadataItem]
+    public var continueToken: String?
+    public init(items: [CompassMetadataItem], continueToken: String? = nil) {
+        self.items = items
+        self.continueToken = continueToken
+    }
+}
+
 /// Result of ``KubeClientProtocol/proxyRequest(method:namespace:service:port:path:query:headers:body:)``.
 public struct ProxyResponse: Sendable {
     public var statusCode: Int
@@ -302,6 +331,11 @@ public extension KubeClientProtocol {
     }
     func listMetadata(kind: ResourceKind, namespace: String?, labelSelector: String?, limit: Int?) async throws -> ObjectMetadataList {
         throw KubeError.unsupported("Metadata-only listing is not available for this client.")
+    }
+    /// Default: unsupported. A client that is not live (and is not the Demo client) has no metadata-only page, and Compass never
+    /// falls back to a full list for it.
+    func listCompassPage(kind: ResourceKind, namespace: String?, continueToken: String?, limit: Int) async throws -> CompassMetadataPage {
+        throw KubeError.unsupported("Metadata-only paging is not available for this client.")
     }
     func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                       headers: [String: String], body: Data?) async throws -> ProxyResponse {

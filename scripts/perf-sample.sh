@@ -37,6 +37,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SCENARIO="" ; MINUTES=5 ; HIDE_AFTER="" ; SETTLE=60 ; APP="" ; BUILD=0 ; LEAKS=0 ; RECORD="" ; KEY="" ; APP_ARGS=()
 KEEP_VISIBLE=1 ; CONNECTION_CHECK=1
 VISIBILITY_NOTE="com.ahmadrezaei.wheelhouse.perf.windows-visible"
+# The app's own report of the shortest period of any task that runs while no window is visible (M4b; see PeriodicReport).
+PERIODIC_NOTE="com.ahmadrezaei.wheelhouse.perf.min-periodic"
 
 usage() { sed -n '2,33p' "$0"; exit 2; }
 while [ $# -gt 0 ]; do
@@ -204,6 +206,13 @@ for m in $(seq 0 $(( MINUTES - 1 ))); do
 done
 wait "$TOP_PID" 2>/dev/null || true
 
+# Only a scenario that hides its windows has a meaningful answer (the state is the last one published: the hidden cadence).
+MINPER=""
+if [ "$HIDES" = 1 ]; then
+  MINPER="$(notifyutil -g "$PERIODIC_NOTE" 2>/dev/null | awk '{ print $2 }')"
+  [ "${MINPER:-0}" -gt 0 ] 2>/dev/null || MINPER=""
+fi
+
 LEAK_COUNT=""
 if [ "$LEAKS" = 1 ] && kill -0 "$PID" 2>/dev/null; then
   LEAK_COUNT="$(leaks "$PID" 2>/dev/null | awk '/leaks for/ { print $3; exit }' || true)"
@@ -211,7 +220,8 @@ fi
 
 python3 -I "$REPO/scripts/perf-summary.py" summarize --scenario "$SCENARIO" --top "$TOPOUT" --csv "$CSV" --out "$SUMMARY" --pid "$PID" \
   --interval "$INTERVAL" --bundle-id "$BID" --leaks "${LEAK_COUNT:-}" --cycle-seconds "$CYCLE" \
-  --extra "keepVisible=$([ "$KEEPS" = 1 ] && echo true || echo false)" --extra "connectedAfterSettle=$NOW_CONNECTED"
+  --extra "keepVisible=$([ "$KEEPS" = 1 ] && echo true || echo false)" --extra "connectedAfterSettle=$NOW_CONNECTED" \
+  ${MINPER:+--extra "minPeriodicIntervalSec=$MINPER"}
 
 # Validity over the whole run (see the header).
 python3 -I - "$SUMMARY" "$HIDES" "$CONNECTION_CHECK" "$EXITED_EARLY" "$MINUTES" <<'PY'

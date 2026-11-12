@@ -53,6 +53,19 @@ struct WheelhouseMacApp: App {
         Settings {
             LockableSettings(env: env)
         }
+        // M4b: Crow's Nest. The item is inserted while the preference is on; dragging it out of the menu bar (⌘-drag) switches the
+        // preference off, which would leave a menu-bar-only app with nothing to click, so the app then shows a window.
+        MenuBarExtra(isInserted: Binding(get: { env.macPreferences.showsCrowsNest }, set: { inserted in
+            guard !inserted, env.macPreferences.showsCrowsNest else { return }
+            env.macPreferences.showsCrowsNest = false
+            Task { @MainActor in env.showWorkspace() }
+        })) {
+            CrowsNestPanel(env: env)
+        } label: {
+            CrowsNestLabel(env: env)
+        }
+        .menuBarExtraStyle(.window)
+        // end M4b
     }
 }
 
@@ -126,6 +139,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
                 env.importer.presentOpenPanel(whileLocked: env.lock.isLocked)
             } else if env.lock.isLocked {
                 env.workspace.pendingURL = url      // replayed after unlock
+                if env.workspace.activeModel == nil { env.showWorkspace() }   // menu-bar mode: a window with the lock screen
             } else {
                 env.workspace.handle(url: url)
             }
@@ -151,6 +165,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static func prepareForTermination(_ env: MacAppEnvironment) {
         env.workspace.syncSidebarState()
         env.workspace.store.isTerminating = true
+        env.activationPolicy.isTerminating = true
+        env.frecency.flush()
         env.workspace.store.flush()
         // From here on every activity record is written before `record` returns: the `willTerminate` observers (Gangway's revoked
         // sessions, Landfall, the scanner) may record after the delegate's own last flush.
@@ -158,7 +174,16 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !PerfScenarioRunner.keepsRunningWithoutWindows
+        // M4b: with Crow's Nest on and "keep running" chosen, closing the last window leaves the menu bar item running.
+        let keeps = Self.environment.map { $0.macPreferences.showsCrowsNest && $0.macPreferences.keepsRunningInMenuBar } ?? false
+        return !PerfScenarioRunner.keepsRunningWithoutWindows && !keeps
+    }
+
+    /// M4b: a click on the Dock icon, or the app opened again from Finder, with no window: open one (the last one's state comes back).
+    @MainActor func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, let env = Self.environment else { return true }
+        env.showWorkspace()
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
