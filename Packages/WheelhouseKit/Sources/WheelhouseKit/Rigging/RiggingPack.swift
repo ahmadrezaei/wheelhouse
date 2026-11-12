@@ -147,6 +147,13 @@ public struct RiggingPackSource: Codable, Hashable, Sendable {
     /// The ref asked for when the pack was added (a branch, tag or commit), for the manual update.
     public var ref: String?
 
+    public init(kind: Kind, location: String? = nil, commit: String? = nil, ref: String? = nil) {
+        self.kind = kind
+        self.location = location
+        self.commit = commit
+        self.ref = ref
+    }
+
     public static let builtIn = RiggingPackSource(kind: .builtIn)
 
     public var summary: String {

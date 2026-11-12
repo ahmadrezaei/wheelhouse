@@ -69,6 +69,9 @@ final class MacAppEnvironment {
     @ObservationIgnored private(set) lazy var rail = RailModel(store: workspace.store, registry: registry, preferences: macPreferences)
     @ObservationIgnored let compassIndex = CompassIndex()
     @ObservationIgnored private(set) lazy var frecency = FrecencyStore(file: Self.workspaceFile(paths: paths, gateActive: gateActive) == nil ? nil : paths.root.appending(path: "compass-frecency.json"))
+    // M13 Rigging
+    @ObservationIgnored private(set) lazy var rigging = RiggingRuntime(store: RiggingStore(paths: paths), registry: registry, workspace: workspace, activity: activity)
+    // end M13
     @ObservationIgnored private(set) lazy var commandRegistry = CommandRegistry(env: self, openSettings: { [unowned self] in openSettingsAction() }, openActivity: { [unowned self] in openActivityAction() })
     @ObservationIgnored private(set) lazy var compass = CompassModel(registry: registry, workspace: workspace, commands: { [unowned self] in commandRegistry.commands }, index: compassIndex,
                                                                       frecency: frecency, rail: rail, isLocked: { [lock] in lock.isLocked }, openSettings: { [unowned self] in openSettingsAction() })
@@ -243,6 +246,7 @@ final class MacAppEnvironment {
         beacon.maintainHelperLink()
         beacon.follow(lock: lock)
         // end M12
+        rigging.start()      // M13: pack health rules, sidebar layouts and resource-menu commands
         gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
         // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.
         let root = paths.root

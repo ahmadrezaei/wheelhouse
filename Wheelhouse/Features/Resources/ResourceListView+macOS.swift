@@ -108,6 +108,9 @@ extension ListScreen {
         if kind == .pod {
             out.append(KubeRowAction(title: "Logs", symbol: "text.alignleft") { router.push(.logs(ref, container: nil, previous: false), from: column) })
         }
+        // M13 Rigging: commands the enabled packs offer for this kind (inserted into a terminal, never run).
+        out.append(contentsOf: ResourceRowExtensions.actions(for: ref, raw: row.object.raw))
+        // end M13
         guard canMutate else { return out }
         out.append(.separator)
         switch kind.kind {
