@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import WheelhouseDesktop
@@ -212,6 +213,10 @@ final class MacAppEnvironment {
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
         gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
+        // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.
+        let root = paths.root
+        DirectKubeconfig.removeAll(root: root)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in DirectKubeconfig.removeAll(root: root) }
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
         // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a

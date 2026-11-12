@@ -23,7 +23,7 @@ public final class GangwayContext: Sendable {
     public let resolver: any PeerResolving
     let holds: HoldCoordinator
     let streams = Mutex<[UUID: StreamRecord]>([:])
-    private let lockedFlag = Mutex(false)
+    private let lockedFlag = LockFlag()
     private let port = Mutex<UInt16>(0)
     private let certificate = Mutex<Data?>(nil)
     private let idleTasks = Mutex(0)
@@ -41,7 +41,7 @@ public final class GangwayContext: Sendable {
         self.activity = activity
         self.metrics = metrics
         self.resolver = resolver
-        self.holds = HoldCoordinator(confirmer: confirmer, grants: grants, registry: registry, window: batchingWindow, timeout: holdTimeout)
+        self.holds = HoldCoordinator(confirmer: confirmer, grants: grants, registry: registry, window: batchingWindow, timeout: holdTimeout, lock: lockedFlag)
         self.idleTimeout = idleTimeout
     }
 
@@ -57,8 +57,12 @@ public final class GangwayContext: Sendable {
     func countIdleTask() { idleTasks.withLock { $0 += 1 } }
     /// How many idle-deadline tasks were ever started (one per connection that has an idle deadline).
     public var idleTasksStarted: Int { idleTasks.withLock { $0 } }
-    public var isLocked: Bool { lockedFlag.withLock { $0 } }
-    public func setLocked(_ locked: Bool) { lockedFlag.withLock { $0 = locked } }
+    public var isLocked: Bool { lockedFlag.value }
+    public func setLocked(_ locked: Bool) {
+        lockedFlag.value = locked
+        // Requests still waiting for a sheet are declined at once: nothing may be approved while the app is locked.
+        if locked { Task { await holds.declineAll() } }
+    }
 
     func register(stream record: StreamRecord) -> UUID {
         let id = UUID()
@@ -83,6 +87,15 @@ public final class GangwayContext: Sendable {
     func audit(_ entry: ActivityEntry) { activity.record(entry) }
 }
 
+/// Whether the app is locked, readable from the hold coordinator.
+final class LockFlag: Sendable {
+    private let state = Mutex(false)
+    var value: Bool {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
+    }
+}
+
 /// Holds requests for a decision (ARCHITECTURE-MAC 3.6 step 5): one sheet per session at a time, a batching window, a timeout.
 actor HoldCoordinator {
     enum Outcome: Sendable { case declined, approved }
@@ -103,8 +116,10 @@ actor HoldCoordinator {
     private let registry: SessionRegistry
     private let window: Duration
     private let timeout: Duration
+    private let lock: LockFlag
 
-    init(confirmer: any GangwayConfirming, grants: GrantStore, registry: SessionRegistry, window: Duration, timeout: Duration) {
+    init(confirmer: any GangwayConfirming, grants: GrantStore, registry: SessionRegistry, window: Duration, timeout: Duration, lock: LockFlag) {
+        self.lock = lock
         self.confirmer = confirmer
         self.grants = grants
         self.registry = registry
@@ -135,6 +150,12 @@ actor HoldCoordinator {
         }
     }
 
+    /// The app locked: every request still waiting is declined (the one on screen is closed by the confirmer's own lock handling).
+    func declineAll() {
+        for queue in pending.values { queue.forEach { $0.continuation.resume(returning: .declined) } }
+        pending = [:]
+    }
+
     private func drain(sessionID: UUID) async {
         var first = true
         while let queue = pending[sessionID], !queue.isEmpty {
@@ -157,7 +178,7 @@ actor HoldCoordinator {
     }
 
     private func present(_ batch: [Waiting], sessionID: UUID) async -> Outcome {
-        guard let session = registry.session(id: sessionID), !session.isRevoked else { return .declined }
+        guard !lock.value, let session = registry.session(id: sessionID), !session.isRevoked else { return .declined }
         let holds = batch.map(\.hold)
         var kind: GangwaySheet.Kind = batch[0].hold.isStream ? .stream : .requests
         // The command the sheet shows is the one that gets the grant, and only while it is still the running one (the shell may report
@@ -185,11 +206,15 @@ actor HoldCoordinator {
                 confirming.cancel()
             } }
         }
-        guard approved, !session.isRevoked else { return .declined }
+        guard approved, !session.isRevoked, !lock.value else { return .declined }
         switch kind {
         case .stream: break
         case .command:
-            if let command = captured, session.reportedCommand?.id == command.id { grants.grantCommand(session: session, command: command) }
+            // The command grant covers only the process group the approved requests came from (never a job that takes the foreground later).
+            let groups = Set(holds.compactMap(\.peerGroup))
+            if let command = captured, session.reportedCommand?.id == command.id, groups.count == 1, holds.allSatisfy({ $0.peerGroup != nil }) {
+                grants.grantCommand(session: session, command: command, group: groups.first)
+            }
             // Requests of the sheet that the command grant does not cover (not the foreground job) still need their own approval.
             grants.approveBatch(session: session, holdIDs: holds.map(\.id))
         case .requests: grants.approveBatch(session: session, holdIDs: holds.map(\.id))

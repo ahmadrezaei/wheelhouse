@@ -170,28 +170,43 @@ public enum DirectKubeconfig {
     }
 
     /// Writes `<root>/direct/<uuid>/direct-kubeconfig` (0400, folder 0700). Direct folders are not Gangway sessions, so the Gangway
-    /// sweep leaves them alone; ``sweep(root:olderThan:)`` removes the ones a crash left behind.
-    public static func write(_ context: KubeconfigContext, root: URL, id: UUID = UUID()) throws -> (file: URL, directory: URL) {
+    /// sweep leaves them alone; ``removeAll(root:)`` clears them at launch and quit, and ``sweep(root:olderThan:)`` by age. A write that
+    /// fails leaves nothing behind. `failAfterOpen` is a test seam.
+    public static func write(_ context: KubeconfigContext, root: URL, id: UUID = UUID(), failAfterOpen: Bool = false) throws -> (file: URL, directory: URL) {
         let data = try contents(for: context)
         let parent = root.appending(path: "direct", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let directory = parent.appending(path: id.uuidString.lowercased(), directoryHint: .isDirectory)
         guard mkdir(directory.path, 0o700) == 0 else { throw SessionKubeconfigError.writeFailed("mkdir: \(String(cString: strerror(errno)))") }
         let file = directory.appending(path: "direct-kubeconfig")
-        let fd = open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o400)
-        guard fd >= 0 else { throw SessionKubeconfigError.writeFailed("open: \(String(cString: strerror(errno)))") }
-        defer { close(fd) }
-        let ok = data.withUnsafeBytes { raw -> Bool in
-            var offset = 0
-            while offset < raw.count {
-                let n = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
-                if n <= 0 { return false }
-                offset += n
+        do {
+            let fd = open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o400)
+            guard fd >= 0 else { throw SessionKubeconfigError.writeFailed("open: \(String(cString: strerror(errno)))") }
+            defer { close(fd) }
+            if failAfterOpen { throw SessionKubeconfigError.writeFailed("write failed") }
+            let ok = data.withUnsafeBytes { raw -> Bool in
+                var offset = 0
+                while offset < raw.count {
+                    let n = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+                    if n <= 0 { return false }
+                    offset += n
+                }
+                return true
             }
-            return true
+            guard ok else { throw SessionKubeconfigError.writeFailed("write failed") }
+        } catch {
+            remove(directory: directory)
+            throw error
         }
-        guard ok else { throw SessionKubeconfigError.writeFailed("write failed") }
         return (file, directory)
+    }
+
+    /// No Direct shell survives a restart, so at launch and at quit every Direct folder goes.
+    public static func removeAll(root: URL) {
+        let parent = root.appending(path: "direct", directoryHint: .isDirectory)
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? [] {
+            remove(directory: parent.appending(path: name, directoryHint: .isDirectory))
+        }
     }
 
     public static func remove(directory: URL) { SessionKubeconfigWriter.remove(directory: directory) }

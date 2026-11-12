@@ -51,6 +51,8 @@ final class GangwaySheetCoordinator {
     private var panes: [String: WeakWindow] = [:]
     private var names: [String: String] = [:]
     private var states: [ObjectIdentifier: WindowState] = [:]
+    /// While the app is locked no sheet is shown and every request is declined.
+    private var locked = false
 
     init(registry: ClusterRegistry, activity: any ActivityLogging) {
         self.registry = registry
@@ -77,6 +79,7 @@ final class GangwaySheetCoordinator {
     }
 
     func present(_ sheet: GangwaySheet) async -> Bool {
+        if locked { return false }
         guard let first = sheet.holds.first, case .terminal(let pane) = first.origin, let window = panes[pane]?.window, window.isVisible, !window.isMiniaturized,
               let cluster = registry.config(for: first.clusterID) else {
             record(sheet, "declined: the terminal's window is not visible")
@@ -133,6 +136,7 @@ final class GangwaySheetCoordinator {
 
     /// The app locked: every sheet closes and every waiting request is declined.
     func dismissAll() {
+        locked = true
         for key in states.keys {
             let tickets = (states[key]?.queue ?? []) + [states[key]?.slot.current].compactMap { $0 }
             states[key]?.queue = []
@@ -143,7 +147,7 @@ final class GangwaySheetCoordinator {
 
     /// Follows the app lock without polling: re-arms an observation of `isLocked` after each change.
     func follow(lock: MacLockCoordinator) {
-        if lock.isLocked { dismissAll() }
+        if lock.isLocked { dismissAll() } else { locked = false }
         withObservationTracking { _ = lock.isLocked } onChange: { [weak self, weak lock] in
             Task { @MainActor in
                 guard let self, let lock else { return }

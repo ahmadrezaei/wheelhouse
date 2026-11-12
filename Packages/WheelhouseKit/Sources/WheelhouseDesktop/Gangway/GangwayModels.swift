@@ -210,10 +210,13 @@ public struct GangwayHold: Sendable, Identifiable {
     public var execCommand: [String]
     public var requiresTyping: Bool
     public var origin: GangwayOrigin
+    /// The process group of the requesting process, when it was found (the terminal's foreground job).
+    public var peerGroup: pid_t?
     public var isStream: Bool { if case .stream = request.kind { true } else { false } }
 
     public init(id: UUID = UUID(), sessionID: UUID, clusterID: ClusterID, clusterName: String, request: GangwayRequestClass, method: String, path: String, query: String? = nil,
-                bodySHA256: String? = nil, reportedCommand: String? = nil, execCommand: [String] = [], requiresTyping: Bool, origin: GangwayOrigin) {
+                bodySHA256: String? = nil, reportedCommand: String? = nil, execCommand: [String] = [], requiresTyping: Bool, origin: GangwayOrigin, peerGroup: pid_t? = nil) {
+        self.peerGroup = peerGroup
         self.id = id
         self.sessionID = sessionID
         self.clusterID = clusterID
