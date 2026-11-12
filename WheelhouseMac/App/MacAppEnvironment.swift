@@ -21,6 +21,7 @@ final class MacAppEnvironment {
     let moorings: MooringsController
     let energy: MacEnergyCoordinator
     let alerts: MacAlertMonitor
+    let widgetSnapshots: MacWidgetSnapshotWriter   // M14a
     /// The local audit log (M4a). Opens its database lazily, on the first record or query.
     let activity: ActivityLog
     /// Windows, tabs, panes and Stations (M4a).
@@ -78,6 +79,11 @@ final class MacAppEnvironment {
         self.gateActive = gateActive
         self.energy = MacEnergyCoordinator(registry: registry, reportsVisibility: gateActive)
         self.alerts = MacAlertMonitor(registry: registry, preferences: preferences)
+        // M14a: the widget snapshot follows the health checks that already run.
+        self.widgetSnapshots = MacWidgetSnapshotWriter.live(registry: registry)
+        let widgetSnapshots = self.widgetSnapshots
+        self.alerts.didCheck = { widgetSnapshots.consider() }
+        // end M14a
         self.activity = activity
         self.workspace = WorkspaceController(store: workspaceStore, registry: registry, activity: activity,
                                              sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })

@@ -195,7 +195,7 @@ public struct ClusterWidgetView: View {
         if let snapshot, let c = resolve(snapshot, clusterID) {
             HStack(alignment: .top, spacing: 14) {
                 main(snapshot, c)
-                if family == .systemMedium { pods(c).frame(maxWidth: .infinity, alignment: .topLeading) }
+                if family == .systemMedium || family == .systemLarge { pods(c).frame(maxWidth: .infinity, alignment: .topLeading) }
             }
             .widgetURL(WidgetLinks.cluster(c.id))
             .opacity(snapshot.isStale(at: now) ? 0.7 : 1)
@@ -231,7 +231,7 @@ public struct ClusterWidgetView: View {
             Spacer(minLength: 0)
             WidgetFooter(snapshot: s, now: now, showDemo: false)
         }
-        .frame(width: family == .systemMedium ? 140 : nil, alignment: .leading)
+        .frame(width: family == .systemMedium || family == .systemLarge ? 140 : nil, alignment: .leading)
     }
 
     private func gauge(_ label: String, _ v: Double?) -> some View {
