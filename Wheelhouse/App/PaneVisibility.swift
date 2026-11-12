@@ -86,7 +86,7 @@ struct ToolbarSearchField: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-            TextField(prompt, text: $text).textFieldStyle(.plain).onSubmit { submit?() }
+            TextField(prompt, text: $text).textFieldStyle(.plain).onSubmit { submit?() }.accessibilityAddTraits(.isSearchField)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Clear Search")

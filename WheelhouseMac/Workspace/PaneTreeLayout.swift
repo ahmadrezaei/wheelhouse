@@ -124,13 +124,14 @@ struct HiddenTabResponderGuard: NSViewRepresentable {
         /// same area, so the geometry alone cannot tell the hidden tab's field from one the newly selected tab focused on appear;
         /// hit testing can, because a hidden tab does not take hits.
         func tabWasHidden() {
-            guard let window, let responder = window.firstResponder as? NSView, responder.window === window else { return }
+            // The toolbar and the title bar sit beside the content view, never inside a tab: their fields keep the keyboard.
+            guard let window, let content = window.contentView, let responder = window.firstResponder as? NSView,
+                  responder.isDescendant(of: content) else { return }
             let area = convert(bounds, to: nil)
             let frame = responder.convert(responder.bounds, to: nil)
             let centre = CGPoint(x: frame.midX, y: frame.midY)
             guard area.contains(centre) else { return }
-            if let root = window.contentView, let hit = root.hitTest(root.superview?.convert(centre, from: nil) ?? centre),
-               Self.owns(hit, responder, area: area) { return }
+            if let hit = content.hitTest(content.superview?.convert(centre, from: nil) ?? centre), Self.owns(hit, responder, area: area) { return }
             window.makeFirstResponder(nil)
         }
 
@@ -151,7 +152,9 @@ struct HiddenTabResponderGuard: NSViewRepresentable {
     }
 
     func updateNSView(_ view: GuardView, context: Context) {
-        if view.wasSelected, !isSelected { view.tabWasHidden() }
+        // On the next turn of the main queue: by then SwiftUI has applied the hidden tab's `allowsHitTesting(false)` to its AppKit
+        // views, which the ownership check relies on.
+        if view.wasSelected, !isSelected { DispatchQueue.main.async { [weak view] in view?.tabWasHidden() } }
         view.wasSelected = isSelected
     }
 }
