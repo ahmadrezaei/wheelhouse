@@ -26,6 +26,7 @@ struct DeckTerminalTests {
         #expect(request.confirmationText == "web")
         #expect(request.origin == ChangeOrigin.terminal(session: "pane-1", reportedCommand: nil))
         #expect(request.inputDelay == ConfirmRequest.nonUIInputDelay)
+        #expect(!request.hasDefaultButton)      // Return never confirms a terminal's request
         let facts = request.facts.map { "\($0.label): \($0.value)" }
         #expect(facts.contains("Command (reported by your shell): kubectl rollout restart deploy/web"))
         #expect(facts.contains("Request: PATCH /apis/apps/v1/namespaces/shop/deployments/web"))
