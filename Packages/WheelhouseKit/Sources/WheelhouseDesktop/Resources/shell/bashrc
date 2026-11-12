@@ -1,0 +1,100 @@
+# Wheelhouse shell integration (bash), used as `bash --rcfile <this> -i` for ONE session. Written to run on bash 3.2 as well.
+# It emulates a login shell (/etc/profile, then the user's first profile file from $WH_ORIG_HOME, never from $HOME), the session
+# kubeconfig wins afterwards, and the hooks are added last.
+
+# 1. The nonce is read FIRST, only by an interactive shell, and never exported (even under `set -a`).
+if [[ $- == *i* && -z "${__wh_nonce-}" && -n "${WH_SESSION_DIR-}" && -r "$WH_SESSION_DIR/nonce" ]]; then
+  __wh_read=
+  IFS= builtin read -r __wh_read < "$WH_SESSION_DIR/nonce" 2>/dev/null
+  command rm -f -- "$WH_SESSION_DIR/nonce" 2>/dev/null
+  if [[ $__wh_read =~ ^[0-9a-f]{32}$ ]]; then
+    __wh_nonce=$__wh_read
+    builtin export -n __wh_nonce
+  fi
+  builtin unset __wh_read
+fi
+
+# 2. Login emulation.
+if [[ -r /etc/profile ]]; then builtin source /etc/profile; fi
+for __wh_file in .bash_profile .bash_login .profile; do
+  if [[ -n "${WH_ORIG_HOME-}" && -r "$WH_ORIG_HOME/$__wh_file" ]]; then builtin source "$WH_ORIG_HOME/$__wh_file"; break; fi
+done
+builtin unset __wh_file
+
+# 3. The session kubeconfig wins over whatever the user's files set.
+if [[ -n "${WH_KUBECONFIG-}" && "${KUBECONFIG-}" != "$WH_KUBECONFIG" ]]; then
+  if [[ -n "${KUBECONFIG-}" && -t 2 ]]; then
+    builtin printf '\e[2mwheelhouse: KUBECONFIG from your shell startup files is overridden in this guarded session\e[0m\n' >&2
+  fi
+  export KUBECONFIG="$WH_KUBECONFIG"
+fi
+
+# 4. Hooks. A shell without a nonce (a nested one) says nothing.
+[[ -n "${__wh_nonce-}" ]] || return 0 2>/dev/null
+
+__wh_emit() { builtin printf '\e]%s;wh=%s\a' "$1" "$__wh_nonce" > /dev/tty 2>/dev/null; }
+
+__wh_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//;/\\x3b}
+  s=${s//$'\n'/\\x0a}
+  s=${s//$'\r'/\\x0d}
+  s=${s//$'\e'/\\x1b}
+  s=${s//$'\a'/\\x07}
+  s=${s//$'\x18'/\\x18}
+  s=${s//$'\x1a'/\\x1a}
+  REPLY=$s
+}
+
+__wh_report_state() {
+  if [[ -n "${KUBECONFIG+x}" ]]; then
+    __wh_escape "$KUBECONFIG"; __wh_emit "633;P;KubeConfig=$REPLY"
+  else
+    __wh_emit "633;P;KubeConfigUnset=1"
+  fi
+}
+
+__wh_running=
+__wh_in_prompt=
+__wh_hist_n=
+__wh_hist_line=
+builtin read -r __wh_hist_n __wh_hist_line <<< "$(HISTTIMEFORMAT= builtin history 1)"
+
+__wh_prompt() {
+  local ret=$?
+  __wh_in_prompt=1
+  if [[ -n $__wh_running ]]; then
+    __wh_emit "133;D;$ret"
+    __wh_running=
+  fi
+  __wh_report_state
+  __wh_escape "$PWD"; __wh_emit "633;P;Cwd=$REPLY"
+  __wh_emit "133;A"
+  return $ret
+}
+
+__wh_prompt_end() { __wh_in_prompt=; }
+
+__wh_debug() {
+  [[ -n $__wh_in_prompt || -n $__wh_running ]] && return 0
+  case $BASH_COMMAND in __wh_*) return 0 ;; esac
+  __wh_running=1
+  local n= line=
+  builtin read -r n line <<< "$(HISTTIMEFORMAT= builtin history 1)"
+  # `history 1` is the PREVIOUS line when this one was not saved (HISTCONTROL=ignorespace, HISTIGNORE, set +o history): then no line is reported.
+  if [[ "$n" == "$__wh_hist_n" ]]; then line=; fi
+  __wh_hist_n=$n
+  local first=${line%%[[:space:]]*}
+  if [[ -n $first ]] && { builtin alias -- "$first" >/dev/null 2>&1 || builtin declare -F -- "$first" >/dev/null 2>&1; }; then line=; fi
+  __wh_escape "$line"; __wh_emit "633;E;$REPLY"
+  __wh_report_state
+  __wh_emit "133;C"
+}
+
+if [[ "$(builtin declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+  PROMPT_COMMAND=(__wh_prompt "${PROMPT_COMMAND[@]}" __wh_prompt_end)
+else
+  PROMPT_COMMAND="__wh_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND};__wh_prompt_end"
+fi
+builtin trap '__wh_debug' DEBUG

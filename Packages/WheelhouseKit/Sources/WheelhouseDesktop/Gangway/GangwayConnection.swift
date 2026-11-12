@@ -353,7 +353,7 @@ final class GangwayConnection: @unchecked Sendable {
                     id: UUID(), sessionID: session.id, clusterID: cluster.id, clusterName: cluster.name, request: classified, method: head.method,
                     path: analysis.canonicalPath, query: head.rawQuery,
                     bodySHA256: bufferedBody.map(Hashing.sha256Hex), reportedCommand: session.reportedCommand?.line,
-                    execCommand: analysis.query.filter { $0.key == "command" }.map(\.value), requiresTyping: requiresTyping, origin: session.origin)
+                    execCommand: analysis.query.filter { $0.key == "command" }.map(\.value), requiresTyping: requiresTyping, origin: session.origin, peerGroup: peer?.group)
                 let waitStart = ContinuousClock.now
                 disarmIdle()
                 let outcome = await ctx.holds.request(hold, peerBound: GrantStore.peerIsBound(peer, to: session.binding))

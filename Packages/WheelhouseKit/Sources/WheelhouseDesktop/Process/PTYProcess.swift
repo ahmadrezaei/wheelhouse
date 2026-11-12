@@ -27,6 +27,8 @@ public final class PTYProcess: Sendable {
     /// stdout when `stdoutPipe` was requested; an empty, finished stream otherwise.
     public let stdout: AsyncStream<Data>
     public let pid: pid_t
+    /// The terminal device (`st_rdev` of the slave): what `PeerResolver` lists processes by.
+    public let ttyDevice: dev_t
 
     private let master: Int32
     private let writer = DispatchQueue(label: "app.wheelhouse.pty.writer", qos: .userInitiated)
@@ -66,6 +68,9 @@ public final class PTYProcess: Sendable {
             close(masterFD); close(slaveFD)
             throw PTYError.openFailed("no slave name")
         }
+        var slaveStat = stat()
+        fstat(slaveFD, &slaveStat)
+        let device = slaveStat.st_rdev
         var pipeFDs: [Int32] = [-1, -1]
         if stdoutPipe, pipe(&pipeFDs) != 0 { close(masterFD); close(slaveFD); throw PTYError.openFailed("pipe") }
 
@@ -99,6 +104,7 @@ public final class PTYProcess: Sendable {
             throw PTYError.spawnFailed(String(cString: strerror(rc)))
         }
         self.pid = childPID
+        self.ttyDevice = device
         self.master = masterFD
         (output, outputContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
         (stdout, stdoutContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
@@ -169,29 +175,42 @@ public final class PTYProcess: Sendable {
         }
     }
 
+    /// Leading edge first: output that arrives after a quiet moment goes out at once (a typed key echoes in well under 5 ms), and whatever
+    /// follows within 16 ms is coalesced into one chunk (at most 64 KB). The 16 ms timer exists only while output is flowing.
     private func append(_ data: Data) {
-        let (flushNow, schedule) = state.withLock { s -> (Data?, Bool) in
+        let (now, schedule) = state.withLock { s -> (Data?, Bool) in
+            if !s.flushScheduled {
+                s.flushScheduled = true
+                return (data, true)
+            }
             s.pending.append(data)
             if s.pending.count >= 64 * 1024 {
                 defer { s.pending = Data() }
                 return (s.pending, false)
             }
-            if !s.flushScheduled { s.flushScheduled = true; return (nil, true) }
             return (nil, false)
         }
-        if let flushNow { outputContinuation.yield(flushNow) }
-        if schedule {
-            // At most 16 ms of coalescing; not a poll: it exists only while output is pending.
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(16), clock: .continuous)
-                self?.flush()
-            }
+        if let now { outputContinuation.yield(now) }
+        if schedule { scheduleFlush() }
+    }
+
+    private func scheduleFlush() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(16), clock: .continuous)
+            self?.flush()
         }
     }
 
     private func flush() {
-        let data = state.withLock { s -> Data in defer { s.pending = Data(); s.flushScheduled = false }; return s.pending }
+        let (data, again) = state.withLock { s -> (Data, Bool) in
+            let out = s.pending
+            s.pending = Data()
+            // Data went out in this window: stay in coalescing mode for one more window. A quiet window ends it.
+            s.flushScheduled = !out.isEmpty
+            return (out, !out.isEmpty)
+        }
         if !data.isEmpty { outputContinuation.yield(data) }
+        if again { scheduleFlush() }
     }
 
     private func closeMaster() {
@@ -205,8 +224,10 @@ public final class PTYProcess: Sendable {
         // Close on the writer queue, after queued writes, so a write never races with a closed (or reused) descriptor.
         let fd = master
         writer.async { [self] in
-            state.withLock { $0.closed = true }
-            close(fd)
+            state.withLock { s in
+                s.closed = true
+                close(fd)
+            }
         }
     }
 
@@ -261,6 +282,15 @@ public final class PTYProcess: Sendable {
                 return nil
             }
             if let ready { c.resume(returning: ready) }
+        }
+    }
+
+    /// The foreground process group of the terminal (`tcgetpgrp(master)`), asked on demand and never polled; nil once the master is closed.
+    public var foregroundProcessGroup: pid_t? {
+        state.withLock { s in
+            guard !s.closed else { return nil }
+            let group = tcgetpgrp(master)
+            return group > 0 ? group : nil
         }
     }
 

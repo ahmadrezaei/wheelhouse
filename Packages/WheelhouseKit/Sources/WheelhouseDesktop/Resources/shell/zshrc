@@ -1,0 +1,71 @@
+# Wheelhouse shell integration (zsh): the user's .zshrc, the guard, then the hooks.
+# /etc/zshrc keeps history next to ZDOTDIR, which is the session folder: put it with the user's files, where their own history lives.
+[[ ${HISTFILE-} == "$ZDOTDIR/.zsh_history" ]] && HISTFILE="$WH_ORIG_ZDOTDIR/.zsh_history"
+if [[ -n "${WH_ORIG_ZDOTDIR-}" && -r "$WH_ORIG_ZDOTDIR/.zshrc" ]]; then
+  # Sourced at the top level, never inside a function: a `typeset` in the user's file must stay global. ZDOTDIR points at the user's
+  # directory while their file runs (a file that moves it moves where later user files are read from) and is taken back after.
+  __wh_ours=$ZDOTDIR
+  ZDOTDIR=$WH_ORIG_ZDOTDIR
+  builtin source "$WH_ORIG_ZDOTDIR/.zshrc"
+  WH_ORIG_ZDOTDIR=$ZDOTDIR
+  ZDOTDIR=$__wh_ours
+  builtin unset __wh_ours
+fi
+__wh_reguard
+
+# A nested or non-integrated shell has no nonce and says nothing.
+[[ -n "${__wh_nonce-}" ]] || return 0
+
+# Marks go to the terminal itself, never to stdout, so a redirected stdout cannot leak or replay them.
+__wh_emit() { builtin printf '\e]%s;wh=%s\a' "$1" "$__wh_nonce" > /dev/tty 2>/dev/null }
+
+# Escapes backslash, semicolon and control characters so a command line fits in one parameter.
+__wh_escape() {
+  builtin typeset s=$1
+  s=${s//\\/\\\\}
+  s=${s//;/\\x3b}
+  s=${s//$'\n'/\\x0a}
+  s=${s//$'\r'/\\x0d}
+  s=${s//$'\e'/\\x1b}
+  s=${s//$'\a'/\\x07}
+  s=${s//$'\x18'/\\x18}
+  s=${s//$'\x1a'/\\x1a}
+  REPLY=$s
+}
+
+__wh_report_state() {
+  if (( ${+KUBECONFIG} )); then
+    __wh_escape "$KUBECONFIG"; __wh_emit "633;P;KubeConfig=$REPLY"
+  else
+    __wh_emit "633;P;KubeConfigUnset=1"
+  fi
+}
+
+typeset -g __wh_running=
+
+__wh_precmd() {
+  builtin typeset __wh_ret=$?
+  builtin emulate -L zsh
+  if [[ -n $__wh_running ]]; then
+    __wh_emit "133;D;$__wh_ret"
+    __wh_running=
+  fi
+  __wh_report_state
+  __wh_escape "$PWD"; __wh_emit "633;P;Cwd=$REPLY"
+  __wh_emit "133;A"
+}
+
+__wh_preexec() {
+  builtin emulate -L zsh
+  builtin typeset line=$1
+  # What runs is not what was typed when an alias or function is involved: report no line, so no command approval is offered.
+  builtin typeset first=${${(z)line}[1]}
+  if [[ $1 != "$3" ]] || (( ${+aliases[$first]} || ${+functions[$first]} )); then line=; fi
+  __wh_escape "$line"; __wh_emit "633;E;$REPLY"
+  __wh_report_state
+  __wh_emit "133;C"
+  __wh_running=1
+}
+
+precmd_functions=(__wh_precmd $precmd_functions)
+preexec_functions=(__wh_preexec $preexec_functions)

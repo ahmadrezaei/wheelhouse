@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import WheelhouseDesktop
@@ -40,6 +41,13 @@ final class MacAppEnvironment {
     // M5a: Gangway host. Created on first use; nothing listens until a consumer (Deck Terminal, Chart Room, Tides) asks for the service.
     @ObservationIgnored private(set) lazy var gangway = MacGangway(registry: registry, moorings: moorings, paths: paths, activity: activity)
     // end M5a
+    // M5b: the Deck Terminal's confirmation sheets. Created before the first Gangway session, so the real confirmer is in place when the service starts.
+    @ObservationIgnored private(set) lazy var gangwaySheets: GangwaySheetCoordinator = {
+        let coordinator = GangwaySheetCoordinator(registry: registry, activity: activity)
+        gangway.confirmer = coordinator.confirmer
+        return coordinator
+    }()
+    // end M5b
     // M11b: First Mate. Created on first use (the inspector's First Mate segment, Settings → First Mate, the menu); until then nothing runs and
     // the Keychain is not read. A performance run with `-WHPerfFirstMate YES` gets the replay hub (no network, no Keychain).
     @ObservationIgnored private(set) lazy var firstMate: FirstMateHub = {
@@ -204,6 +212,11 @@ final class MacAppEnvironment {
         energy.start()
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
+        gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
+        // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.
+        let root = paths.root
+        DirectKubeconfig.removeAll(root: root)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in DirectKubeconfig.removeAll(root: root) }
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
         // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a
