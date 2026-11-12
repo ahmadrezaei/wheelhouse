@@ -35,4 +35,38 @@ extension LiveKubeClient {
         } while limit == nil && continueToken != nil
         return ObjectMetadataList(kind: kind, items: items, resourceVersion: resourceVersion, continueToken: continueToken)
     }
+
+    private struct CompassPage: Decodable {
+        struct Item: Decodable {
+            struct Meta: Decodable {
+                struct Owner: Decodable { var kind: String?; var name: String? }
+                var name: String
+                var namespace: String?
+                var labels: [String: String]?
+                var ownerReferences: [Owner]?
+            }
+            var metadata: Meta
+        }
+        struct ListInfo: Decodable { var `continue`: String? }
+        var metadata: ListInfo?
+        var items: [Item]?
+    }
+
+    /// One page for the Compass index. The decoder has no field for annotations, so nothing but name, namespace, labels and the
+    /// first owner reaches memory as a value (the response buffer itself is released with the call).
+    public func listCompassPage(kind: ResourceKind, namespace: String?, continueToken: String?, limit: Int) async throws -> CompassMetadataPage {
+        var query: [(String, String)] = [("limit", String(limit))]
+        if let continueToken { query.append(("continue", continueToken)) }
+        var request = try makeRequest(path: kind.collectionPath(namespace: namespace), query: query)
+        request.setValue(Self.partialMetadataAccept, forHTTPHeaderField: "Accept")
+        let data = try await perform(request)
+        let page: CompassPage
+        do { page = try KubeJSON.decoder.decode(CompassPage.self, from: data) }
+        catch { throw KubeError.decoding(String(describing: error).prefix(300).description) }
+        let items = (page.items ?? []).map { item in
+            CompassMetadataItem(name: item.metadata.name, namespace: item.metadata.namespace, labels: item.metadata.labels ?? [:],
+                                ownerKind: item.metadata.ownerReferences?.first?.kind, ownerName: item.metadata.ownerReferences?.first?.name)
+        }
+        return CompassMetadataPage(items: items, continueToken: page.metadata?.continue.flatMap { $0.isEmpty ? nil : $0 })
+    }
 }
