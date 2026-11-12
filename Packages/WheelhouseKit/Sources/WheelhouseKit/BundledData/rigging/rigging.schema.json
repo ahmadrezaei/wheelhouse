@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Wheelhouse Rigging pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata"],
+  "properties": {
+    "apiVersion": { "type": "string", "enum": ["rigging.wheelhouse.app/v1"] },
+    "kind": { "type": "string", "enum": ["Pack"] },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "description": { "type": "string", "maxLength": 300 },
+        "author": { "type": "string", "maxLength": 100 },
+        "homepage": { "type": "string", "maxLength": 300 }
+      }
+    },
+    "sidebar": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiGroup"],
+        "properties": {
+          "apiGroup": { "type": "string", "minLength": 1, "maxLength": 253 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "kinds": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 63 } }
+        }
+      }
+    },
+    "views": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["match"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "symbol": { "type": "string", "pattern": "^[a-z0-9.]{1,60}$" },
+          "match": { "$ref": "#/definitions/kindMatch" },
+          "columns": { "type": "array", "maxItems": 12, "items": { "$ref": "#/definitions/column" } },
+          "fields": { "type": "array", "maxItems": 20, "items": { "$ref": "#/definitions/field" } },
+          "status": { "type": "array", "maxItems": 20, "items": { "$ref": "#/definitions/statusRule" } },
+          "related": { "type": "array", "maxItems": 10, "items": { "$ref": "#/definitions/related" } }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "for": { "$ref": "#/definitions/kindMatch" },
+          "terminal": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "portForward": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "port"],
+            "properties": {
+              "service": { "type": "string", "minLength": 1, "maxLength": 253 },
+              "pod": { "type": "string", "minLength": 1, "maxLength": 253 },
+              "namespace": { "type": "string", "minLength": 1, "maxLength": 253 },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "open": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        }
+      }
+    },
+    "healthRules": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["for", "when", "tone", "message"],
+        "properties": {
+          "for": { "$ref": "#/definitions/kindMatch" },
+          "when": { "$ref": "#/definitions/condition" },
+          "tone": { "type": "string", "enum": ["warning", "critical"] },
+          "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "kindMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group", "kind"],
+      "properties": {
+        "group": { "type": "string", "maxLength": 253 },
+        "kind": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,62}$" }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "format": { "type": "string", "enum": ["text", "age", "number", "bool"] }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,39}$" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "condition": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "status": { "type": "string", "maxLength": 100 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "exists": { "type": "boolean" },
+        "equals": { "type": "string", "maxLength": 200 },
+        "in": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 } },
+        "for": { "type": "string", "pattern": "^[0-9]{1,4}[smhd]$" }
+      }
+    },
+    "statusRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "tone"],
+      "properties": {
+        "when": { "$ref": "#/definitions/condition" },
+        "tone": { "type": "string", "enum": ["neutral", "healthy", "warning", "critical"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "related": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nameFrom", "label"],
+      "properties": {
+        "kind": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,62}$" },
+        "group": { "type": "string", "maxLength": 253 },
+        "nameFrom": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "namespaceFrom": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "label": { "type": "string", "minLength": 1, "maxLength": 60 }
+      }
+    }
+  }
+}
