@@ -36,11 +36,15 @@ final class MacFleetMonitor {
     static let interval: TimeInterval = 60
     static let tolerance: TimeInterval = 30
     static let staleAfter: TimeInterval = 45
+    static let deepInterval: TimeInterval = 900
+    static let deepIntervalProduction: TimeInterval = 300
 
     private(set) var summary = FleetSummary()
     private(set) var lastCheck: Date?
     private(set) var pausedUntil: Date?
     private(set) var checks = 0
+    /// Full health evaluations run by menu-bar checks (probes are not counted).
+    private(set) var deepChecks = 0
 
     @ObservationIgnored private let registry: ClusterRegistry
     @ObservationIgnored private let preferences: AppPreferences
@@ -52,6 +56,7 @@ final class MacFleetMonitor {
     @ObservationIgnored private let alertSettings: @Sendable () -> AlertSettings
     /// Called after every check (development builds publish the periodic-work report for the performance sampler).
     @ObservationIgnored var didTick: (@MainActor () -> Void)?
+    @ObservationIgnored private var deepChecked: [ClusterID: Date] = [:]
     @ObservationIgnored private var task: PeriodicTask?
     @ObservationIgnored private let periodicRegistry: PeriodicTaskRegistry
 
@@ -100,6 +105,30 @@ final class MacFleetMonitor {
     func pause(for interval: TimeInterval = 3_600) { pausedUntil = now().addingTimeInterval(interval) }
     func resume() { pausedUntil = nil }
 
+    /// With no window open a check is a probe of every watched cluster (`/version`, a few hundred bytes, and an unreachable cluster is
+    /// recorded at once). The full health evaluation, which lists pods, nodes, workloads, jobs and events, runs per cluster every
+    /// `deepInterval` (5 minutes for Production, 15 for the others), one cluster per check and the never-checked ones first (so the first
+    /// minutes after launch do not decode every cluster's lists at once): a fixture cluster with 550 pods and 430 jobs answers 3.5 MB of pods alone, and that list every minute is most of
+    /// the CPU and the memory peak a menu-bar-only app is allowed (hidden budget 0.1 % and 100 MB).
+    private func menuBarCheck(_ sessions: [ClusterSession], date: Date) async {
+        for s in sessions {
+            if await s.connect().isFailed {
+                _ = await s.refreshHealth()
+                deepChecked[s.id] = date
+                deepChecks += 1
+            }
+        }
+        let overdue = sessions.filter { s in
+            let interval = s.config.environment == .production ? Self.deepIntervalProduction : Self.deepInterval
+            return deepChecked[s.id].map { date.timeIntervalSince($0) >= interval } ?? true
+        }
+        if let oldest = overdue.min(by: { (deepChecked[$0.id] ?? .distantPast) < (deepChecked[$1.id] ?? .distantPast) }) {
+            _ = await oldest.refreshHealth()
+            deepChecked[oldest.id] = date
+            deepChecks += 1
+        }
+    }
+
     /// One check. Public for the panel's refresh button and the tests.
     func tick(force: Bool = false) async {
         guard !registry.isDemoMode, !registry.clusters.isEmpty else { return }
@@ -108,10 +137,15 @@ final class MacFleetMonitor {
         var sessions = watched()
         // Thermal critical pauses every cluster but Production (ARCHITECTURE-MAC section 12.3.4 item 8).
         if policy().thermalState == .critical { sessions = sessions.filter { $0.config.environment == .production } }
-        let due = sessions.filter { force || ($0.lastHealthRefresh.map { date.timeIntervalSince($0) > Self.staleAfter } ?? true) }
-        // One burst, clusters in parallel: a staggered check would wake the app once per cluster.
-        await withTaskGroup(of: Void.self) { group in
-            for s in due { group.addTask { await s.refreshHealth() } }
+        if force || periodicRegistry.windowsVisible {
+            let due = sessions.filter { force || ($0.lastHealthRefresh.map { date.timeIntervalSince($0) > Self.staleAfter } ?? true) }
+            // One burst, clusters in parallel: a staggered check would wake the app once per cluster.
+            await withTaskGroup(of: Void.self) { group in
+                for s in due { group.addTask { await s.refreshHealth() } }
+            }
+            for s in due { deepChecked[s.id] = date }
+        } else {
+            await menuBarCheck(sessions, date: date)
         }
         checks += 1
         lastCheck = now()

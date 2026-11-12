@@ -65,13 +65,42 @@ struct MenuBarAndRailTests {
         let monitor = MacFleetMonitor(registry: f.registry, preferences: AppPreferences(defaults: defaults()), mac: f.mac, railClusters: { [] },
                                       process: { health, _ in processed.append(health) }, alertSettings: { AlertSettings() }, periodicRegistry: periodic)
         await monitor.tick()
-        #expect(processed.count == 1 && processed[0].count == 2)    // staging and production; the development cluster is not watched
-        #expect(monitor.checks == 1 && monitor.lastCheck != nil)
+        await monitor.tick()
+        #expect(processed.count == 2 && processed[1].count == 2)    // staging and production; the development cluster is not watched
+        #expect(monitor.checks == 2 && monitor.lastCheck != nil)
         // Alerts off: the check still updates the summary and posts nothing.
         let quiet = MacFleetMonitor(registry: f.registry, preferences: AppPreferences(defaults: defaults()), mac: f.mac, railClusters: { [] },
                                     process: { _, _ in Issue.record("posted with alerts off") }, alertSettings: { var s = AlertSettings(); s.enabled = false; return s })
         await quiet.tick(force: true)
         #expect(quiet.checks == 1)
+    }
+
+    @Test func withNoWindowACheckIsAProbeAndTheFullEvaluationIsSlowAndOneClusterAtATime() async {
+        let f = fixture()                                           // development, staging, production
+        let periodic = PeriodicTaskRegistry()
+        periodic.setWindowsVisible(false)
+        let box = ClockBox(Date(timeIntervalSince1970: 1_800_000_000))
+        let monitor = MacFleetMonitor(registry: f.registry, preferences: AppPreferences(defaults: defaults()), mac: f.mac, railClusters: { [] },
+                                      process: { _, _ in }, now: { box.value }, alertSettings: { AlertSettings() }, periodicRegistry: periodic)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 1)                            // never-evaluated clusters go one per check
+        await monitor.tick()
+        #expect(monitor.deepChecks == 2)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 2)                            // a probe only
+        box.value.addTimeInterval(301)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 3)                            // production is due after 5 minutes, staging is not
+        box.value.addTimeInterval(301)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 4)                            // production again; staging waits for 15 minutes
+        box.value.addTimeInterval(301)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 5)                            // staging is the most overdue
+        await monitor.tick()
+        #expect(monitor.deepChecks == 6)                            // one per check: production follows
+        await monitor.tick()
+        #expect(monitor.deepChecks == 6)
     }
 
     @Test func pausingStopsChecksForAnHourAndAForcedCheckStillRuns() async {
