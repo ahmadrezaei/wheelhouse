@@ -9,6 +9,10 @@ final class RecordingClient: KubeClientProtocol, @unchecked Sendable {
     private var contentTypes: [String] = []
     private let failMutations: Bool
 
+    /// Optional canned answers for reads and patch results (the review preview tests).
+    nonisolated(unsafe) var getRawHandler: (@Sendable (ResourceKind, String, String?) throws -> JSONValue)?
+    nonisolated(unsafe) var patchHandler: (@Sendable (KubePatch) throws -> JSONValue)?
+
     init(failMutations: Bool = false) { self.failMutations = failMutations }
 
     var mutations: [Mutation] { lock.withLock { recorded } }
@@ -29,7 +33,7 @@ final class RecordingClient: KubeClientProtocol, @unchecked Sendable {
         try record("replace", dryRun: options.dryRun); return [:]
     }
     func patch(_ kind: ResourceKind, name: String, namespace: String?, subresource: String?, patch: KubePatch, options: MutationOptions) async throws -> JSONValue {
-        try record("patch", dryRun: options.dryRun, contentType: patch.contentType); return [:]
+        try record("patch", dryRun: options.dryRun, contentType: patch.contentType); return try patchHandler?(patch) ?? [:]
     }
     func delete(_ kind: ResourceKind, name: String, namespace: String?, options: DeleteOptions) async throws { try record("delete", dryRun: options.dryRun) }
 
@@ -38,7 +42,7 @@ final class RecordingClient: KubeClientProtocol, @unchecked Sendable {
     func list<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> KubeList<T> { KubeList(items: []) }
     func get<T: KubeObject>(_ type: T.Type, kind: ResourceKind, name: String, namespace: String?) async throws -> T { throw KubeError.unsupported("stub") }
     func listRaw(_ kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> JSONValue { [:] }
-    func getRaw(_ kind: ResourceKind, name: String, namespace: String?) async throws -> JSONValue { [:] }
+    func getRaw(_ kind: ResourceKind, name: String, namespace: String?) async throws -> JSONValue { try getRawHandler?(kind, name, namespace) ?? [:] }
     func watch<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: WatchOptions) -> AsyncThrowingStream<WatchEvent<T>, Error> { AsyncThrowingStream { $0.finish() } }
     func logs(namespace: String, pod: String, options: LogOptions) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
     func podMetrics(namespace: String?) async throws -> [PodMetrics] { [] }

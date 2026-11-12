@@ -47,6 +47,16 @@ final class MacAppEnvironment {
         return model
     }()
     // end M12
+    // M11b: First Mate. Created on first use (the inspector's First Mate segment, Settings → First Mate, the menu); until then nothing runs and
+    // the Keychain is not read. A performance run with `-WHPerfFirstMate YES` gets the replay hub (no network, no Keychain).
+    @ObservationIgnored private(set) lazy var firstMate: FirstMateHub = {
+        let hub = FirstMatePerfReplay.isRequested()
+            ? FirstMateHub.replay(registry: registry, settingsStore: moorings.settings, activity: activity, client: FirstMatePerfReplay.client())
+            : FirstMateHub.live(registry: registry, settingsStore: moorings.settings, paths: paths, activity: activity)
+        hub.start()
+        return hub
+    }()
+    // end M11b
     init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
          paths: AppPaths, safetySummary: String, gateActive: Bool, activity: ActivityLog, workspaceStore: WorkspaceStore) {
         self.registry = registry
