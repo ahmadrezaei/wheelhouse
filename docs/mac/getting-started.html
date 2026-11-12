@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started with Wheelhouse for Mac</title>
+<meta name="description" content="Install Wheelhouse for Mac, add your first cluster and find your way around.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Getting started</h1></div></header>
+  <p>This page takes you from a fresh install to a first look at your clusters. Wheelhouse talks directly to your clusters&rsquo; API servers. There is no account to create and no server run by the developer in between.</p>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>An Apple silicon Mac running macOS 27 or later.</li>
+    <li>At least one Kubernetes cluster you can reach, and a kubeconfig or a token for it. No cluster? Use the demo fleet (below).</li>
+    <li>Optional tools Wheelhouse can use if you have them: <code>kubectl</code>, <code>helm</code> (a recent one is bundled), <code>flux</code>, <code>trivy</code>, <code>git</code>, and the AWS, Google Cloud or Azure command-line tools.</li>
+  </ul>
+  <p class="todo">TODO (owner): price and availability statement. Left empty on purpose until the pricing decision is made.</p>
+
+  <h2>1. Install</h2>
+  <p>Open the downloaded disk image and drag Wheelhouse to Applications. The app is signed and notarized. Updates arrive inside the app (Wheelhouse, Check for Updates), and you can turn the daily check off in Settings.</p>
+
+  <h2>2. Add your clusters</h2>
+  <p>On first launch Wheelhouse offers to look for kubeconfig files on your Mac (this is <em>Moorings</em>). It shows what it found and asks before importing anything. Clusters found this way start <strong>read-only</strong>: you can look, but changes are refused until you allow them for that cluster in its settings.</p>
+  <ul>
+    <li><strong>Import a kubeconfig</strong> file, or paste an API server address with a service-account token.</li>
+    <li><strong>Cloud clusters:</strong> <em>Landfall</em> lists the EKS, GKE and AKS clusters your own command-line sign-in can see, and adds them in one click.</li>
+    <li><strong>Mark production clusters as Production.</strong> They get a rose banner and every change needs a typed confirmation.</li>
+    <li><strong>No cluster yet?</strong> Choose Explore Demo to try a simulated fleet.</li>
+  </ul>
+
+  <h2>3. Find your way around</h2>
+  <table>
+    <tr><th>Where</th><th>What it is</th></tr>
+    <tr><td>Sidebar</td><td>Each cluster and its resource kinds. Kinds you cannot read are hidden unless you ask to see them.</td></tr>
+    <tr><td>Tabs and panes</td><td>Command-T opens a tab, Command-D splits the focused pane. Everything restores when you relaunch.</td></tr>
+    <tr><td>Rail</td><td>The strip under the toolbar for pinned clusters, resources and layouts. Command-1 to Command-9 jump to the first nine items; Command-0 is always the Fleet.</td></tr>
+    <tr><td>Compass</td><td>Command-K. Search resources, run any menu action, jump to a cluster or a Helm release.</td></tr>
+    <tr><td>Crow&rsquo;s Nest</td><td>The menu bar item with the fleet summary. It can keep running when you close the last window.</td></tr>
+    <tr><td>Inspector</td><td>Detail, events and First Mate for the selected object.</td></tr>
+  </table>
+
+  <h2>4. A first five minutes</h2>
+  <ol>
+    <li>Open the Fleet (Command-0) and see which clusters need attention.</li>
+    <li>Click a failing pod, open its logs, and read the events.</li>
+    <li>Press Control-backtick to open a terminal drawer for that cluster. Run <code>kubectl get pods</code>. The terminal is already pointed at the cluster, through the guard described in the <a href="security.html">security model</a>.</li>
+    <li>Press Command-K and type part of a pod name to jump to it.</li>
+  </ol>
+
+  <h2>Widgets</h2>
+  <p>Wheelhouse provides a Fleet Health widget and a Cluster widget in small, medium and large sizes. Add them from the desktop or Notification Center (Edit Widgets). They show a summary the app writes while it is running: cluster names, health, counts and usage fractions. They never hold credentials or Secret data and never connect to a cluster themselves. A widget shows &ldquo;Updated N min ago&rdquo; and dims when the data is old; open the app to refresh it.</p>
+
+  <h2>Where to go next</h2>
+  <ul>
+    <li><a href="features.html">Feature guide</a></li>
+    <li><a href="rigging-packs.html">Rigging pack format</a></li>
+    <li><a href="security.html">Security model</a></li>
+    <li><a href="support.html">Support</a></li>
+  </ul>
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="features.html">Features</a>
+    <a href="security.html">Security</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="support.html">Support</a>
+  </nav>
+</main>
+</body>
+</html>

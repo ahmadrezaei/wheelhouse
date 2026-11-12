@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse for Mac feature guide</title>
+<meta name="description" content="What each part of Wheelhouse for Mac does and how to use it.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Feature guide</h1></div></header>
+  <p>The Mac app has everything the iPhone and iPad app has, plus the features below. Each section says what the feature does and what it will and will not do on its own.</p>
+  <ul>
+    <li><a href="#deck-terminal">Deck Terminal and Gangway</a></li>
+    <li><a href="#chart-room">Chart Room</a></li>
+    <li><a href="#survey">Survey</a></li>
+    <li><a href="#tides">Tides</a></li>
+    <li><a href="#landfall">Landfall</a></li>
+    <li><a href="#first-mate">First Mate</a></li>
+    <li><a href="#beacon">Beacon</a></li>
+    <li><a href="#compass">Compass and the Rail</a></li>
+    <li><a href="#crows-nest">Crow&rsquo;s Nest</a></li>
+    <li><a href="#rigging">Rigging</a></li>
+  </ul>
+
+  <h2 id="deck-terminal">Deck Terminal and Gangway</h2>
+  <p>A Deck Terminal is a real shell (your own <code>$SHELL</code>) where <code>kubectl</code>, <code>helm</code>, <code>k9s</code>, <code>stern</code>, <code>flux</code> and kubectl plugins work against the cluster of the pane you opened it from. Press Control-backtick for a drawer at the bottom of the pane, or Shift-Control-backtick for a new terminal pane.</p>
+  <p><strong>Gangway</strong> is what makes that safe. The terminal does not get your real kubeconfig. It gets a temporary one that points at a small proxy inside Wheelhouse on <code>127.0.0.1</code>. The proxy applies the same rules as the app: read-only clusters refuse changes, and on Production a change waits for your confirmation. Details are on the <a href="security.html">security model</a> page.</p>
+  <ul>
+    <li>A Production terminal shows a banner you cannot dismiss: &ldquo;kubectl and helm changes need confirmation&rdquo;.</li>
+    <li>If a command tries to bypass the guard (for example with <code>--kubeconfig</code>), the pane says <strong>Unguarded</strong>.</li>
+    <li>Text that Wheelhouse inserts for you (from First Mate, Rigging or Copy kubectl Command) is placed at the prompt and <strong>never run</strong>. You press Return.</li>
+    <li>Scrollback is 5,000 lines by default (up to 20,000). Closing a pane with a running command asks first.</li>
+  </ul>
+
+  <h2 id="chart-room">Chart Room</h2>
+  <p>Helm releases, charts and repositories. Releases are read directly from the cluster, so the list is quick. Install, upgrade, roll back and uninstall run Helm (bundled, or your own version 3.14 or later) through the same Gangway guard, after a review that shows the exact objects that will change and, for Production, a typed confirmation.</p>
+  <ul>
+    <li>Failed and pending releases are pinned to the top.</li>
+    <li>Compare revisions, show values and the manifest, and see whether live objects have drifted from the release.</li>
+    <li>A badge shows when Flux or Argo CD manages a release, so you do not fight your GitOps tool.</li>
+  </ul>
+
+  <h2 id="survey">Survey</h2>
+  <p>A security center for your fleet: vulnerabilities, configuration problems and access risks, from the fleet down to a single image. It reads Trivy Operator reports if the cluster has them, can scan images on your Mac with Trivy when you press <em>Scan Now</em>, and applies built-in rules to RBAC and pod specs.</p>
+  <ul>
+    <li>Scanning is optional and only starts when you ask. A Trivy download needs your approval and is checked against a checksum.</li>
+    <li>Secret values are never read by Survey. Exports contain findings, not secrets.</li>
+  </ul>
+
+  <h2 id="tides">Tides</h2>
+  <p>GitOps for Flux and Argo CD. Tides appears in a cluster&rsquo;s sidebar only when the cluster has those tools installed. You get an overview of what is out of sync, degraded, suspended or failing, with the target and live revision side by side, and a detail view for each app.</p>
+  <ul>
+    <li>Sync, reconcile, suspend and resume go through the normal confirmation.</li>
+    <li><em>Flux diff</em> compares a Flux Kustomization with a local folder you choose. It runs in a dry-run-only guarded session, so it cannot change the cluster.</li>
+  </ul>
+
+  <h2 id="landfall">Landfall</h2>
+  <p>Finds your managed clusters (Amazon EKS, Google GKE, Azure AKS) using the command-line sign-in you already have, and adds them with one click. Wheelhouse starts your own <code>aws</code>, <code>gcloud</code> or <code>az</code> and never stores your cloud passwords. The added cluster uses the same command to get short-lived tokens. You can scan once or choose a daily rescan; a rescan never adds a cluster by itself.</p>
+
+  <h2 id="first-mate">First Mate</h2>
+  <p>A chat assistant that knows which object you are looking at, reads cluster state, explains failures and drafts YAML and commands. It uses <strong>your own Anthropic API key</strong> and is off until you add one. It never changes anything itself: a change it proposes opens the normal review and confirmation, and a command it proposes is inserted into a terminal for you to run.</p>
+  <ul>
+    <li>Secret values are never read or sent. Tokens, keys and certificates are replaced with a marker before anything leaves your Mac.</li>
+    <li>You can see exactly what was sent for each message.</li>
+    <li>Production clusters ask your permission first, per conversation. You can set any cluster to Never.</li>
+    <li>You can set a cost limit per conversation and per day.</li>
+  </ul>
+
+  <h2 id="beacon">Beacon</h2>
+  <p>A built-in MCP server that lets AI agents you already use (such as Claude Code or Claude Desktop) read cluster state through Wheelhouse, with Wheelhouse&rsquo;s redaction and safety rules. It is <strong>off by default</strong>, and turning it on asks for Touch ID or your password every time.</p>
+  <ul>
+    <li>It works over a local connection only, between a small helper and the app. There is no network listener.</li>
+    <li>Each client you approve gets its own secret. You can see and stop clients in Settings and in Crow&rsquo;s Nest.</li>
+    <li>An agent can read. Anything that would change a cluster goes through the same confirmation as your own actions, and you are the one who confirms it.</li>
+  </ul>
+
+  <h2 id="compass">Compass and the Rail</h2>
+  <p><strong>Compass</strong> (Command-K) is one search field for everything: menu actions (with their shortcuts), resources, clusters and namespaces, Helm releases, GitOps apps, layouts, settings and help. It understands short names (<code>po</code>, <code>deploy</code>), fuzzy and acronym matching, and puts problems first. Press Return for the default action, or the right arrow for more. Compass never runs a change directly: a mutating action opens the confirmation sheet. Typing <code>!</code> first runs the text you typed in a terminal, and nothing else ever runs in a terminal on your behalf.</p>
+  <p>The <strong>Rail</strong> (Shift-Command-B) is a strip of pinned items: clusters, resources, saved layouts (Stations), namespaces and Rigging commands. Drag anything onto it, or use Option-Command-B. Clicking a cluster switches the focused pane to that cluster and keeps the current view. The Rail and Stations stay on this Mac.</p>
+
+  <h2 id="crows-nest">Crow&rsquo;s Nest</h2>
+  <p>The menu bar item. Its icon shows a small dot when something needs attention (orange for warning, red for critical). The panel lists what needs attention, each cluster&rsquo;s health, your active sessions (port-forwards, terminals) and Beacon&rsquo;s state, with a one-hour pause for checks.</p>
+  <ul>
+    <li>Turn on <em>Keep running in the menu bar</em> to keep monitoring after you close the last window. The Dock icon is hidden in that state.</li>
+    <li>Health checks run about once a minute for Production and Staging clusters and the ones you add to the Rail or opt in. With no window open, checks are small probes, and a full evaluation runs every few minutes. Low Power Mode halves the pace.</li>
+    <li>Notifications use the same rules as iPhone: crash loops, node not ready, failed jobs, expiring credentials, plus Mac extras such as a failed Helm release. They never offer a button that changes a cluster.</li>
+    <li>The desktop widgets follow these checks: the snapshot is refreshed only when something changed, and at most every five minutes.</li>
+  </ul>
+
+  <h2 id="rigging">Rigging</h2>
+  <p>Rigging adds knowledge of extra resource types, and shortcuts for them, using <strong>packs</strong>: plain data files, never code. A pack can add columns and status colours to a custom resource, link related objects, add commands, and add health rules. Wheelhouse ships packs for cert-manager, Karpenter, KEDA, External Secrets, CloudNativePG, Istio, Velero and the Gateway API.</p>
+  <ul>
+    <li>A pack command is <strong>inserted</strong> into a guarded terminal on the right cluster. You press Return.</li>
+    <li>A pack cannot run code, use the network, read files outside its folder or call the cluster API.</li>
+    <li>You can add your own pack from a folder, or from a git address (cloned with your own <code>git</code>, pinned to a commit, updated only when you ask). You see everything the pack declares before you turn it on.</li>
+  </ul>
+  <p>The file format is described in the <a href="rigging-packs.html">Rigging pack reference</a>.</p>
+
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="security.html">Security</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="support.html">Support</a>
+  </nav>
+</main>
+</body>
+</html>

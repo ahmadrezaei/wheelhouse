@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse for Mac privacy</title>
+<meta name="description" content="What Wheelhouse for Mac stores, where, and what it connects to.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Privacy</h1></div></header>
+  <p class="muted">Applies to Wheelhouse for Mac. The same principles apply to the iPhone and iPad app; see the <a href="../privacy.html">full privacy policy</a>.</p>
+  <div class="card"><strong>In short:</strong> no accounts, no analytics, no advertising, no tracking, and no server run by the developer. Your data stays on your Mac, and the app talks only to the clusters and services you point it at.</div>
+
+  <h2>What stays on your Mac</h2>
+  <ul>
+    <li><strong>Cluster settings</strong> (names, addresses, colours, safety options), window layout, saved layouts and the Rail are stored in the app&rsquo;s folders.</li>
+    <li><strong>Credentials</strong> (tokens, client certificates and keys, API keys) are in the Mac&rsquo;s keychain. Clusters you choose to sync appear through your iCloud Keychain, which Apple encrypts end to end. Sync is off by default.</li>
+    <li><strong>Activity history</strong> and command output are stored locally. Activity never contains Secret values or request bodies.</li>
+    <li><strong>The kubeconfig scan</strong> (Moorings) looks for kubeconfig files only where you allow, shows the result and imports only what you choose.</li>
+    <li><strong>Terminals</strong> use a temporary kubeconfig that is deleted when the session ends. Wheelhouse does not read what you type in a terminal except to recognise the command line for confirmations, and that stays on your Mac.</li>
+  </ul>
+
+  <h2>Widgets</h2>
+  <p>The desktop widgets read a small summary file the app writes into its shared app group folder: cluster names, environments, health, counts, usage fractions and the names and reasons of failing pods. It holds no credentials and no Secret data. The widgets make no network connection.</p>
+
+  <h2>What the app connects to</h2>
+  <ul>
+    <li><strong>Your Kubernetes API servers</strong> and <strong>Prometheus addresses</strong>, the ones you add.</li>
+    <li><strong>The tools you have installed</strong> and ask it to use: <code>kubectl</code>, <code>helm</code>, <code>flux</code>, <code>git</code>, <code>trivy</code>, and your cloud command-line tools. Those tools make their own connections under their own configuration.</li>
+    <li><strong>Updates.</strong> About once a day (you can turn it off in Settings) the app requests a small update feed from GitHub Pages, and downloads an update from GitHub Releases. GitHub sees your IP address and the app version, as with any web request. No cluster information is included.</li>
+    <li><strong>First Mate</strong> contacts the Anthropic API only when you use it, with your own API key and under your own agreement with Anthropic. See below.</li>
+    <li><strong>Survey scans</strong> (optional, started by you) let Trivy download its vulnerability database from its public registry and contact the image registries you already use.</li>
+    <li><strong>Rigging packs from a git address</strong> (optional) are cloned with your own <code>git</code> from the address you give.</li>
+  </ul>
+
+  <h2 id="first-mate">First Mate</h2>
+  <ul>
+    <li>Off until you add your own Anthropic API key. The key is stored in the Mac&rsquo;s keychain on this device only and is never synced.</li>
+    <li>Your question and the cluster information First Mate reads with your permission go directly from your Mac to Anthropic. Nothing passes through a server of ours.</li>
+    <li>Before anything leaves your Mac it is redacted: Secret values are never read or sent, and tokens, keys, certificates and passwords are replaced with a marker. You can add your own patterns.</li>
+    <li>You can see exactly what was sent for every message.</li>
+    <li>Production clusters ask your permission first, per conversation. You can set any cluster to Never.</li>
+    <li>Conversations are stored on this Mac only, encrypted with a key in the keychain, and deleted after 30 days by default (7, 30 or 90 days, or keep). Delete All removes them and the key.</li>
+  </ul>
+
+  <h2>Beacon</h2>
+  <p>Beacon is off by default. When you turn it on, the AI agents you approve can read cluster information through Wheelhouse over a local connection on your Mac, with the same redaction rules. Wheelhouse does not send anything to those agents&rsquo; makers; what an agent does with the information is governed by that agent and your agreement with its provider.</p>
+
+  <h2>Not collected</h2>
+  <p>Wheelhouse has no analytics, advertising or crash-reporting SDKs, and does not collect your name, email, location or usage statistics.</p>
+
+  <p class="todo">TODO (owner): confirm the effective date and the contact address for privacy questions before release. Until then use <a href="https://github.com/ahmadrezaei/wheelhouse/issues">GitHub issues</a>.</p>
+
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="security.html">Security</a>
+    <a href="support.html">Support</a>
+    <a href="../privacy.html">Full privacy policy</a>
+  </nav>
+</main>
+</body>
+</html>

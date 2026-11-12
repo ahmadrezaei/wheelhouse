@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse for Mac support</title>
+<meta name="description" content="Get help with Wheelhouse for Mac.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Support</h1></div></header>
+  <p>Found a bug, have a question or want a feature? Open an issue on GitHub. Please include your macOS version, the app version (Wheelhouse, About Wheelhouse) and what you expected to happen.</p>
+  <p><a href="https://github.com/ahmadrezaei/wheelhouse/issues/new">Open an issue on GitHub</a></p>
+  <p class="muted">Never paste a kubeconfig, token, certificate or private key into an issue. If a connection fails, use <em>Copy diagnostics</em> in the app: the report it copies has credentials removed.</p>
+  <p class="todo">TODO (owner): support channel and response-time statement. No email address or service level is promised until this is decided.</p>
+
+  <h2 id="security">Reporting a security problem</h2>
+  <p>If you find a way around a guard described on the <a href="security.html">security model</a> page, or any way to make Wheelhouse change a cluster without your confirmation, please do not post it publicly. Use GitHub&rsquo;s private vulnerability reporting on the repository (Security tab, Report a vulnerability).</p>
+
+  <h2>Common questions</h2>
+  <div class="card">
+    <p><strong>My cluster is read-only and I cannot change anything.</strong><br>Clusters found in your kubeconfig files or by Landfall start read-only on purpose. Open the cluster&rsquo;s settings and allow changes. For a Production cluster this asks for Touch ID or your password.</p>
+    <p><strong>A command in the terminal says &ldquo;Wheelhouse: change not confirmed&rdquo;.</strong><br>The confirmation sheet was declined or timed out after 120 seconds. Run the command again and confirm it in the sheet.</p>
+    <p><strong>The terminal says <em>Unguarded</em>.</strong><br>The shell is no longer using Wheelhouse&rsquo;s kubeconfig, usually because <code>KUBECONFIG</code> was changed or a command used <code>--kubeconfig</code>. Press Restore to go back.</p>
+    <p><strong>Wheelhouse inserted a command but did not run it.</strong><br>That is intended. Commands from First Mate and Rigging are only placed at the prompt. Press Return to run it.</p>
+    <p><strong>The connection fails with a TLS error.</strong><br>Make sure the kubeconfig includes the cluster&rsquo;s CA certificate and that the server address matches a name or IP in the API server certificate. The connection test shows the exact reason.</p>
+    <p><strong>Metrics are missing.</strong><br>Install metrics-server in the cluster, or add a Prometheus URL in the cluster&rsquo;s settings.</p>
+    <p><strong>A widget shows old data or &ldquo;No data&rdquo;.</strong><br>Widgets show what the app last wrote while it was running, at most every five minutes and only when something changed. Open Wheelhouse and let it check your clusters, or add the widget again.</p>
+    <p><strong>The menu bar item is gone.</strong><br>Turn it on in Settings, Crow&rsquo;s Nest. If you want checks to continue with no window open, also turn on <em>Keep running in the menu bar</em>.</p>
+    <p style="margin-bottom:0"><strong>Does Wheelhouse work offline or with a VPN?</strong><br>It connects to the same addresses your kubeconfig does, so it works wherever <code>kubectl</code> does. Unreachable clusters are shown as unreachable and are checked again at the next health check.</p>
+  </div>
+
+  <h2>Languages, price and availability</h2>
+  <p class="todo">TODO (owner): supported languages, price and availability. These are undecided and intentionally not stated here.</p>
+
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="features.html">Features</a>
+    <a href="security.html">Security</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="../support.html">iPhone and iPad support</a>
+  </nav>
+</main>
+</body>
+</html>

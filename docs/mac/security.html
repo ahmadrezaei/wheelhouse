@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelhouse for Mac security model</title>
+<meta name="description" content="How Wheelhouse for Mac protects your clusters, what is guarded and what is not.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Security model</h1></div></header>
+  <p>Wheelhouse is built so that a slip, a wrong terminal, a script or an AI agent cannot change a production cluster by accident. This page says how, and just as plainly where the protection stops.</p>
+
+  <div class="card"><strong>In short:</strong> every change Wheelhouse makes or hands out credentials for goes through one rule set. Production changes need a typed confirmation. Read-only clusters refuse changes. Tools that bring their own credentials, and shells that use your own <code>~/.kube/config</code>, are outside what Wheelhouse can guard.</div>
+
+  <h2>One gate for every change</h2>
+  <p>The app&rsquo;s own actions, the Manifest Editor, Chart Room, Tides, Survey fixes, First Mate proposals, Beacon requests, Rigging commands and the tools you run in a Deck Terminal all pass through the same policy and the same confirmation sheet. There is no second path to a cluster&rsquo;s write operations inside the app.</p>
+
+  <h2>Environments</h2>
+  <ul>
+    <li><strong>Production</strong> (shown in rose, with a shield, used for nothing else): every change needs a typed confirmation, naming the object, the release, the app, the count or the cluster. This cannot be turned off.</li>
+    <li><strong>Read-only</strong>: changes are refused and change buttons are hidden. Interactive shells and port-forwards are refused unless you allow them for that cluster.</li>
+    <li><strong>Discovered clusters</strong> (from your kubeconfig files or from Landfall) start read-only. Names that look like production are suggested as Production; nothing is applied without you seeing it.</li>
+    <li><strong>Lowering safety</strong> (allowing changes on a production cluster, changing Production to something else, turning Beacon on, allowing Beacon change requests, or using an unguarded terminal) asks for Touch ID or your login password and is written to Activity. Raising safety never asks.</li>
+  </ul>
+
+  <h2>Gangway: the guard for terminals and command-line tools</h2>
+  <p>Gangway is a small proxy inside the app that listens on <code>127.0.0.1</code> only. Each guarded session (a Deck Terminal, a Helm run from Chart Room, a Flux diff, a Rigging command) gets a temporary read-only kubeconfig that points at Gangway with a one-off token. Gangway forwards allowed requests to the real cluster with the real credentials, so cloud sign-in works but the shell never sees the credentials.</p>
+  <table>
+    <tr><th>Request</th><th>Read-only cluster</th><th>Production</th><th>Other clusters</th></tr>
+    <tr><td>Reads, access checks, dry-runs</td><td>Allowed</td><td>Allowed</td><td>Allowed</td></tr>
+    <tr><td>Create, update, patch, delete, scale, evict</td><td>Refused (403 with a clear message)</td><td>Held for typed confirmation</td><td>Allowed, logged</td></tr>
+    <tr><td>Interactive exec, attach, port-forward</td><td>Refused unless you allow it</td><td>Held for a button confirmation</td><td>Allowed, logged</td></tr>
+    <tr><td>Non-interactive <code>kubectl exec</code> and <code>cp</code></td><td>Refused unless you allow it</td><td>Held for typed confirmation showing the command</td><td>Allowed, logged</td></tr>
+    <tr><td>Requests that impersonate another user</td><td>Refused</td><td>Refused</td><td>Allowed, logged</td></tr>
+    <tr><td>Proxying to pods, services or nodes</td><td>Refused</td><td>Held for confirmation</td><td>Allowed, logged</td></tr>
+  </table>
+  <p>On Production, a single plain <code>kubectl</code>, <code>helm</code> or <code>flux</code> command can be approved once. The approval covers only that command, on that cluster, from that terminal, until the prompt returns (ten minutes at most). Anything else, such as scripts, pipelines, <code>watch</code>, full-screen tools and AI agents running in the terminal, is confirmed request by request. A declined or unanswered sheet (120 seconds) becomes a 403 that <code>kubectl</code> prints.</p>
+  <p>Gangway closes open exec and port-forward streams when the app locks, when a cluster becomes read-only or Production, and when the session ends.</p>
+
+  <h2>Confirmation sheets that come from something else</h2>
+  <p>A sheet requested by First Mate, Beacon, a terminal or a Rigging pack has no default button (Return does nothing, Escape cancels), ignores input for about one second after it appears, and each source can have only one request waiting. On Production these sheets always require typing, and the typed field accepts only real keyboard input (not pasted, synthetic or accessibility-injected text).</p>
+
+  <h2>Things that are inserted, never run</h2>
+  <p>Commands from First Mate, Rigging packs and Copy kubectl Command are placed at the terminal prompt. Hidden and direction-changing characters are removed first (the terminal tells you how many), the text goes in without a newline, and it is refused if the terminal is on a different cluster than the command. You press Return, and Gangway still guards it. The only text Compass ever runs is the text you typed after <code>!</code>.</p>
+
+  <h2>Secrets</h2>
+  <p>Secret values are masked. Revealing or copying one needs Touch ID or your password, and a copied value is cleared from the clipboard after 60 seconds. Secret values are kept out of widgets, notifications, the Compass index, First Mate and Beacon (they see key names only), Survey exports and logs. Helm values are masked by key name.</p>
+
+  <h2>AI and agents</h2>
+  <ul>
+    <li><strong>First Mate</strong> has read tools and proposal tools only. A proposal opens the normal review, marked &ldquo;Proposed by First Mate&rdquo;. It cannot type a confirmation or press a button.</li>
+    <li><strong>Beacon</strong> is off by default and read-only by default. Change requests are optional per client and per cluster, are never available for Production or read-only clusters, and always need your confirmation in the app. Results sent to an agent are labelled as untrusted cluster data.</li>
+  </ul>
+
+  <h2>Packs are data</h2>
+  <p>A Rigging pack cannot run code, use the network, read files or call the cluster. Its commands are inserted into a guarded terminal like any other command. See the <a href="rigging-packs.html">pack reference</a>.</p>
+
+  <h2>Audit</h2>
+  <p>The Activity window records the time, cluster, action, object and result of every change, and where it came from: the app, Chart Room, Tides, Survey, First Mate, a Beacon client, a terminal command or a Rigging pack. It also records every stream, proxy request and impersonation attempt Gangway saw. Activity stays on your Mac, can be exported, and never contains Secret values or request bodies.</p>
+
+  <h2>What is not guarded</h2>
+  <p>Please read this part.</p>
+  <ul>
+    <li><strong>Other terminals.</strong> Terminal.app, iTerm, an editor&rsquo;s terminal or a CI job that uses your own <code>~/.kube/config</code> are outside Wheelhouse. It cannot stop them.</li>
+    <li><strong>Tools with their own credentials</strong> such as <code>aws</code>, <code>argocd</code> and <code>terraform</code> are not guarded, even when run inside a Deck Terminal.</li>
+    <li><strong>Bypass inside a Deck Terminal.</strong> If you point <code>KUBECONFIG</code> elsewhere, or use <code>--kubeconfig</code>, <code>--server</code> or <code>--token</code>, the pane shows <strong>Unguarded</strong> (with a Restore button). Wheelhouse tells you; it cannot prevent a determined user in their own shell.</li>
+    <li><strong>Direct mode</strong> is an optional, per-cluster setting that gives a terminal a kubeconfig for that one cluster with no guard. It is off by default, needs Touch ID or your password, and is never available for Production or read-only clusters.</li>
+    <li><strong>Agents with their own shell</strong> can bypass Beacon entirely, because Beacon only guards what goes through Beacon.</li>
+    <li><strong>The command line shown on a sheet</strong> is reported by your shell and is a hint. The request itself is what is confirmed.</li>
+    <li>Wheelhouse does not protect against malware running as you on your Mac, or against someone who has your unlocked Mac. Use the app lock (Touch ID or password, also on wake and when the screen locks) for the second case.</li>
+  </ul>
+
+  <h2>Reporting a problem</h2>
+  <p>If you find a way around a guard described here, please tell us privately first; see <a href="support.html#security">Support</a>.</p>
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="features.html">Features</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="support.html">Support</a>
+  </nav>
+</main>
+</body>
+</html>
