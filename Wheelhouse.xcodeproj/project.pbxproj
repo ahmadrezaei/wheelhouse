@@ -133,6 +133,7 @@
 		61680923FBB5B2FA34EA5ECC /* ResourceSectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */; };
 		62484535320095FD0116E076 /* LandfallFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA84BA03E8578F9277E9CEB /* LandfallFeature.swift */; };
 		62ED3B1A369DD106D88E1F7A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */; };
+		631A8A89321483BECC3895C4 /* FluxDiffModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE1289104E79047B97879F5E /* FluxDiffModelTests.swift */; };
 		63DE521FDA5FF1D6CC0A0EB1 /* ScanSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E1E95244D7774E5D982CCE /* ScanSettingsSection.swift */; };
 		64E837E129ACC2C84D34341F /* PlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555250EC97224ADB83551896 /* PlaceholderView.swift */; };
 		64EA7871860E0F8B1BB75955 /* WorkspaceWindowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB22DAEAA9B973FF8E127AB /* WorkspaceWindowModel.swift */; };
@@ -226,6 +227,7 @@
 		AA14646AF44297D9C9635F20 /* SignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB8C8FF29952189955D7D92 /* SignInSheet.swift */; };
 		AB5991DCEFB482DF05F93B97 /* BiometryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F571944261785B64EFE1268 /* BiometryKind.swift */; };
 		AC86A12F0C0C7CDFE600E849 /* CodeEditor+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA58D0E5FF11737B4BAEB7A /* CodeEditor+Shared.swift */; };
+		AD9FB7A5D68C3C10697BD4F5 /* FluxDiffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7521F07BC20435B670134F4 /* FluxDiffView.swift */; };
 		AE517472D6BE9FC52D56073B /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B66C59008AFD229769E23F /* DashboardComponents.swift */; };
 		AEBAE643BD8DEA068004C5DF /* LogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AD102426EA9E7E598EAE10C /* LogsView.swift */; };
 		B1C4E89F07E6402123547EEA /* BeaconApprovalSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBDBC6AEB7228D64D69529F /* BeaconApprovalSheet.swift */; };
@@ -608,6 +610,7 @@
 		B5830746258110C64A63B1FE /* PerfScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfScenario.swift; sourceTree = "<group>"; };
 		B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacGangway.swift; sourceTree = "<group>"; };
 		B6D6CEB1D55B12F7AE3BD204 /* SurveyModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyModelTests.swift; sourceTree = "<group>"; };
+		B7521F07BC20435B670134F4 /* FluxDiffView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FluxDiffView.swift; sourceTree = "<group>"; };
 		B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterClientFactoryKey.swift; sourceTree = "<group>"; };
 		B92939BAB81753820027D51F /* TidesOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesOverviewView.swift; sourceTree = "<group>"; };
 		BA37AF948581F58A22C8045D /* Distribution.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Distribution.xcconfig; sourceTree = "<group>"; };
@@ -690,6 +693,7 @@
 		FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesSheets.swift; sourceTree = "<group>"; };
 		FCEFC7FC29766A828319C122 /* SidebarCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCatalog.swift; sourceTree = "<group>"; };
 		FD627141B7850AAFB294AF7B /* Wheelhouse.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Wheelhouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE1289104E79047B97879F5E /* FluxDiffModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FluxDiffModelTests.swift; sourceTree = "<group>"; };
 		FEB2709D91DA81BAF1028927 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutViews.swift; sourceTree = "<group>"; };
 		FEDC89EAF411887826A97205 /* SidebarModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarModelTests.swift; sourceTree = "<group>"; };
@@ -775,6 +779,7 @@
 				037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */,
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				F3CD95ABDB5AA17016E0759D /* FirstMateTests.swift */,
+				FE1289104E79047B97879F5E /* FluxDiffModelTests.swift */,
 				1ADD72F550EE6BD43294DEBA /* HelmFlowTests.swift */,
 				46E6F6C7D6D95CEA222310D2 /* HiddenPaneTests.swift */,
 				AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */,
@@ -858,6 +863,7 @@
 		1662473CB0BD5D096570518E /* Tides */ = {
 			isa = PBXGroup;
 			children = (
+				B7521F07BC20435B670134F4 /* FluxDiffView.swift */,
 				194E572C05497A3D3C488831 /* TidesConfirmations.swift */,
 				3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */,
 				922C20DFD7456D7C813FEC15 /* TidesFeature.swift */,
@@ -1869,6 +1875,7 @@
 				15A2D62FAF4427F7995EF44C /* FirstMateTranscript.swift in Sources */,
 				3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */,
 				4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */,
+				AD9FB7A5D68C3C10697BD4F5 /* FluxDiffView.swift in Sources */,
 				DF71F7F704246DB1A5617F9D /* GangwaySheetBuilder.swift in Sources */,
 				396E32BAD645F530830A9E40 /* GangwaySheetCoordinator.swift in Sources */,
 				870D80CFCB11DE4B3513F26A /* GangwayTestHooks.swift in Sources */,
@@ -2119,6 +2126,7 @@
 				8DA55AB87447AB9579FC5125 /* DeckTerminalTests.swift in Sources */,
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				EACB47D9C537A958B3CE5F9A /* FirstMateTests.swift in Sources */,
+				631A8A89321483BECC3895C4 /* FluxDiffModelTests.swift in Sources */,
 				C1E7C349755BB8900C2F97D0 /* HelmFlowTests.swift in Sources */,
 				715A6A399FAA50840B01B4A5 /* HiddenPaneTests.swift in Sources */,
 				4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */,
