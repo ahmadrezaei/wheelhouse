@@ -43,6 +43,10 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         return (d.cols, d.rows)
     }
     var hasFocus: Bool { terminalView.window?.firstResponder === terminalView }
+    /// Whether the program in the terminal enabled bracketed paste (DECSET 2004). Read on demand, when text is inserted.
+    var isBracketedPasteEnabled: Bool { terminalView.terminalInputStateSnapshot()?.bracketedPasteMode ?? false }
+    /// The title the program set (OSC 0 and 2). Used by the Deck Terminal pane; nothing else sets it.
+    var onTitle: (@MainActor (String) -> Void)?
 
     convenience override init() { self.init(scrollback: Scrollback.configured()) }
 
@@ -55,6 +59,8 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         bridge.surface = self
         terminalView.terminalDelegate = bridge
         terminalView.optionAsMetaKey = true
+        // Click-to-move-cursor from OSC 133 marks writes keys to the program: no program's output may switch it on.
+        terminalView.semanticPromptClickBehavior = .disabled
         terminalView.nativeBackgroundColor = TerminalTheme.background
         terminalView.nativeForegroundColor = TerminalTheme.foreground
         terminalView.installColors(TerminalTheme.ansi.map(Self.swiftTermColor))
@@ -102,7 +108,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
             surface.delegate?.terminalSurface(surface, didResize: newCols, rows: newRows)
         }
 
-        func setTerminalTitle(source: TerminalView, title: String) {}
+        func setTerminalTitle(source: TerminalView, title: String) { surface?.onTitle?(title) }
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
         func send(source: TerminalView, data: ArraySlice<UInt8>) {

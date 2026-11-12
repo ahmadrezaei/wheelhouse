@@ -53,6 +53,7 @@ public final class GangwaySession: Sendable {
     public let clusterID: ClusterID
     public let origin: GangwayOrigin
     public let scope: GangwayScope
+    /// How the client process is found. Set once, from `.none`: by ``bind(_:)`` for a terminal's PTY, by ``bindIsolatedGroup(_:)`` for a helm run.
     public var binding: PeerBinding { state.withLock { $0.binding } }
     public let createdAt: Date
     let tokenDigest: String
@@ -81,6 +82,17 @@ public final class GangwaySession: Sendable {
         self.state = Mutex(State(binding: binding))
         self.createdAt = createdAt
         self.tokenDigest = tokenDigest
+    }
+
+    /// Binds a terminal session to its PTY. Accepted once, from `.none`, for a terminal origin; until then requests fall to per-request sheets.
+    @discardableResult
+    public func bind(_ new: PeerBinding) -> Bool {
+        guard case .terminal = origin else { return false }
+        return state.withLock { s in
+            guard !s.revoked, case .none = s.binding else { return false }
+            s.binding = new
+            return true
+        }
     }
 
     /// Binds an object-grant session to the helm process it was opened for, once. The process group is only known after the spawn, and
@@ -198,7 +210,27 @@ public struct GangwayHold: Sendable, Identifiable {
     public var execCommand: [String]
     public var requiresTyping: Bool
     public var origin: GangwayOrigin
+    /// The process group of the requesting process, when it was found (the terminal's foreground job).
+    public var peerGroup: pid_t?
     public var isStream: Bool { if case .stream = request.kind { true } else { false } }
+
+    public init(id: UUID = UUID(), sessionID: UUID, clusterID: ClusterID, clusterName: String, request: GangwayRequestClass, method: String, path: String, query: String? = nil,
+                bodySHA256: String? = nil, reportedCommand: String? = nil, execCommand: [String] = [], requiresTyping: Bool, origin: GangwayOrigin, peerGroup: pid_t? = nil) {
+        self.peerGroup = peerGroup
+        self.id = id
+        self.sessionID = sessionID
+        self.clusterID = clusterID
+        self.clusterName = clusterName
+        self.request = request
+        self.method = method
+        self.path = path
+        self.query = query
+        self.bodySHA256 = bodySHA256
+        self.reportedCommand = reportedCommand
+        self.execCommand = execCommand
+        self.requiresTyping = requiresTyping
+        self.origin = origin
+    }
 }
 
 /// What a sheet asks the person: a command approval (one grant), a batch of listed requests, or one stream.
@@ -212,6 +244,11 @@ public struct GangwaySheet: Sendable {
     public var kind: Kind
     public var holds: [GangwayHold]
     public var requiresTyping: Bool { holds.contains { $0.requiresTyping } }
+
+    public init(kind: Kind, holds: [GangwayHold]) {
+        self.kind = kind
+        self.holds = holds
+    }
 }
 
 /// Shows the confirmation. M5b supplies the real sheets; the default declines everything.
