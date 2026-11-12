@@ -1,0 +1,26 @@
+{
+  "milestone": "M12",
+  "idle-1": {
+    "samples": 30,
+    "intervalSec": 10.0,
+    "cpuAvgPct": 0.063,
+    "cpuMaxSamplePct": 0.4,
+    "idleWakeupsPerSec": 0.021,
+    "energyImpact": 0.063,
+    "threads": 6,
+    "footprintGrowthMB": -8.0,
+    "footprintLastMinusMin10MB": 0.0,
+    "threadsOverBaseline": -1,
+    "fdsOverBaseline": 0,
+    "footprintMB": 96.0,
+    "footprintFirstMB": 96.0,
+    "footprintLastMB": 88.0,
+    "fds": 73,
+    "minutes": 5,
+    "connectedMinutesPct": 100.0,
+    "windowVisibleMinutesPct": 100.0,
+    "keepVisible": true,
+    "connectedAfterSettle": 1,
+    "note": "Beacon is off at launch, so this is the no-regression run with Beacon present but off. Beacon on with no clients is not covered by the sampler (turning it on needs Touch ID): measure it by hand. The design is event-driven (dispatch-source accept, no timers)."
+  }
+}
