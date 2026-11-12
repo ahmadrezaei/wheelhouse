@@ -32,6 +32,17 @@
     <li><strong>Local-only data.</strong> Cluster settings, window layout, history, command output and credentials stay on your Mac, in the app’s folders and keychain. Clusters you choose to sync appear through iCloud Keychain exactly as on iPhone and iPad.</li>
   </ul>
   <p>The Mac app also connects to the Kubernetes API servers and Prometheus addresses you add, and runs the tools you have installed (such as kubectl and your cloud command-line tools) on your behalf.</p>
+  <p id="mac-first-mate"><strong>Ask AI (First Mate), in detail.</strong> First Mate is off until you add your own Anthropic API key in Settings, First Mate. When you use it:</p>
+  <ul>
+    <li>Your question and the cluster information First Mate reads with your permissions are sent <strong>directly from your Mac to Anthropic&rsquo;s API</strong> (api.anthropic.com), using your own key and under your own agreement with Anthropic. Nothing goes through a server run by the developer; there is none.</li>
+    <li>Before anything leaves your Mac it is redacted: Secret values are never read or sent, environment values taken from Secrets are never resolved, and tokens, keys, certificates, passwords and similar patterns are replaced with a marker. You can add your own patterns.</li>
+    <li>You can see exactly what was sent for every message (What Was Sent, in the conversation&rsquo;s usage popover).</li>
+    <li>Production clusters ask your permission before First Mate reads them, per conversation and per cluster; you can set any cluster to Never.</li>
+    <li>First Mate never changes a cluster. A change it proposes opens the normal review and confirmation, and only you can confirm it.</li>
+    <li>Your API key is stored in the Mac&rsquo;s keychain on this device only, is never synced, and is read only at the moment a request is sent.</li>
+    <li>Conversations are stored only on this Mac, encrypted with a key in the keychain that never leaves it, and deleted after 30 days by default (you can choose 7, 30 or 90 days, or keep them). Delete All removes them and the key.</li>
+    <li>You set cost limits per conversation and per day; the estimate is computed on your Mac.</li>
+  </ul>
   <p id="mac-vulnerability-scanning"><strong>Vulnerability scanning (Survey), optional.</strong> Survey reads Trivy Operator reports from your clusters without any other network use. Scanning images on your Mac is optional and starts only when you press Scan Now. It uses the <code>trivy</code> you installed, or a pinned Trivy release that the app downloads only after you approve it: the approval sheet shows the file name, the address, the size and the SHA-256, and the download is checked against that checksum before it is used. When you scan, Trivy downloads its vulnerability database from its own public registry (at most once a day) and, for images in private registries, your Mac contacts those registries with the credentials you already use for them. If you turn on &ldquo;Use the cluster&rsquo;s imagePullSecrets&rdquo; for a cluster, the app reads that cluster&rsquo;s pull secrets and gives Trivy only the matching registry, in a temporary private folder that is deleted when the scan ends. None of this goes to a server run by the developer. If you never scan, none of it happens.</p>
 
   <h2>Face ID (iPhone and iPad)</h2>

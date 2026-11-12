@@ -72,6 +72,10 @@ public struct ConfirmRequest: Identifiable {
     public static let nonUIInputDelay: TimeInterval = 1.0
     public var inputDelay: TimeInterval { origin?.isNonUI == true ? Self.nonUIInputDelay : 0 }
 
+    /// Sheets from AI, MCP, terminal and extension origins have no default button: no button answers Return, and Esc cancels
+    /// (ARCHITECTURE-MAC section 9.2). A UI-origin sheet keeps its default button, so iOS and ordinary Mac sheets do not change.
+    public var hasDefaultButton: Bool { origin?.isNonUI != true }
+
     /// Production clusters: every mutation requires typing the confirmation text.
     public var requiresTyping: Bool { requiresTyping(for: cluster) }
 
@@ -166,15 +170,35 @@ public struct ConfirmSheet: View {
             .whInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isRunning) }   // never disabled by the input delay
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
-                        .buttonStyle(.glassProminent)
-                        .tint(request.isDestructive ? Palette.critical : Palette.tint)
-                        .disabled(!canConfirm)
+                // `.confirmationAction` is the sheet's default button on the Mac (Return presses it), so only a UI-origin sheet uses it.
+                if request.hasDefaultButton {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
+                            .buttonStyle(.glassProminent)
+                            .tint(request.isDestructive ? Palette.critical : Palette.tint)
+                            .disabled(!canConfirm)
+                            .accessibilityIdentifier("confirm.action")
+                    }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 ContextLine(cluster: live ?? request.cluster, namespace: request.namespace, kind: nil).padding(.horizontal, Spacing.l).padding(.bottom, 6)
+            }
+            // A hardened sheet (AI, MCP, terminal, extension origin) has a plain button in the sheet's own button row: no key equivalent
+            // at all, so Return does nothing, and it is always on screen. Esc still cancels.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !request.hasDefaultButton {
+                    HStack {
+                        Spacer()
+                        Button(request.verb, role: request.isDestructive ? .destructive : nil) { startRun() }
+                            .buttonStyle(.glass)
+                            .tint(request.isDestructive ? Palette.critical : Palette.tint)
+                            .disabled(!canConfirm)
+                            .accessibilityIdentifier("confirm.action")
+                    }
+                    .padding(Spacing.l)
+                    .background(.bar)
+                }
             }
             .interactiveDismissDisabled(isRunning)
         }
