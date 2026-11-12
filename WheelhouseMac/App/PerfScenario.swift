@@ -153,6 +153,8 @@ enum PerfScenarioRunner {
         let ordered = wanted.compactMap { ctx in ids[ctx.name].map { (name: ctx.name, id: $0) } }
         PerfLayout.apply(scenario, clusters: ordered, workspace: env.workspace)
         if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
+        // M11b: `-WHPerfFirstMate YES` replays a 50-turn First Mate conversation over each soak cycle (no network; gate-only).
+        if scenario.name.hasPrefix("soak") { FirstMatePerfReplay.startIfRequested(env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
     }
 
     /// The saved cluster updated to the context's server, TLS settings and credentials, or nil when it already matches them.
