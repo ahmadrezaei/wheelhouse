@@ -192,6 +192,22 @@ final class WheelhouseMacUITests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("holodeck"))
     }
 
+    /// App Lock over a split tab: while the lock screen shows, neither leaf (nor its header) is in the accessibility tree. The app starts
+    /// locked because App Lock is on for this launch only (`-appLockEnabled YES` is an argument-domain default, never written).
+    func testLockedSplitLeavesAreHiddenFromAccessibility() throws {
+        let file = tempWorkspaceFile()
+        let json = #"{"version":1,"windows":[{"id":"w1","state":{"tabs":[{"id":"t1","focusedPane":"p-a","root":{"split":{"axis":"horizontal","fraction":0.5,"first":{"leaf":{"id":"p-a","stack":[{"case":"moorings"}]}},"second":{"leaf":{"id":"p-b","stack":[{"case":"activity"}]}}}}}],"selectedTab":"t1"}}]}"#
+        try json.write(to: file, atomically: true, encoding: .utf8)
+        let unlocked = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode"])
+        XCTAssertTrue(waitForCount(panes(unlocked), 2), "the split did not restore")
+        quit(unlocked)
+        let app = try launch(["-WHWorkspaceFile", file.path, "-WHDemoMode", "-appLockEnabled", "YES"])
+        XCTAssertTrue(app.staticTexts["Wheelhouse is Locked"].waitForExistence(timeout: 20), "the app did not start locked")
+        dump(app, "locked-split")
+        XCTAssertEqual(panes(app).count, 0, "a split leaf is visible to accessibility under the lock")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "pane.header").count, 0)
+    }
+
     /// The Welcome screen's buttons push sheet routes: the window must present them.
     func testWelcomeButtonsOpenTheirSheets() throws {
         let app = try launch(["-WHResetState"])

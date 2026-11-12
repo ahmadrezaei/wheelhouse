@@ -92,7 +92,7 @@ private struct SectionsList: View {
             customSection(namespace: ns)
         }
         .navigationTitle("Resources")
-        .toolbar {
+        .paneToolbar {
             ToolbarItem(placement: .whTrailing) {
                 NamespaceMenu(session: session, namespace: $namespace) { _ in Task { await model.load(session: session, namespace: registry.namespace(for: session.id)) } }
             }

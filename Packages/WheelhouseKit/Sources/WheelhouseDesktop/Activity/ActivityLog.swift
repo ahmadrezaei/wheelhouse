@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import SQLite3
+import Synchronization
 import WheelhouseKit
 
 /// A stored entry with its row id.
@@ -43,6 +44,7 @@ public final class ActivityLog: ActivityLogging, @unchecked Sendable {
     private var db: OpaquePointer?          // touched only on `queue`
     private var inserts = 0                 // touched only on `queue`
     private var openFailed = false          // touched only on `queue`
+    private let terminating = Mutex(false)
 
     public init(url: URL, retentionDays: Int = ActivityLog.retentionDays, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
@@ -58,16 +60,36 @@ public final class ActivityLog: ActivityLogging, @unchecked Sendable {
     // MARK: Recording
 
     public func record(_ entry: ActivityEntry) {
-        queue.async { [self] in
+        let write = { [self] in
             guard let db = openIfNeeded() else { return }
             insert(entry, into: db)
             inserts += 1
             if inserts % Self.pruneEvery == 0 { prune(db) }
         }
+        // Once the app is quitting, a record is written before `record` returns: the shutdown audits of the `willTerminate`
+        // observers (Gangway's revoked sessions, for example) run in no fixed order relative to the app delegate's last flush.
+        // Audits a cancelled connection task records after the process has begun to exit can still be lost; nothing here can wait
+        // for those.
+        if terminating.withLock({ $0 }) {
+            dispatchPrecondition(condition: .notOnQueue(queue))
+            queue.sync(execute: write)
+        } else {
+            queue.async(execute: write)
+        }
     }
 
     /// Waits for everything recorded so far to be written (tests, export, quit).
     public func flush() { queue.sync {} }
+
+    /// The app is quitting: everything recorded so far is written now, and every later `record` writes synchronously, so no
+    /// entry is lost to the process ending. Idempotent.
+    public func beginTermination() {
+        terminating.withLock { $0 = true }
+        flush()
+    }
+
+    /// True once `beginTermination()` has been called.
+    public var isTerminating: Bool { terminating.withLock { $0 } }
 
     // MARK: Reading
 

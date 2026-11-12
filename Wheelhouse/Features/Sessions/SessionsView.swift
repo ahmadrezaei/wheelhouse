@@ -61,7 +61,7 @@ struct SessionsView: View {
         }
         .whGroupedListStyle()
         .navigationTitle("Sessions")
-        .toolbar {
+        .paneToolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showingNew = true } label: { Image(systemName: "plus") }.accessibilityLabel("New port forward")
             }

@@ -59,6 +59,17 @@ extension View {
     }
 }
 
+/// How an editor inside a pane says whether it holds unapplied edits (the Manifest Editor's draft). Moving a pane to another window
+/// rebuilds its screens, so the workspace asks before it discards them; moves inside the window keep every screen and never ask.
+struct PaneEditsReporter {
+    let report: @MainActor (_ editor: AnyObject, _ dirty: Bool) -> Void
+}
+
+extension EnvironmentValues {
+    /// Set on every pane's content (a pane's router sheets reset it); nil outside a workspace pane (the Settings window).
+    @Entry var paneEditsReporter: PaneEditsReporter? = nil
+}
+
 /// One pane: a 28 pt header (context chip, title, link toggle, ⋯ menu, close) and its content, a navigation stack over the pane's
 /// destinations. It reads its own state from the store, so the hosting view's root never changes.
 struct PaneHost: View {
@@ -74,6 +85,7 @@ struct PaneHost: View {
             let tabIndex = state.tabIndex(containing: paneID)
             // A pane parked behind a zoomed one is treated like a pane of a hidden tab.
             let parked = tabIndex.map { state.tabs[$0].zoomedPane.map { $0 != paneID } ?? false } ?? false
+            let zoomedHere = tabIndex.map { state.tabs[$0].zoomedPane == paneID } ?? false
             let tabIsSelected = (tabIndex.map { state.tabs[$0].id == state.selectedTab } ?? false) && !parked
             let builds = pane.isPlaceholder || pane.stack.isEmpty || !tearsDown || (tabIsSelected && model.buildsContent)
             let isFocused = model.focusedPaneID == paneID
@@ -97,16 +109,26 @@ struct PaneHost: View {
             .overlay { if PaneDragState.shared.isActive { PaneDropTarget(model: model, paneID: paneID) } }
             .simultaneousGesture(TapGesture().onEnded { model.focus(pane: paneID) })
             .overlay { if multiple && isFocused { Rectangle().strokeBorder(Palette.tint.opacity(0.55), lineWidth: 1.5).allowsHitTesting(false) } }
-            // The lock does not cross the hosting boundary of the window, so the pane covers itself.
-            .disabled(env.lock.isLocked)
-            .accessibilityHidden(env.lock.isLocked)
             .paneEnvironment(env: env, model: model, router: router, visible: model.isVisible && tabIsSelected)
+            // Only the focused (or zoomed) pane of the selected tab puts its items and its search field in the window toolbar, and
+            // none does under the lock (the toolbar is above the lock screen).
+            .environment(\.paneContributesToolbar, PaneHost.contributesToolbar(isFocused: isFocused, isZoomed: zoomedHere, tabIsSelected: tabIsSelected,
+                                                                                locked: env.lock.isLocked))
+            .environment(\.paneEditsReporter, PaneEditsReporter { [model, paneID] editor, dirty in model.editorReported(editor, dirty: dirty, in: paneID) })
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Pane: \(pane.title(registry: env.registry))")
             .accessibilityIdentifier("pane")
+            // The pane covers itself under the lock (a detached pane window has no workspace around it): outermost, so the pane
+            // element itself leaves the accessibility tree, not just its content.
+            .disabled(env.lock.isLocked)
+            .accessibilityHidden(env.lock.isLocked)
         } else {
             Color.clear
         }
+    }
+
+    static func contributesToolbar(isFocused: Bool, isZoomed: Bool, tabIsSelected: Bool, locked: Bool) -> Bool {
+        tabIsSelected && (isFocused || isZoomed) && !locked
     }
 }
 
@@ -265,6 +287,9 @@ struct PaneStack: View {
         .sheet(item: $router.sheet) { presented in
             SheetRouteView(route: presented.route)
                 .paneEnvironment(env: env, model: model, router: router)
+                // A sheet is its own window: it owns its toolbar, and its editors are not the pane's.
+                .environment(\.paneContributesToolbar, true)
+                .environment(\.paneEditsReporter, nil)
                 .frame(minWidth: 520, minHeight: 480)
         }
         .onChange(of: router.sheet) { _, sheet in

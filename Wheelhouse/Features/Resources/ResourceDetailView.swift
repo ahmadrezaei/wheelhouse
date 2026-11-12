@@ -51,7 +51,7 @@ private struct DetailScreen: View {
         }
         .navigationTitle(ref.kind.kind)
         .whInlineNavigationTitle()
-        .toolbar { if let object { toolbar(object) } }
+        .paneToolbar { if let object { toolbar(object) } }
         .task(id: ref.id) { if usesStore { await store.run() } }
         .task(id: ref.id) { await fetch() }
         .onChange(of: store.lastUpdated) { checkDeleted() }

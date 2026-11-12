@@ -184,7 +184,13 @@ final class PaneDropTargetView: NSView {
         guard let payload = payload(from: sender), payload.pane != paneID else { return false }
         let zone = zone(for: sender)
         let target = paneID
-        return MainActor.assumeIsolated { model.controller.dockPane(payload, into: model, onto: target, zone: zone) }
+        return MainActor.assumeIsolated {
+            let controller = model.controller, model = model
+            // A pane with unapplied edits asks before it moves to this window: never with a modal alert inside the drop itself.
+            guard controller.dockingNeedsConfirmation(payload, into: model) else { return controller.dockPane(payload, into: model, onto: target, zone: zone) }
+            DispatchQueue.main.async { MainActor.assumeIsolated { _ = controller.dockPane(payload, into: model, onto: target, zone: zone) } }
+            return true
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {

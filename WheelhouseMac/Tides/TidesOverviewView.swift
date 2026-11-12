@@ -153,8 +153,8 @@ struct TidesRootView: View {
                 table(rows)
             }
         }
-        .searchable(text: $search, prompt: "Filter apps")
-        .toolbar {
+        .paneSearchable(text: $search, prompt: "Filter apps")
+        .paneToolbar {
             ToolbarItem {
                 Picker("Show", selection: $showsSources) {
                     Text("Apps").tag(false)

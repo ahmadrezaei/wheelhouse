@@ -32,6 +32,8 @@ private struct ManifestEditorContent: View {
     @State private var expandedFolds: Set<Int> = []
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppPreferences.self) private var preferences
+    /// Set inside a workspace pane: the pane asks before it moves to another window while the draft is dirty.
+    @Environment(\.paneEditsReporter) private var editsReporter
 
     init(model: YAMLEditorModel, session: ClusterSession) {
         _model = State(initialValue: model)
@@ -63,7 +65,7 @@ private struct ManifestEditorContent: View {
         .onAppear { model.revealOncePerSession = { [preferences] in preferences.revealSecretsOncePerSession } }
         .navigationTitle(model.ref.name)
         .navigationBarBackButtonHidden(model.isEditing)
-        .toolbar { toolbar }
+        .paneToolbar { toolbar }
         .task { await model.load() }
         .onAppear {
             SchemaServices.shared.editorOpened()
@@ -71,6 +73,7 @@ private struct ManifestEditorContent: View {
         }
         .onDisappear { SchemaServices.shared.editorClosed() }
         .onChange(of: model.draft) { model.draftChanged(); assist?.textChanged(model.editorText) }
+        .onChange(of: model.isDirty, initial: true) { _, dirty in editsReporter?.report(model, dirty) }
         .onChange(of: model.isEditing) {
             assist?.textChanged(model.editorText, immediately: true)
             segment = .edit

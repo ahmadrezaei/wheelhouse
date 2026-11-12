@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import SQLite3
 import Testing
 import WheelhouseKit
 @testable import WheelhouseDesktop
@@ -108,6 +109,41 @@ struct ActivityLogTests {
         let log = ActivityLog(url: tempURL())
         log.record(ActivityEntry(verb: "x", result: String(repeating: "a", count: 10_000)))
         #expect(await log.records().first?.entry.result.count == ActivityLog.maxFieldLength)
+    }
+
+    /// Rows in the file as another connection sees them right now (no flush through the log's queue).
+    private func rowsOnDisk(_ url: URL) -> [String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { sqlite3_close(db); return [] }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT verb FROM activity ORDER BY id", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var verbs: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { verbs.append(String(cString: sqlite3_column_text(stmt, 0))) }
+        return verbs
+    }
+
+    @Test func onceTerminationBeginsEveryRecordIsOnDiskWhenRecordReturns() {
+        let url = tempURL()
+        let log = ActivityLog(url: url)
+        log.record(ActivityEntry(verb: "before", result: "ok"))
+        #expect(!log.isTerminating)
+        // The app delegate's last flush and the `willTerminate` observers run in no fixed order: an observer that records after
+        // the delegate has finished must not lose its entry when the process ends right after the notification.
+        let quitting = Notification.Name("wh.test.quitting.\(UUID().uuidString)")
+        let token = NotificationCenter.default.addObserver(forName: quitting, object: nil, queue: nil) { _ in
+            log.record(ActivityEntry(verb: "shutdown audit", result: "ok"))
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        log.beginTermination()
+        #expect(log.isTerminating)
+        #expect(rowsOnDisk(url) == ["before"])                   // what was queued is written by beginTermination itself
+        NotificationCenter.default.post(name: quitting, object: nil)
+        #expect(rowsOnDisk(url) == ["before", "shutdown audit"]) // written before `record` returned, no flush needed
+        log.beginTermination()                                   // idempotent
+        log.record(ActivityEntry(verb: "after", result: "ok"))
+        #expect(rowsOnDisk(url).last == "after")
     }
 }
 #endif

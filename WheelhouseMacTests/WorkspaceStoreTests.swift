@@ -494,4 +494,37 @@ struct WorkspaceStoreTests {
         c.handle(url: url)
         #expect(asked == 1)                              // declined: nothing opened
     }
+
+    @Test func aTemplateStationOpenedFromALinkKeepsItsTerminalsOffThroughTheClusterPicker() throws {
+        let a = ClusterConfig(name: "dev-a", server: URL(string: "https://a.invalid:6443")!, environment: .development)
+        let b = ClusterConfig(name: "dev-b", server: URL(string: "https://b.invalid:6443")!, environment: .development)
+        let registry = ClusterRegistry(credentials: InMemoryCredentialStore(), metadata: InMemoryMetadataStore([a, b]),
+                                       defaults: UserDefaults(suiteName: "wh.station.\(UUID().uuidString)")!)
+        let c = WorkspaceController(store: WorkspaceStore(file: nil), registry: registry, sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
+        let host = c.model(for: c.store.launchWindowID())
+        var opened: [WorkspaceWindowID] = []
+        c.openWorkspaceWindow = { opened.append($0) }
+        var state = window()
+        _ = state.split(state.tabs[0].focusedPane, axis: .horizontal, showing: .deckTerminal(TerminalSpec(clusterID: Self.c1)))
+        let station = c.store.saveStation(named: "Template", from: state, bindToClusters: false)
+        #expect(station.isTemplate)
+        func hasTerminal(_ s: WorkspaceWindowState) -> Bool { s.allPanes.contains { $0.stack.contains { if case .deckTerminal = $0 { true } else { false } } } }
+
+        // Two clusters: a link to a template needs the picker, and the picker carries the link with it.
+        c.confirmsLinkedStation = { _ in true }
+        c.handle(url: URL(string: "wheelhouse://station/\(station.id.rawValue)")!)
+        #expect(host.sheet == .pickClusters(station.id, fromLink: true))
+        #expect(opened.isEmpty)
+        c.open(station: station, picked: [:], fromLink: true)
+        let fromLink = try #require(opened.last)
+        #expect(!hasTerminal(c.store.state(for: fromLink)))
+        #expect(c.store.state(for: fromLink).tabs.flatMap(\.clusterIDs).allSatisfy { $0 == a.id })   // unchosen placeholders take the first cluster
+
+        // The menu (no link) asks too, and keeps the terminals.
+        host.sheet = nil
+        c.open(station: station)
+        #expect(host.sheet == .pickClusters(station.id, fromLink: false))
+        c.open(station: station, picked: [:], fromLink: false)
+        #expect(hasTerminal(c.store.state(for: try #require(opened.last))))
+    }
 }

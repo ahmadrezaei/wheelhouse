@@ -65,6 +65,7 @@ struct YAMLCodeEditor: NSViewRepresentable {
         v.textView.delegate = context.coordinator
         v.setText(text)
         v.setEditable(isEditable)
+        v.setEnabled(context.environment.isEnabled)
         v.setWraps(wraps)
         v.assist = assist
         v.setDiagnostics(diagnostics)
@@ -79,6 +80,8 @@ struct YAMLCodeEditor: NSViewRepresentable {
         controller.editor = v
         if v.textView.string != text { v.setText(text) }
         v.setEditable(isEditable)
+        // `.disabled` (a hidden tab, the lock) reaches AppKit only through here: the text view stops editing and taking the keyboard.
+        v.setEnabled(context.environment.isEnabled)
         v.setWraps(wraps)
         v.assist = assist
         v.setDiagnostics(diagnostics)
@@ -133,6 +136,12 @@ final class YAMLNSTextView: NSTextView {
     }
 
     func showSystemCompletion() { super.complete(nil) }
+
+    /// A disabled editor (`.disabled` in SwiftUI: a hidden tab, the lock) never takes the keyboard.
+    override var acceptsFirstResponder: Bool { (editor?.isEnabled ?? true) && super.acceptsFirstResponder }
+
+    /// `makeFirstResponder` does not consult `acceptsFirstResponder`: refuse here too while disabled.
+    override func becomeFirstResponder() -> Bool { (editor?.isEnabled ?? true) && super.becomeFirstResponder() }
 
     /// From where the suggestions started to the caret, so typing while the list is open keeps narrowing the replaced word.
     override var rangeForUserCompletion: NSRange {
@@ -283,10 +292,24 @@ final class CodeEditorScrollView: NSScrollView, @MainActor NSTextContentStorageD
     }
 
     func setEditable(_ e: Bool) {
-        guard textView.isEditable != e else { return }
-        textView.isEditable = e
+        guard requestedEditable != e else { return }
+        requestedEditable = e
+        textView.isEditable = e && isEnabled
         textView.isSelectable = true
         textView.undoManager?.removeAllActions()
+    }
+
+    /// Edit mode as the editor's owner asked for it; the text view is editable only while the editor is also enabled.
+    private var requestedEditable: Bool?
+    /// False while SwiftUI disables the editor: not editable, not first responder. Leaving and re-entering keeps the undo history.
+    private(set) var isEnabled = true
+
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        if requestedEditable == nil { requestedEditable = textView.isEditable }
+        isEnabled = enabled
+        textView.isEditable = enabled && (requestedEditable ?? false)
+        if !enabled, let window = textView.window, window.firstResponder === textView { window.makeFirstResponder(nil) }
     }
 
     func setWraps(_ w: Bool) {

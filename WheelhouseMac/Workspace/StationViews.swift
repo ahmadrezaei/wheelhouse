@@ -6,13 +6,14 @@ import WheelhouseUI
 enum WorkspaceSheet: Identifiable, Hashable {
     case saveStation
     case stations
-    case pickClusters(StationID)
+    /// A template Station's cluster picker. `fromLink`: the Station was opened by a `wheelhouse://` link, so its terminals do not start.
+    case pickClusters(StationID, fromLink: Bool = false)
 
     var id: String {
         switch self {
         case .saveStation: "save"
         case .stations: "stations"
-        case .pickClusters(let id): "pick-\(id.rawValue)"
+        case .pickClusters(let id, let fromLink): "pick-\(id.rawValue)" + (fromLink ? "-link" : "")
         }
     }
 }
@@ -103,6 +104,8 @@ struct StationClusterPicker: View {
     @Environment(MacAppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
     let station: Station
+    /// Opened from a link: the Station opens without its terminals, like a link that needs no picker.
+    var fromLink = false
     @State private var chosen: [ClusterID: ClusterID] = [:]
 
     var body: some View {
@@ -118,9 +121,7 @@ struct StationClusterPicker: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Open") {
-                    var map = chosen
-                    for p in station.placeholders where map[p] == nil { if let first = clusters.first { map[p] = first.id } }
-                    env.workspace.open(station: station, clusters: map)
+                    env.workspace.open(station: station, picked: chosen, fromLink: fromLink)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction).disabled(clusters.isEmpty)

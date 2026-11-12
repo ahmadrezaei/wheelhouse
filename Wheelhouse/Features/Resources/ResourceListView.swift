@@ -79,8 +79,8 @@ struct ListScreen: View {
         }
         .navigationTitle(kind.displayName)
         .whLargeNavigationTitle()
-        .whSearchable(text: $search, prompt: "Search name, label, image")
-        .toolbar { toolbar }
+        .paneSearchable(text: $search, prompt: "Search name, label, image", drawer: true)
+        .paneToolbar { toolbar }
         .refreshable { await store.refresh() }
         .task(id: storeKey) { await store.run() }
         .task(id: storeKey) { await pollUsage() }

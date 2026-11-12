@@ -94,7 +94,7 @@ struct LogsView: View {
             LogsFooter(model: model)
         }
         .background(Color.whSystemBackground)
-        .toolbar { toolbar(model) }
+        .paneToolbar { toolbar(model) }
         #if os(macOS)
         // The Mac keeps SwiftUI off the per-flush path entirely: the model syncs itself and the table follows the model. Keyed to the
         // model, so a screen reused for another pod stops the old model's sync and starts the new one's. Only while the pane can be seen:

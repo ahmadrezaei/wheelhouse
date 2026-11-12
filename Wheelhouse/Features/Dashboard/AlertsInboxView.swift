@@ -78,7 +78,7 @@ struct AlertsInboxView: View {
         }
         .navigationTitle("Alerts")
         .navigationSubtitle(all.isEmpty ? "" : "\(seen.unseenCount(in: all)) unseen of \(all.count)")
-        .toolbar {
+        .paneToolbar {
             ToolbarItem(placement: .whTrailing) {
                 Menu {
                     Picker("Group by", selection: $grouping) { ForEach(Grouping.allCases) { Text($0.rawValue).tag($0) } }
