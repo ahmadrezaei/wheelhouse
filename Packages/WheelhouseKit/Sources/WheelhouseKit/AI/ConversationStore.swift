@@ -155,7 +155,9 @@ public actor ConversationStore {
         guard let combined = sealed.combined else { throw ConversationStoreError.unreadable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let url = try fileURL(record.id)
-        try combined.write(to: url, options: [.atomic, .completeFileProtection])
+        // No `.completeFileProtection`: it refuses the write while the Mac's screen is locked (a long answer that finishes then would not be
+        // saved), and the file is already AES-GCM encrypted with a key that never leaves this device.
+        try combined.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 

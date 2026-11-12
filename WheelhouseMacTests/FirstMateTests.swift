@@ -86,6 +86,7 @@ struct FirstMateTests {
         session.send(FirstMatePerfReplay.prompt(2))
         for _ in 0..<2_000 where session.isBusy { try? await Task.sleep(for: .milliseconds(10)) }
         await session.flushStorage()
+        #expect(session.storageProblem == nil)      // a failed write is reported, not silent
         await hub.refreshList()
         #expect(hub.recent.map(\.id) == [session.id])
         let other = hub.newConversation(in: "triage")
