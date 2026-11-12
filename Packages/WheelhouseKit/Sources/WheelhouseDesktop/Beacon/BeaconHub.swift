@@ -21,6 +21,12 @@ public struct BeaconApprovalRequest: Sendable {
     public var secretState: BeaconSecretState
     /// Candidates for read access. Change requests are never offered here: enabling them needs Touch ID in Settings.
     public var clusters: [ClusterConfig]
+    public init(clientName: String, launcher: BeaconLauncher, secretState: BeaconSecretState, clusters: [ClusterConfig]) {
+        self.clientName = clientName
+        self.launcher = launcher
+        self.secretState = secretState
+        self.clusters = clusters
+    }
 }
 
 public enum BeaconApprovalDecision: Sendable, Equatable {

@@ -9,16 +9,6 @@ import WheelhouseKit
 @Suite("Beacon approval sheet")
 @MainActor
 struct BeaconApprovalSheetTests {
-    private func buttons(in view: NSView) -> [NSButton] {
-        var found: [NSButton] = []
-        func walk(_ v: NSView) {
-            if let b = v as? NSButton { found.append(b) }
-            v.subviews.forEach(walk)
-        }
-        walk(view)
-        return found
-    }
-
     @Test func noButtonIsTheDefaultButton() async throws {
         let request = BeaconApprovalRequest(
             clientName: "Claude Code", launcher: BeaconLauncher(pid: 1, path: "/usr/local/bin/claude"), secretState: .unbound,
@@ -30,9 +20,7 @@ struct BeaconApprovalSheetTests {
         window.orderBack(nil)
         try await Task.sleep(for: .milliseconds(1_300))   // past the 1 s input delay
         window.contentView?.layoutSubtreeIfNeeded()
-        let all = buttons(in: window.contentView!)
-        #expect(!all.isEmpty)
-        #expect(all.allSatisfy { $0.keyEquivalent != "\r" })
+        // SwiftUI draws its own buttons, so the window-level default button (what Return presses) is what can be checked.
         #expect(window.defaultButtonCell == nil)
         // Return pressed in the window approves nothing.
         if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,

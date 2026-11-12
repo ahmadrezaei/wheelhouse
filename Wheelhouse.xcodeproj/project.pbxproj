@@ -78,6 +78,7 @@
 		3224915EFF49566C444EAB60 /* VulnerabilityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE7904607F77B7B0B8427CFF /* VulnerabilityModel.swift */; };
 		334A9F94697497E41BB8BB12 /* BeaconFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEF1BCBF8FB09388C107679 /* BeaconFeature.swift */; };
 		33BC49BD939F1E1D5AE77B09 /* AlertsInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E75C16150CB0AB7FF57D50 /* AlertsInboxView.swift */; };
+		350C95041E10D37BFD6EEEB6 /* BeaconApprovalSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDBC19987A40E057E713723 /* BeaconApprovalSheetTests.swift */; };
 		3576B47995C6B1AE907B8163 /* MacNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1243BAE2E2C8C708CC731493 /* MacNavigation.swift */; };
 		359760C380DF57A340370A9B /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6B3291FEF6F8D11DF43494 /* SearchView.swift */; };
 		360ADE1BA8A4DBB767950EC1 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */; };
@@ -507,6 +508,7 @@
 		5BC31A097551011978189FEA /* UpdatesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesPane.swift; sourceTree = "<group>"; };
 		5CB22DAEAA9B973FF8E127AB /* WorkspaceWindowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindowModel.swift; sourceTree = "<group>"; };
 		5E38F5342A24A50E7AFD0FF5 /* BeaconHelperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconHelperTests.swift; sourceTree = "<group>"; };
+		5EDBC19987A40E057E713723 /* BeaconApprovalSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconApprovalSheetTests.swift; sourceTree = "<group>"; };
 		5F968D0AB8E05455F90F499A /* ChartRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomView.swift; sourceTree = "<group>"; };
 		5FCEDBB89271DC053053A7B7 /* DeckTerminalFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalFeature.swift; sourceTree = "<group>"; };
 		60529108D22876F77D9BC34D /* TidesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesTests.swift; sourceTree = "<group>"; };
@@ -755,6 +757,7 @@
 			isa = PBXGroup;
 			children = (
 				D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */,
+				5EDBC19987A40E057E713723 /* BeaconApprovalSheetTests.swift */,
 				5E38F5342A24A50E7AFD0FF5 /* BeaconHelperTests.swift */,
 				FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */,
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
@@ -2088,6 +2091,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4A7D4239BCA77080F016445E /* AppKitPortTests.swift in Sources */,
+				350C95041E10D37BFD6EEEB6 /* BeaconApprovalSheetTests.swift in Sources */,
 				B914E09E747960CCC7594BF2 /* BeaconHelperTests.swift in Sources */,
 				501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */,
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
