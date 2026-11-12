@@ -261,7 +261,12 @@ struct LogsView: View {
     private func shortcuts(_ model: LogsModel) -> some View {
         Group {
             Button("Search") { model.isSearching.toggle() }.keyboardShortcut("f", modifiers: .command)
+            #if os(macOS)
+            // ⌘K is Compass on the Mac (DESIGN-MAC section 8): Clear is ⌥⌘K there.
+            Button("Clear") { model.clear() }.keyboardShortcut("k", modifiers: [.command, .option])
+            #else
             Button("Clear") { model.clear() }.keyboardShortcut("k", modifiers: .command)
+            #endif
             Button("Jump to Live") { model.jumpToLive() }.keyboardShortcut(.downArrow, modifiers: .command).disabled(model.previous)
             Button("Larger") { model.fontSize = min(model.fontSize + 1, 22) }.keyboardShortcut("+", modifiers: .command)
             Button("Smaller") { model.fontSize = max(model.fontSize - 1, 9) }.keyboardShortcut("-", modifiers: .command)

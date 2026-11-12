@@ -571,6 +571,15 @@ public actor DemoKubeClient: KubeClientProtocol {
                                   continueToken: page.count < all.count ? "demo-\(page.count)" : nil)
     }
 
+    /// Demo data has no continuation: one page of the demo cluster's own sample objects.
+    public func listCompassPage(kind: ResourceKind, namespace: String?, continueToken: String?, limit: Int) async throws -> CompassMetadataPage {
+        guard continueToken == nil else { return CompassMetadataPage(items: []) }
+        let list = try await listMetadata(kind: kind, namespace: namespace, labelSelector: nil, limit: limit)
+        return CompassMetadataPage(items: list.items.map {
+            CompassMetadataItem(name: $0.name, namespace: $0.namespace, labels: $0.labels, ownerKind: $0.ownerReferences.first?.kind, ownerName: $0.ownerReferences.first?.name)
+        })
+    }
+
     public func proxyRequest(method: String, namespace: String, service: String, port: String, path: String, query: [String: String],
                              headers: [String: String], body: Data?) async throws -> ProxyResponse {
         guard method.uppercased() == "GET" else { throw KubeError.unsupported("Demo clusters only answer proxied GET requests.") }

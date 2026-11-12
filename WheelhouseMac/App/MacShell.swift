@@ -16,6 +16,7 @@ struct MacShell: View {
     let windowID: WorkspaceWindowID
     @Environment(MacAppEnvironment.self) private var env
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         let model = env.workspace.model(for: windowID)
@@ -36,6 +37,11 @@ struct MacShell: View {
         let open = openWindow
         env.workspace.openWorkspaceWindow = { open(value: $0) }
         env.workspace.openDetachedWindow = { open(value: $0) }
+        // M4b: Compass and the commands open Settings and Activity.
+        let settings = openSettings
+        env.openSettingsAction = { settings() }
+        env.openActivityAction = { open(id: "activity") }
+        // end M4b
     }
 }
 
@@ -70,6 +76,9 @@ struct WorkspaceWindowContent: View {
                 workspace.disabled(locked).accessibilityHidden(locked)
                     .onAppear { LaunchMarker.firstContentAppeared(gateActive: env.gateActive) }
             }
+            // M4b: Compass floats over the active window; the lock screen stays above it.
+            if env.compass.isOpen, !locked, env.workspace.activeModel === model, !showsWelcome { CompassPanel(compass: env.compass).transition(.identity) }
+            // end M4b
             if env.lock.isLocked {
                 LockScreenView().environment(env.lock.controller).transition(.identity)
             }
@@ -144,8 +153,14 @@ struct WorkspaceWindowContent: View {
                 env.importer.presentDeferred()
             }
         }
-        .onChange(of: registry.clusters.map(\.id)) { _, _ in model.sidebar.rebuild() }
+        .onChange(of: registry.clusters.map(\.id)) { _, _ in
+            model.sidebar.rebuild()
+            env.rail.prefillOnce()      // M4b
+            env.rail.pinNewClusters()   // M4b
+            env.pruneCompass()          // M4b
+        }
         .onChange(of: registry.isDemoMode) { _, _ in
+            env.pruneCompass()   // M4b: nothing of a real cluster stays searchable in Demo mode
             model.sidebar.rebuild()
             model.mutate { state in for pane in state.selected.panes where !pane.isPlaceholder { state.setRoot(.route(.fleet), in: pane.id) } }
         }
@@ -166,6 +181,9 @@ struct WorkspaceWindowContent: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
         } detail: {
             VStack(spacing: 0) {
+                // M4b: the Rail (⇧⌘B).
+                if env.macPreferences.showsRail, !model.isDetachedScope, !registry.isDemoMode { RailBar(model: model); Divider() }
+                // end M4b
                 TabBar(model: model)
                 Divider()
                 ZStack {
@@ -195,6 +213,7 @@ struct WorkspaceWindowContent: View {
     /// window and by every detached pane window, so it also happens when only detached windows are open. Idempotent.
     static func lockEngaged(env: MacAppEnvironment) {
         for other in env.workspace.allModels { other.dismissSheetsForLock() }
+        env.compass.lockEngaged()   // M4b
         ChartRoomMemory.scrub()
         env.importer.dismiss()
         coverWindows()

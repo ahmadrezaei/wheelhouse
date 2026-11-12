@@ -137,6 +137,13 @@ final class WorkspaceStore {
 
     @ObservationIgnored private var detachedOrder: [PaneID] = []
 
+    /// Replaces the Rail (M4b). Items this build cannot read stay in the array as they were (`RailModel` keeps them in place).
+    func setRail(_ values: [JSONValue]) {
+        guard values != rail else { return }
+        rail = values
+        scheduleSave()
+    }
+
     /// Schedules a save one second after the last structural change.
     func scheduleSave() {
         guard file != nil else { return }

@@ -14,6 +14,7 @@
 		04443B4BBDFAA43D66EB5842 /* WorkspaceRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C66A04D633FC07752038E35 /* WorkspaceRuntimeTests.swift */; };
 		0580638D2F6B10FC247CD065 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C9C52EE391C749B058D73B /* main.swift */; };
 		05EE3699B3DFEA88FDCA7BD2 /* ClusterClientFactoryKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */; };
+		07910056929F7D4F65CB9A8D /* CompassMetadataIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07925036213A72C282F0095E /* CompassMetadataIndexer.swift */; };
 		082B69AB73BCCBF3C180127B /* MemoryRelief.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ACFC492FBDDB66BB25512D /* MemoryRelief.swift */; };
 		084E1734EA95E59104BCB6A9 /* DrainSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2BA55B44724291DF21B17F /* DrainSheet.swift */; };
 		08D23AF20991B264DC6474C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C7BB97A1F3B0DDEAA77F6CC6 /* Assets.xcassets */; };
@@ -41,6 +42,7 @@
 		1B6CC29FBFE79FAB6D1CA590 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
 		1B881DEAAE26133A890CCB7F /* ActionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */; };
 		1BC400C9101A9CE7D174689D /* KubeconfigImportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E288B89CF351561D932D450 /* KubeconfigImportPolicy.swift */; };
+		1C17F1410414B3F3F2814D1D /* CrowsNestPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478FE39850BCE03DBC2396BE /* CrowsNestPanel.swift */; };
 		1C401E5DF9EB73F1DDBAF6E9 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6B3291FEF6F8D11DF43494 /* SearchView.swift */; };
 		1CF3C3F35606568FBEE53904 /* NotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1409C7CDCD5574F2BF1528 /* NotificationCoordinator.swift */; };
 		1D325CEEF7BE1EF56F4E029E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E049D4508D051D4AE57ED1C0 /* SettingsView.swift */; };
@@ -88,6 +90,7 @@
 		396E32BAD645F530830A9E40 /* GangwaySheetCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E300E1754A22253076ADD0 /* GangwaySheetCoordinator.swift */; };
 		3A30743D1B8FB2AC3D4A7326 /* AboutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */; };
 		3B6ABBBBFF81C2571381798E /* MacWidgetSnapshotWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CADC6E0637ED64C2044F2BAF /* MacWidgetSnapshotWriter.swift */; };
+		3B918AE3805BF863F355ECAA /* MacFleetMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCE40F91E188A7849C080E4 /* MacFleetMonitor.swift */; };
 		3BBE09B5A68FC7EBA3ACA9D7 /* FleetDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CDDBFC44EFBFF404C6330B /* FleetDashboardView.swift */; };
 		3CC774EDEF69536BDF54621B /* TidesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 922C20DFD7456D7C813FEC15 /* TidesFeature.swift */; };
 		3D5DE625BC0C231E4FAC513C /* DeckTerminalFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FCEDBB89271DC053053A7B7 /* DeckTerminalFeature.swift */; };
@@ -110,14 +113,17 @@
 		4ADCA5BF28F17CDCB05FF7CA /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880B90623F4A1A1A37B3D59F /* SessionsView.swift */; };
 		4B4BB3BD97E6B22BE89DE53A /* WorkspaceDestination+Clusters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08790B8AD5629A5F56B5C65C /* WorkspaceDestination+Clusters.swift */; };
 		4BEFC363D1AA767D635C5110 /* SurveyFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E754B51D3704699B8AA7597 /* SurveyFeature.swift */; };
+		4C6269FA6F314D2FEA48C1DA /* RailModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086FF7B4E5C15F59E447A189 /* RailModel.swift */; };
 		4C65B0FFF0A23AE7C7829917 /* LaunchPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C7BAF4AFA921DEF8FCD1930 /* LaunchPathTests.swift */; };
 		4D102577D958B90A2E3A740F /* RiggingPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2283BCAB2F285B518020B85B /* RiggingPane.swift */; };
 		4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */; };
 		4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E84D8194B6C8616AA8C1C161 /* FleetModel.swift */; };
+		4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */; };
 		501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */; };
 		50C2FDBFC0B28E75CAB2F09A /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B66C59008AFD229769E23F /* DashboardComponents.swift */; };
 		5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */; };
 		547D7A27B044A961AE1E035E /* FirstMatePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245A43137327482DEDD6F403 /* FirstMatePanel.swift */; };
+		55B9CB51DD35F0A958A19EB5 /* CompassModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A30A58B988B9E221DDE6E7E /* CompassModelTests.swift */; };
 		564E3EF8F74CC68C53388CBC /* LockCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */; };
 		5656C07222A53BD7357E20F4 /* DeepLink+Routes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */; };
 		5670083BC1BEC3326B356107 /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = CF36B8675110BE1E251A2473 /* WheelhouseKit */; };
@@ -170,6 +176,7 @@
 		7D48ED3A62AF71F7BAC5DA20 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A6CEC1A9E849601555FD30A9 /* PrivacyInfo.xcprivacy */; };
 		7E831B8B9C812367E2906BF1 /* PhoneShell+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D925B2E5A03C6F3CEEBC3C /* PhoneShell+iOS.swift */; };
 		7E88C1C55170843F47F41ED0 /* ReviewChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D1FE4CCBC939EE48C1B4A0 /* ReviewChangesView.swift */; };
+		7E985685F4D97FD1D73F10EC /* RailBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A656939B630B83A2CDEAC90 /* RailBar.swift */; };
 		7EEE5FE6C72F12E87C1D7A37 /* ResourceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE6FD1419CECD7C9E8F7F106 /* ResourceListView.swift */; };
 		7F6285C3C4CF6E7B33962ABA /* FleetDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CDDBFC44EFBFF404C6330B /* FleetDashboardView.swift */; };
 		8029DEF97E36819CC0EBAB05 /* LogsTableView+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A8B15BD1430061595E91E9 /* LogsTableView+Shared.swift */; };
@@ -186,6 +193,8 @@
 		876F43FAB6291060D2827625 /* RailFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA7288578A361AC0DBD52E6 /* RailFeature.swift */; };
 		88D9FCEB45A99988F4F9A37C /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = CF20029430BC08857F7AC4D9 /* WheelhouseUI */; };
 		8934BA761667A07EE82B2442 /* ListSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB6DDDD598E77EF51206330 /* ListSupport.swift */; };
+		898D8DD4EA7ECB8543A06C5B /* LoginItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC58362712BDFA5DCD48B30 /* LoginItem.swift */; };
+		8A9C8EEB85751DDA7B247D3E /* CommandRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9369894EBF2AD326FB2114F3 /* CommandRegistry.swift */; };
 		8B54656B17DC82A68BD2137A /* WheelhouseDesktop in Frameworks */ = {isa = PBXBuildFile; productRef = 1130F0C03FF0A862660001A9 /* WheelhouseDesktop */; };
 		8C28C0E61DF094C00538C11E /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */; };
 		8C602CB9E133067D3EA1AF56 /* ExecTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D464A53678083F853141E5EC /* ExecTerminalView.swift */; };
@@ -263,7 +272,6 @@
 		C288B6A3AA936A1A23772EEF /* MooringsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AC9112AFDD43844779E752D /* MooringsViews.swift */; };
 		C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */; };
 		C359CF0FB80323149B2D613E /* PaneDragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C5ED73FE745445D246E837 /* PaneDragDrop.swift */; };
-		C4EA83932F9B86D57C4B4CDE /* CrowsNestPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6671AC37FD8CBFA1EE079AE2 /* CrowsNestPanel.swift */; };
 		C4F858BF8386AB9F54632D17 /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3C546C16695AD9E2351D6E /* Providers.swift */; };
 		C572807372A65744AC2EDC39 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BFDD26E1A7212B653A9485 /* ShareViewController.swift */; };
 		C5C3EC014AD92210E5D774FE /* AppLockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25DBC4EC930E2924210B3E63 /* AppLockController.swift */; };
@@ -272,6 +280,7 @@
 		C9A2A781E09873B3D02FD3DF /* FirstMatePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C1B102BAB0F219E8D1278A /* FirstMatePane.swift */; };
 		C9F1B88BD4DA99DDF8F23C91 /* ResourceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */; };
 		CA1CF824D8AAFAD24EE0F132 /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 45A6EC26313B04879530B78A /* WheelhouseKit */; };
+		CA8CE901027A6419D379AAEE /* MenuBarSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */; };
 		CB7F42F0B529CA95BE15AD9C /* ExecTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D464A53678083F853141E5EC /* ExecTerminalView.swift */; };
 		CC32488B9762B039BB3CF34D /* LandfallSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */; };
 		CC807C37CAE0516F319B10D6 /* BeaconPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16E668499B8579C3A11866E /* BeaconPresenter.swift */; };
@@ -295,9 +304,11 @@
 		DF315D7E31A5FE615B0263E5 /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
 		DF3B0CCFB70A6260A4E37283 /* MacGangway.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A23AD55BB7A5E884C18FE5 /* MacGangway.swift */; };
 		DF71F7F704246DB1A5617F9D /* GangwaySheetBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB8863A45D80A2FB96C5603 /* GangwaySheetBuilder.swift */; };
+		DFC91BEE7354BEC8A265B88C /* ActivationPolicyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47DA572A09AD98F171BF1FE /* ActivationPolicyController.swift */; };
 		E01E0309129F97B081507F13 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E629946671A1519BEFD10D /* AppRouter.swift */; };
 		E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D69759772CB358A9BC5703 /* ActionSheets.swift */; };
 		E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AA8325815C3188AA5DE2F9 /* CreateFromYAMLView.swift */; };
+		E0B6E36BA5A7B69316444539 /* RailActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5055EC3B62276A5C29AF4357 /* RailActivation.swift */; };
 		E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60529108D22876F77D9BC34D /* TidesTests.swift */; };
 		E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A46A647721E3C56CE978924 /* MooringsFeature.swift */; };
 		E489FC81C9B9C09E5B3F5254 /* ClusterClientFactoryKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */; };
@@ -308,6 +319,7 @@
 		E9BE2D2FA3A1556F385CC98D /* FirstClusterNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82E2DBE5FD6356C6C441EDD /* FirstClusterNotifications.swift */; };
 		EA3A22BDB01BF4074FCC99C7 /* SidebarTreeBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A6CF8DD4B434DD8CF25040 /* SidebarTreeBuilder.swift */; };
 		EACB47D9C537A958B3CE5F9A /* FirstMateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3CD95ABDB5AA17016E0759D /* FirstMateTests.swift */; };
+		EB04E05F2D1E46431CEB1C82 /* CompassPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FE4E56673CE2A2CC2FACE9 /* CompassPanel.swift */; };
 		EC8AAD8583824DD80C230B28 /* CodeEditor+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA58D0E5FF11737B4BAEB7A /* CodeEditor+Shared.swift */; };
 		EDCF1277DD6D4F3C92553E47 /* ChartRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F968D0AB8E05455F90F499A /* ChartRoomView.swift */; };
 		EF48D918BFF1299A9C7A43B8 /* StationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B264C3ADE981E8B31BBD82 /* StationViews.swift */; };
@@ -318,6 +330,7 @@
 		F2D0F0F1438A767D8D95E95D /* MacEnergyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73ED59F4234D11F4C3D73D8B /* MacEnergyCoordinator.swift */; };
 		F327DAF2B9231751C6E8F821 /* YAMLEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */; };
 		F32905F453B917170A2B69C8 /* TidesDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E49EF8A0A10D909AE96ED17 /* TidesDetailView.swift */; };
+		F32921D57A12E229FF91A2B1 /* CompassModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3F157B7B71A6673472A0F0 /* CompassModel.swift */; };
 		F32E6B11981AE4A63EA2A41C /* RouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */; };
 		F34ADDABAD6081F5CC481776 /* HelmToolbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAA91CE1040352CF0A7AE1D /* HelmToolbox.swift */; };
 		F34B2E5215C3323CF049BEBB /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
@@ -439,6 +452,8 @@
 		04AC2DD8945C0CABBA449B0A /* WheelhouseMacWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacWidgets.swift; sourceTree = "<group>"; };
 		05850A5A2F03124AD8641A6D /* Route.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Route.swift; sourceTree = "<group>"; };
 		062C449091DBB9ECBFB3B2A7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		07925036213A72C282F0095E /* CompassMetadataIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassMetadataIndexer.swift; sourceTree = "<group>"; };
+		086FF7B4E5C15F59E447A189 /* RailModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailModel.swift; sourceTree = "<group>"; };
 		08790B8AD5629A5F56B5C65C /* WorkspaceDestination+Clusters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceDestination+Clusters.swift"; sourceTree = "<group>"; };
 		0D9A6F860BFB18BDE3F3CCDB /* SurveyPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyPane.swift; sourceTree = "<group>"; };
 		0E5800E827B175B44600EA63 /* SurveyModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyModel.swift; sourceTree = "<group>"; };
@@ -475,17 +490,20 @@
 		26E71F29DFFAF78E7E5BAD64 /* WorkspaceMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMutations.swift; sourceTree = "<group>"; };
 		2714EA460CBD97B3F5D133BC /* SurveyComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyComponents.swift; sourceTree = "<group>"; };
 		276A7204DA8468B2DE3B5419 /* ChartRoomModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomModels.swift; sourceTree = "<group>"; };
+		2A656939B630B83A2CDEAC90 /* RailBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailBar.swift; sourceTree = "<group>"; };
 		2BB3D6E95365F633D8D90DF7 /* MacLockCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLockCoordinator.swift; sourceTree = "<group>"; };
 		2CBAE555E0F57D91A513E09E /* SurveySheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveySheets.swift; sourceTree = "<group>"; };
 		2CC9028AE7CC55DC2B97E0F7 /* FirstMateHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMateHub.swift; sourceTree = "<group>"; };
 		2DEEE4ED47CF35BF707FD990 /* MacAlertMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAlertMonitor.swift; sourceTree = "<group>"; };
 		2FB1CC652EB53E4DFCF4D504 /* KubeTableDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeTableDiffTests.swift; sourceTree = "<group>"; };
+		2FCE40F91E188A7849C080E4 /* MacFleetMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFleetMonitor.swift; sourceTree = "<group>"; };
 		300CF5B92D03267C8C59B91E /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		309FD722690ACE35D393E993 /* SessionsHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsHub.swift; sourceTree = "<group>"; };
 		31C9C52EE391C749B058D73B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		31E297A94EE4DBA4CBCE1D7F /* FeatureRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistry.swift; sourceTree = "<group>"; };
 		33D198A4A6FF5F824C488C08 /* SidebarTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTree.swift; sourceTree = "<group>"; };
 		34124FD5A5071D426525B826 /* WheelhouseMacUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacUITests.swift; sourceTree = "<group>"; };
+		35FE4E56673CE2A2CC2FACE9 /* CompassPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassPanel.swift; sourceTree = "<group>"; };
 		3720896A00597F1D024CEC76 /* KubeconfigFileInliner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigFileInliner.swift; sourceTree = "<group>"; };
 		376DBE56B10CEC0380A4224F /* ClusterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterIntent.swift; sourceTree = "<group>"; };
 		3A46A647721E3C56CE978924 /* MooringsFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsFeature.swift; sourceTree = "<group>"; };
@@ -504,12 +522,14 @@
 		448E27387E9FE683013FB7E8 /* WidgetSnapshotWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotWriterTests.swift; sourceTree = "<group>"; };
 		46E6F6C7D6D95CEA222310D2 /* HiddenPaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenPaneTests.swift; sourceTree = "<group>"; };
 		46F48152520311B2144B42D8 /* MacAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppEnvironment.swift; sourceTree = "<group>"; };
+		478FE39850BCE03DBC2396BE /* CrowsNestPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowsNestPanel.swift; sourceTree = "<group>"; };
 		49AC7DE33B55565935B6DB40 /* ActivityFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeature.swift; sourceTree = "<group>"; };
 		4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistryTests.swift; sourceTree = "<group>"; };
 		4AC9112AFDD43844779E752D /* MooringsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsViews.swift; sourceTree = "<group>"; };
 		4B5A2060B46AB6012246D1A1 /* ManifestEditorView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManifestEditorView+macOS.swift"; sourceTree = "<group>"; };
 		4FAA412529D59CBC7707DC77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
+		5055EC3B62276A5C29AF4357 /* RailActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailActivation.swift; sourceTree = "<group>"; };
 		5059A2198553AB06D391E97A /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
 		521678ECBDFD2713442D0807 /* LandfallModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallModel.swift; sourceTree = "<group>"; };
 		53995759C6782852A5AF1FCC /* LockScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenView.swift; sourceTree = "<group>"; };
@@ -533,7 +553,6 @@
 		63C86BF66B2F9F6B71625516 /* LiveClusterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveClusterTests.swift; sourceTree = "<group>"; };
 		656D7C0D5DDD8642AE142F4B /* MacUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdater.swift; sourceTree = "<group>"; };
 		6588A384B938BCFED31E6199 /* LogsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsModel.swift; sourceTree = "<group>"; };
-		6671AC37FD8CBFA1EE079AE2 /* CrowsNestPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowsNestPanel.swift; sourceTree = "<group>"; };
 		67344DB1EFC111C8CECE7132 /* WorkspaceChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChrome.swift; sourceTree = "<group>"; };
 		6BFFCE399F053CC16E701256 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6C4D13475B7053C5D789492A /* BackgroundRefresh+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackgroundRefresh+iOS.swift"; sourceTree = "<group>"; };
@@ -542,6 +561,7 @@
 		6CB64CAF809897C486C3B9B9 /* ChartRoomMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomMemory.swift; sourceTree = "<group>"; };
 		6CBFFF52A43FFF1133622421 /* DeckTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalSession.swift; sourceTree = "<group>"; };
 		6E288B89CF351561D932D450 /* KubeconfigImportPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigImportPolicy.swift; sourceTree = "<group>"; };
+		6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAndRailTests.swift; sourceTree = "<group>"; };
 		6F011FE1F7367C6C3CCC2EE9 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 		711D29041D1D5BF5E1D65F5E /* ProposalReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProposalReview.swift; sourceTree = "<group>"; };
 		71CB2A41DC3B8EE0923DA621 /* FirstMateFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMateFeature.swift; sourceTree = "<group>"; };
@@ -555,6 +575,7 @@
 		78E6E628C0C5FF1C9CF0EAAE /* WorkspaceStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStoreTests.swift; sourceTree = "<group>"; };
 		792E8557F92B43B695C7EF1C /* WheelhouseMacUI.xctestplan */ = {isa = PBXFileReference; path = WheelhouseMacUI.xctestplan; sourceTree = "<group>"; };
 		7A118008A70158B94776F981 /* TerminalExtraKeysBar+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalExtraKeysBar+iOS.swift"; sourceTree = "<group>"; };
+		7A30A58B988B9E221DDE6E7E /* CompassModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassModelTests.swift; sourceTree = "<group>"; };
 		7A7FBC7A6606669B9B7F41D5 /* wheelhouse-mcp */ = {isa = PBXFileReference; includeInIndex = 0; path = "wheelhouse-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AEB9A8F06EBB72B0B3ADD38 /* AdvancedPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPane.swift; sourceTree = "<group>"; };
 		7F6C3F4910860773388AC1D0 /* WheelhouseApp+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WheelhouseApp+iOS.swift"; sourceTree = "<group>"; };
@@ -576,6 +597,7 @@
 		8E754B51D3704699B8AA7597 /* SurveyFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyFeature.swift; sourceTree = "<group>"; };
 		922C20DFD7456D7C813FEC15 /* TidesFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesFeature.swift; sourceTree = "<group>"; };
 		9231D724E591F24888BABCB3 /* HelmFlowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmFlowModel.swift; sourceTree = "<group>"; };
+		9369894EBF2AD326FB2114F3 /* CommandRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRegistry.swift; sourceTree = "<group>"; };
 		938E86E9E6678A5A33F1ED62 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		951A2B14985875AD7FB06D45 /* TerminalPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPane.swift; sourceTree = "<group>"; };
@@ -630,6 +652,7 @@
 		C2102449582D5D268C8A8D09 /* TidesVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesVisibility.swift; sourceTree = "<group>"; };
 		C373B5CE26FC8F9E11A136EA /* WorkspaceCodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCodingTests.swift; sourceTree = "<group>"; };
 		C471D8B9EB6F75F07865BF90 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
+		C47DA572A09AD98F171BF1FE /* ActivationPolicyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationPolicyController.swift; sourceTree = "<group>"; };
 		C4D925B2E5A03C6F3CEEBC3C /* PhoneShell+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PhoneShell+iOS.swift"; sourceTree = "<group>"; };
 		C7BB97A1F3B0DDEAA77F6CC6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C82E2DBE5FD6356C6C441EDD /* FirstClusterNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstClusterNotifications.swift; sourceTree = "<group>"; };
@@ -656,6 +679,7 @@
 		DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSafetyTests.swift; sourceTree = "<group>"; };
 		DCBEB32ACB248A15C67DE849 /* KubeconfigImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigImportView.swift; sourceTree = "<group>"; };
 		DE2713DE052490928090B44C /* ClustersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClustersPane.swift; sourceTree = "<group>"; };
+		DE3F157B7B71A6673472A0F0 /* CompassModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassModel.swift; sourceTree = "<group>"; };
 		DE7904607F77B7B0B8427CFF /* VulnerabilityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VulnerabilityModel.swift; sourceTree = "<group>"; };
 		DEBCFD6CF322429D05E73B66 /* PortForwardBrowserView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardBrowserView+macOS.swift"; sourceTree = "<group>"; };
 		DF3DCCD630640E32390016E7 /* SidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPane.swift; sourceTree = "<group>"; };
@@ -663,11 +687,13 @@
 		E049D4508D051D4AE57ED1C0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestEditorTests.swift; sourceTree = "<group>"; };
 		E67EC3F0EC76D6F1ED176190 /* ChartRoomPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomPane.swift; sourceTree = "<group>"; };
+		E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSettingsSection.swift; sourceTree = "<group>"; };
 		E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSectionsView.swift; sourceTree = "<group>"; };
 		E807AD74708CC25D66B2E59A /* WheelhouseWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseWidgets.swift; sourceTree = "<group>"; };
 		E84D8194B6C8616AA8C1C161 /* FleetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetModel.swift; sourceTree = "<group>"; };
 		E9F46F7D601D2A96B649C139 /* ClusterDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashboardView.swift; sourceTree = "<group>"; };
 		EA3677D0AA2B415CF4038586 /* YAMLEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditorModel.swift; sourceTree = "<group>"; };
+		EAC58362712BDFA5DCD48B30 /* LoginItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItem.swift; sourceTree = "<group>"; };
 		EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockCoordinatorTests.swift; sourceTree = "<group>"; };
 		EBFA6AD9CDB04ECBF171BB4F /* WHTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WHTestHooks.swift; sourceTree = "<group>"; };
 		EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertNotifier.swift; sourceTree = "<group>"; };
@@ -780,6 +806,7 @@
 				5EDBC19987A40E057E713723 /* BeaconApprovalSheetTests.swift */,
 				5E38F5342A24A50E7AFD0FF5 /* BeaconHelperTests.swift */,
 				FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */,
+				7A30A58B988B9E221DDE6E7E /* CompassModelTests.swift */,
 				037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */,
 				4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */,
 				F3CD95ABDB5AA17016E0759D /* FirstMateTests.swift */,
@@ -795,6 +822,7 @@
 				EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */,
 				DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */,
 				E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */,
+				6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */,
 				B1E50281A64525DC54AE1BB4 /* PaneDragTests.swift */,
 				6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */,
 				5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */,
@@ -883,7 +911,11 @@
 		1F4751018E0F643D7862961B /* Compass */ = {
 			isa = PBXGroup;
 			children = (
+				9369894EBF2AD326FB2114F3 /* CommandRegistry.swift */,
 				A66EF0971862B01DAA029E53 /* CompassFeature.swift */,
+				07925036213A72C282F0095E /* CompassMetadataIndexer.swift */,
+				DE3F157B7B71A6673472A0F0 /* CompassModel.swift */,
+				35FE4E56673CE2A2CC2FACE9 /* CompassPanel.swift */,
 			);
 			path = Compass;
 			sourceTree = "<group>";
@@ -996,7 +1028,12 @@
 		3CA0813BD72C7395A48715F0 /* CrowsNest */ = {
 			isa = PBXGroup;
 			children = (
+				C47DA572A09AD98F171BF1FE /* ActivationPolicyController.swift */,
 				CC32D39307D690CC2810013B /* CrowsNestFeature.swift */,
+				478FE39850BCE03DBC2396BE /* CrowsNestPanel.swift */,
+				EAC58362712BDFA5DCD48B30 /* LoginItem.swift */,
+				2FCE40F91E188A7849C080E4 /* MacFleetMonitor.swift */,
+				E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */,
 			);
 			path = CrowsNest;
 			sourceTree = "<group>";
@@ -1100,14 +1137,6 @@
 			path = WheelhouseMacPerfTests;
 			sourceTree = "<group>";
 		};
-		6AA1893A89CC289D3BB777CD /* MenuBar */ = {
-			isa = PBXGroup;
-			children = (
-				6671AC37FD8CBFA1EE079AE2 /* CrowsNestPanel.swift */,
-			);
-			path = MenuBar;
-			sourceTree = "<group>";
-		};
 		6F2B1826D80E8CC71B0B9E9A /* Terminal */ = {
 			isa = PBXGroup;
 			children = (
@@ -1174,7 +1203,6 @@
 				B5830746258110C64A63B1FE /* PerfScenario.swift */,
 				8E530C6D3731258C4406AD97 /* WheelhouseMacApp.swift */,
 				EBFA6AD9CDB04ECBF171BB4F /* WHTestHooks.swift */,
-				6AA1893A89CC289D3BB777CD /* MenuBar */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -1192,7 +1220,10 @@
 		9A7302B2DA1CEFE1384B7A13 /* Rail */ = {
 			isa = PBXGroup;
 			children = (
+				5055EC3B62276A5C29AF4357 /* RailActivation.swift */,
+				2A656939B630B83A2CDEAC90 /* RailBar.swift */,
 				7FA7288578A361AC0DBD52E6 /* RailFeature.swift */,
+				086FF7B4E5C15F59E447A189 /* RailModel.swift */,
 			);
 			path = Rail;
 			sourceTree = "<group>";
@@ -1834,6 +1865,7 @@
 				A6A6C8916200CC0A8F0E1F42 /* AboutViews.swift in Sources */,
 				1B881DEAAE26133A890CCB7F /* ActionHost.swift in Sources */,
 				E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */,
+				DFC91BEE7354BEC8A265B88C /* ActivationPolicyController.swift in Sources */,
 				A2BCD195FA5B8BB8216AEF25 /* ActivityFeature.swift in Sources */,
 				A83FDDBB88F1C7A385FFECE1 /* ActivityView.swift in Sources */,
 				DF315D7E31A5FE615B0263E5 /* AddClusterView.swift in Sources */,
@@ -1862,11 +1894,15 @@
 				852158A06D2CDAAB2C8FC351 /* ClustersPane.swift in Sources */,
 				AC86A12F0C0C7CDFE600E849 /* CodeEditor+Shared.swift in Sources */,
 				BCC9E607F364FA125F8DE808 /* CodeEditor+macOS.swift in Sources */,
+				8A9C8EEB85751DDA7B247D3E /* CommandRegistry.swift in Sources */,
 				8DB3A4EF2B1CBABB4F416557 /* CompassFeature.swift in Sources */,
+				07910056929F7D4F65CB9A8D /* CompassMetadataIndexer.swift in Sources */,
+				F32921D57A12E229FF91A2B1 /* CompassModel.swift in Sources */,
+				EB04E05F2D1E46431CEB1C82 /* CompassPanel.swift in Sources */,
 				8CB67000EC6A8A4B8C8A639F /* ConnectionTestCard.swift in Sources */,
 				E061018ACC0AF3137D5813AE /* CreateFromYAMLView.swift in Sources */,
 				2B8D42B3DB0C6DBEC42AAC00 /* CrowsNestFeature.swift in Sources */,
-				C4EA83932F9B86D57C4B4CDE /* CrowsNestPanel.swift in Sources */,
+				1C17F1410414B3F3F2814D1D /* CrowsNestPanel.swift in Sources */,
 				AE517472D6BE9FC52D56073B /* DashboardComponents.swift in Sources */,
 				3D5DE625BC0C231E4FAC513C /* DeckTerminalFeature.swift in Sources */,
 				DC0259D9A3AFCD5792B2E29D /* DeckTerminalPane.swift in Sources */,
@@ -1911,6 +1947,7 @@
 				BADECE44B6462E05F0F14E56 /* LandfallViews.swift in Sources */,
 				D26B5EDEC0A30B265148E5FB /* ListSupport.swift in Sources */,
 				7CCCFB7058902092FAE82C14 /* LockScreenView.swift in Sources */,
+				898D8DD4EA7ECB8543A06C5B /* LoginItem.swift in Sources */,
 				986C75C08A97B39AFD41A86A /* LogsModel.swift in Sources */,
 				7338783DF88A3C9C600891D7 /* LogsTableView+Shared.swift in Sources */,
 				26EA2D7D7680FDC32D54BB1F /* LogsTableView+macOS.swift in Sources */,
@@ -1920,6 +1957,7 @@
 				2AE9419AF39BB77576C582AF /* MacBeaconChanges.swift in Sources */,
 				DB4B9B5939F1F8087389A62F /* MacCommands.swift in Sources */,
 				F2D0F0F1438A767D8D95E95D /* MacEnergyCoordinator.swift in Sources */,
+				3B918AE3805BF863F355ECAA /* MacFleetMonitor.swift in Sources */,
 				DF3B0CCFB70A6260A4E37283 /* MacGangway.swift in Sources */,
 				B3A5E14508AF4B593932DDE7 /* MacImportCoordinator.swift in Sources */,
 				A0909F6327B43105F8D5DCEB /* MacImportPolicy.swift in Sources */,
@@ -1933,6 +1971,7 @@
 				5F9F5F2A184C04768FC57CA8 /* ManifestEditorModel+macOS.swift in Sources */,
 				FE154FC5A0DFFD0CDABC4ED4 /* ManifestEditorView+macOS.swift in Sources */,
 				082B69AB73BCCBF3C180127B /* MemoryRelief.swift in Sources */,
+				CA8CE901027A6419D379AAEE /* MenuBarSettingsSection.swift in Sources */,
 				9DAF2740E790BB6FD70FF124 /* MooringsController.swift in Sources */,
 				E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */,
 				12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */,
@@ -1951,7 +1990,10 @@
 				B208D920A96AFBE9F2B6CE44 /* PortForwardSetupView.swift in Sources */,
 				818B2291051E4CDFB8B57FE1 /* ProposalCard.swift in Sources */,
 				9EFC963CA0161071EB8BDFD5 /* ProposalReview.swift in Sources */,
+				E0B6E36BA5A7B69316444539 /* RailActivation.swift in Sources */,
+				7E985685F4D97FD1D73F10EC /* RailBar.swift in Sources */,
 				876F43FAB6291060D2827625 /* RailFeature.swift in Sources */,
+				4C6269FA6F314D2FEA48C1DA /* RailModel.swift in Sources */,
 				5C119276BBD335D9E2B01E30 /* ReleaseDetailView.swift in Sources */,
 				14BE7806F8779908EA249C2B /* ReleasesView.swift in Sources */,
 				C9F1B88BD4DA99DDF8F23C91 /* ResourceDetailView.swift in Sources */,
@@ -2138,6 +2180,7 @@
 				350C95041E10D37BFD6EEEB6 /* BeaconApprovalSheetTests.swift in Sources */,
 				B914E09E747960CCC7594BF2 /* BeaconHelperTests.swift in Sources */,
 				501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */,
+				55B9CB51DD35F0A958A19EB5 /* CompassModelTests.swift in Sources */,
 				8DA55AB87447AB9579FC5125 /* DeckTerminalTests.swift in Sources */,
 				958F9EC058564E99B95DA1D9 /* FeatureRegistryTests.swift in Sources */,
 				EACB47D9C537A958B3CE5F9A /* FirstMateTests.swift in Sources */,
@@ -2153,6 +2196,7 @@
 				564E3EF8F74CC68C53388CBC /* LockCoordinatorTests.swift in Sources */,
 				C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */,
 				0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */,
+				4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */,
 				91A539CFEDF0E62EAC0DBFF4 /* PaneDragTests.swift in Sources */,
 				5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */,
 				B9AADF6A86E6EE9D581003CD /* ScanReviewTests.swift in Sources */,

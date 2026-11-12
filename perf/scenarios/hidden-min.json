@@ -7,6 +7,7 @@
   "panes": [
     "fleet"
   ],
+  "crowsNest": true,
   "hideWindowsAfterSeconds": 5,
   "windowAction": "minimise"
 }

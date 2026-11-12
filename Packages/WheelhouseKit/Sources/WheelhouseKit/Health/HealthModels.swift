@@ -52,6 +52,12 @@ public struct AttentionItem: Identifiable, Hashable, Sendable {
     public var since: Date?
     /// Restart count of the pod behind this item (crash loops, OOM kills, high restarts); 0 otherwise.
     public var restarts: Int = 0
+
+    public init(id: String, clusterID: ClusterID, severity: HealthStatus, kind: AttentionKind, title: String, detail: String,
+                resource: ResourceRef? = nil, since: Date? = nil, restarts: Int = 0) {
+        self.id = id; self.clusterID = clusterID; self.severity = severity; self.kind = kind; self.title = title
+        self.detail = detail; self.resource = resource; self.since = since; self.restarts = restarts
+    }
 }
 
 public struct ClusterCounts: Codable, Hashable, Sendable {
