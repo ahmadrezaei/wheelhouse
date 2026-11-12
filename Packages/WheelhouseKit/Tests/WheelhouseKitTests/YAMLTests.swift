@@ -184,6 +184,29 @@ struct YAMLCodecTests {
         #expect(d.first?.line == 2)
     }
 
+    @Test func crlfTextSplitsAndParsesLikeLF() throws {
+        let lf = "a: 1\n---\nb: 2\n---\nc: [oops\n"
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        let mine = YAMLCodec.parseDocuments(crlf)
+        let theirs = YAMLCodec.parseDocuments(lf)
+        #expect(mine.count == 3)
+        #expect(mine.map(\.startLine) == theirs.map(\.startLine))
+        #expect(mine.map { $0.diagnostic?.line } == theirs.map { $0.diagnostic?.line })
+        #expect(mine[1].value == .object(["b": .int(2)]))
+        #expect(try YAMLCodec.parse("a: |\r\n  x\r\n  y\r\n") == .object(["a": .string("x\ny\n")]))
+        #expect(YAMLCodec.line(forPath: "b", in: "a: 1\r\nb: 2\r\n") == 2)
+    }
+
+    @Test func aLeadingByteOrderMarkIsStripped() throws {
+        let bom = "\u{FEFF}"
+        #expect(try YAMLCodec.parse(bom + "kind: Pod\n") == .object(["kind": .string("Pod")]))
+        let docs = YAMLCodec.parseDocuments(bom + "---\nkind: Pod\n---\nkind: Node\n")
+        #expect(docs.map(\.kind) == ["Pod", "Node"])
+        #expect(docs.map(\.startLine) == [2, 4])
+        #expect(YAMLCodec.parseDocuments(bom + "\r\nkind: Pod\r\n").first?.kind == "Pod")
+        #expect(YAMLCodec.lint(bom + "a: 1\r\n").isEmpty)
+    }
+
     @Test func splitsDocumentsWithCorrectLineOffsets() {
         let text = "# comment\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\n---\n---\nkind: [oops\n"
         let docs = YAMLCodec.parseDocuments(text)

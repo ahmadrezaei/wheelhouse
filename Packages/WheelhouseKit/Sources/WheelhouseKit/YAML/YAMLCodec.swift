@@ -79,7 +79,8 @@ public enum YAMLCodec {
     // MARK: Parse
 
     /// Parses a single document. Throws ``YAMLCodecError`` with a position when the text is invalid.
-    public static func parse(_ text: String) throws -> JSONValue {
+    public static func parse(_ rawText: String) throws -> JSONValue {
+        let text = normalized(rawText)
         do {
             guard let node = try Yams.compose(yaml: text) else { return .null }
             return try convert(node)
@@ -99,7 +100,8 @@ public enum YAMLCodec {
     }
 
     /// Splits on `---` lines and parses each non-empty document. Positions in diagnostics are relative to the full text.
-    public static func parseDocuments(_ text: String) -> [YAMLDocument] {
+    public static func parseDocuments(_ rawText: String) -> [YAMLDocument] {
+        let text = normalized(rawText)
         var chunks: [(start: Int, lines: [Substring])] = [(1, [])]
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)
         for (i, line) in all.enumerated() {
@@ -128,6 +130,15 @@ public enum YAMLCodec {
             docs.append(doc)
         }
         return docs
+    }
+
+    /// Drops a leading UTF-8 byte-order mark and turns CRLF into LF. Swift treats `\r\n` as a single Character, so without this a
+    /// CRLF file would not split into lines at all.
+    static func normalized(_ text: String) -> String {
+        var out = text
+        if out.unicodeScalars.first == "\u{FEFF}" { out = String(out.unicodeScalars.dropFirst()) }
+        guard out.utf8.contains(13) else { return out }
+        return out.replacingOccurrences(of: "\r\n", with: "\n")
     }
 
     private static func isSeparator(_ line: Substring) -> Bool {
@@ -171,8 +182,8 @@ public enum YAMLCodec {
     // MARK: Paths → lines
 
     /// Finds the 1-based line of a field path such as `spec.template.spec.containers[0].image` (or its closest existing parent).
-    public static func line(forPath path: String, in text: String) -> Int? {
-        guard let root = try? Yams.compose(yaml: text) else { return nil }
+    public static func line(forPath path: String, in rawText: String) -> Int? {
+        guard let root = try? Yams.compose(yaml: normalized(rawText)) else { return nil }
         var current: Yams.Node = root
         var best = root.mark?.line
         for seg in segments(of: path) {

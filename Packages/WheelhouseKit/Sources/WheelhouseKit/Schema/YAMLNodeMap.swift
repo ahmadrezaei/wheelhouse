@@ -93,11 +93,13 @@ public enum YAMLNodeMap {
     static func chunks(of text: String) -> [(start: Int, text: String)] {
         var chunks: [(start: Int, lines: [Substring])] = [(1, [])]
         for (i, line) in text.yamlLines.enumerated() {
-            if isSeparator(line) { chunks.append((i + 2, [])) } else { chunks[chunks.count - 1].lines.append(line) }
+            // A byte-order mark before the first line is not part of it (the codec strips it): `\u{FEFF}---` is a separator too.
+            let bare = i == 0 && line.unicodeScalars.first == "\u{FEFF}" ? Substring(line.unicodeScalars.dropFirst()) : line
+            if isSeparator(bare) { chunks.append((i + 2, [])) } else { chunks[chunks.count - 1].lines.append(line) }
         }
         return chunks.compactMap { chunk in
             let meaningful = chunk.lines.contains { l in
-                let t = (l.hasSuffix("\r") ? l.dropLast() : l).trimmingCharacters(in: .whitespaces)
+                let t = (l.hasSuffix("\r") ? l.dropLast() : l).trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FEFF}")))
                 return !t.isEmpty && !t.hasPrefix("#")
             }
             return meaningful ? (chunk.start, chunk.lines.joined(separator: "\n")) : nil

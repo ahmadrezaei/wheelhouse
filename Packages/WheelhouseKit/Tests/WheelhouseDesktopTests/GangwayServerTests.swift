@@ -329,25 +329,21 @@ struct GangwayServerTests {
         #expect(confirmer.sheets.all.count == 2, "a later identical request is a new request with its own sheet")
     }
 
-    @Test("a cluster that turns read-only while a request is held refuses it after the approval")
+    @Test("a cluster that turns read-only while a request is held refuses it after the approval", .timeLimit(.minutes(1)))
     func readOnlyDuringHold() async throws {
-        let gate = Mutex<CheckedContinuation<Void, Never>?>(nil)
-        let entered = Mutex(false)
-        let rigBox = Mutex<GangwayRig?>(nil)
+        let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in
-            entered.withLock { $0 = true }
-            await withCheckedContinuation { c in gate.withLock { $0 = c } }
+            await held.hold()
             return true
         }
         let rig = try await GangwayRig(environment: .production, confirmer: confirmer)
-        rigBox.withLock { $0 = rig }
         defer { rig.stop() }
         let (_, token) = try await rig.open()
         let c = try await rig.client()
         try await c.send(rig.request("POST", "/api/v1/namespaces/a/configmaps", token: token, body: "{}"))
-        for _ in 0..<200 where !entered.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(20)) }
+        await held.waitUntilHeld()
         rig.setCluster { $0.readOnly = true }
-        gate.withLock { $0 }?.resume()
+        held.release()
         let r = try #require(await c.readResponse())
         #expect(r.status == 403)
         #expect(r.body.contains("read-only"))
@@ -675,13 +671,11 @@ struct GangwayServerTests {
         #expect(rig.upstream.received.count == 1)
     }
 
-    @Test("the app locking while a request is held refuses it after the approval; nothing reaches the API server")
+    @Test("the app locking while a request is held refuses it after the approval; nothing reaches the API server", .timeLimit(.minutes(1)))
     func lockDuringHold() async throws {
-        let gate = Mutex<CheckedContinuation<Void, Never>?>(nil)
-        let entered = Mutex(false)
+        let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in
-            entered.withLock { $0 = true }
-            await withCheckedContinuation { c in gate.withLock { $0 = c } }
+            await held.hold()
             return true
         }
         let rig = try await GangwayRig(environment: .production, confirmer: confirmer)
@@ -689,9 +683,9 @@ struct GangwayServerTests {
         let (_, token) = try await rig.open()
         let c = try await rig.client()
         try await c.send(rig.request("POST", "/api/v1/namespaces/a/configmaps", token: token, body: "{}"))
-        for _ in 0..<200 where !entered.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(20)) }
+        await held.waitUntilHeld()
         rig.service.lock()
-        gate.withLock { $0 }?.resume()
+        held.release()
         let r = try #require(await c.readResponse())
         #expect(r.status == 403)
         #expect(rig.upstream.received.isEmpty)
@@ -837,13 +831,11 @@ struct GangwayServerTests {
         b.close()
     }
 
-    @Test("a request refused at the last look (the session ended while it waited) is not logged as forwarded")
+    @Test("a request refused at the last look (the session ended while it waited) is not logged as forwarded", .timeLimit(.minutes(1)))
     func abortedIsNotForwarded() async throws {
-        let gate = Mutex<CheckedContinuation<Void, Never>?>(nil)
-        let entered = Mutex(false)
+        let held = HeldApproval()
         let confirmer = ScriptedConfirmer { _ in
-            entered.withLock { $0 = true }
-            await withCheckedContinuation { c in gate.withLock { $0 = c } }
+            await held.hold()
             return true
         }
         let rig = try await GangwayRig(environment: .production, confirmer: confirmer)
@@ -851,9 +843,9 @@ struct GangwayServerTests {
         let (handle, token) = try await rig.open()
         let c = try await rig.client()
         try await c.send(rig.request("POST", "/api/v1/namespaces/a/configmaps", token: token, body: "{}"))
-        for _ in 0..<200 where !entered.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(20)) }
+        await held.waitUntilHeld()
         rig.service.closeSession(handle)
-        gate.withLock { $0 }?.resume()
+        held.release()
         try await Task.sleep(for: .milliseconds(300))
         #expect(rig.upstream.received.isEmpty)
         #expect(!rig.activity.entries.contains { $0.result.hasPrefix("forwarded") })
