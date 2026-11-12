@@ -147,6 +147,11 @@ public final class MCPSession: Sendable {
         guard state.withLock({ $0.initialized }) else {
             return emit(.failure(id: id, code: JSONRPCMessage.notInitializedCode, message: "Send initialize first."))
         }
+        if method != "tools/call" {
+            // Every request counts against the client's rate, not only tool calls.
+            if limiter.begin() != nil { return emit(.failure(id: id, code: -32000, message: "rate_limited")) }
+            limiter.finish()
+        }
         switch method {
         case "tools/list":
             Task { [handler] in

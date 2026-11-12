@@ -408,6 +408,12 @@ struct BeaconMCPTests {
         #expect(settings.beaconScope(client: "session-abc").readClusters.isEmpty)
     }
 
+    @Test func deeplyNestedMessagesAreRefused() {
+        let deep = String(repeating: "[", count: 600) + String(repeating: "]", count: 600)
+        let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"x\",\"params\":\(deep)}"
+        #expect(throws: JSONRPCMessage.ParseError.self) { try JSONRPCMessage.parse(Data(message.utf8)) }
+    }
+
     @Test func jsonRPCRoundTrip() throws {
         let m = JSONRPCMessage.request(id: .int(1), method: "ping", params: .null)
         #expect(try JSONRPCMessage.parse(m.encoded()) == m)

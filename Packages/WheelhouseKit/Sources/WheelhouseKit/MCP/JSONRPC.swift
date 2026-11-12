@@ -16,6 +16,7 @@ public enum JSONRPCMessage: Sendable, Equatable {
     public static let notInitializedCode = -32002
 
     public static func parse(_ data: Data) throws -> JSONRPCMessage {
+        guard !JSONDepth.exceeds(data) else { throw ParseError.notJSON }
         guard let value = try? JSONValue.parse(data) else { throw ParseError.notJSON }
         guard case .object(let object) = value else { throw ParseError.notAnObject }
         guard object["jsonrpc"]?.stringValue == "2.0" else { throw ParseError.invalid }
@@ -53,4 +54,31 @@ public enum JSONRPCMessage: Sendable, Equatable {
     }
 
     public func encoded() -> Data { (try? json.data()) ?? Data() }
+}
+
+/// A cheap byte scan that refuses deeply nested JSON before the recursive decoder sees it (a connection thread has a small stack, and
+/// the data comes from a peer nobody has approved yet).
+public enum JSONDepth {
+    public static let limit = 64
+
+    public static func exceeds(_ data: Data, limit: Int = limit) -> Bool {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for byte in data {
+            if inString {
+                if escaped { escaped = false } else if byte == 0x5C { escaped = true } else if byte == 0x22 { inString = false }
+                continue
+            }
+            switch byte {
+            case 0x22: inString = true
+            case 0x5B, 0x7B:
+                depth += 1
+                if depth > limit { return true }
+            case 0x5D, 0x7D: depth = max(0, depth - 1)
+            default: break
+            }
+        }
+        return false
+    }
 }

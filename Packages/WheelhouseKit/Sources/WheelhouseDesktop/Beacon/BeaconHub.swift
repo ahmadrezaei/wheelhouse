@@ -53,6 +53,7 @@ public struct BeaconAuthenticationFailed: Error, Equatable, LocalizedError {
 public final class BeaconHub: Sendable {
     public static let denyCooldown: TimeInterval = 60
     public static let maxPendingApprovals = 8
+    public static let sheetThrottle: TimeInterval = 10
 
     private final class Entry: Sendable {
         struct State {
@@ -67,11 +68,14 @@ public final class BeaconHub: Sendable {
         let connection: BeaconConnection
         let state = Mutex(State())
         let sessionBox = Mutex<MCPSession?>(nil)
+        let approvalTask = Mutex<Task<Void, Never>?>(nil)
+        let limiterKey: String
         init(peer: BeaconPeer, secret: BeaconClientRecord?, hello: BeaconHello, connection: BeaconConnection) {
             self.peer = peer
             self.secret = secret
             self.hello = hello
             self.connection = connection
+            self.limiterKey = secret?.id ?? "session-\(id.uuidString)"
         }
     }
 
@@ -82,6 +86,8 @@ public final class BeaconHub: Sendable {
         var pendingApprovals = 0
         var rejectionsLogged: Date?
         var generation = 0
+        /// When a sheet last ended unanswered or denied: a new sheet right after it is refused (launcher keys are easy to vary).
+        var lastUnansweredSheet: Date?
     }
 
     private let store: BeaconClientStore
@@ -189,6 +195,7 @@ public final class BeaconHub: Sendable {
     }
 
     private func end(_ entry: Entry) {
+        entry.approvalTask.withLock { $0 }?.cancel()
         entry.state.withLock { $0.status = .stopped }
         entry.sessionBox.withLock { $0 }?.close()
         entry.connection.close()
@@ -203,8 +210,14 @@ public final class BeaconHub: Sendable {
             return entry
         }
         if let gone {
+            // A sheet for a connection that is gone is withdrawn, and counts as an unanswered one.
+            if gone.approvalTask.withLock({ $0 }) != nil {
+                gone.approvalTask.withLock { $0 }?.cancel()
+                state.withLock { $0.lastUnansweredSheet = clock() }
+            }
             let id = gone.state.withLock { $0.client.id }
             if id.hasPrefix("session-") { store.dropSession(id) }
+            releaseLimiter(gone.limiterKey)
         }
     }
 
@@ -225,7 +238,7 @@ public final class BeaconHub: Sendable {
         guard isOn else { return nil }
         let owner = hello.secret.flatMap { store.match(secret: $0) }
         let entry = Entry(peer: peer, secret: owner, hello: hello, connection: connection)
-        let limiter = limiterFor(owner?.id ?? "session-\(entry.id.uuidString)")
+        let limiter = limiterFor(entry.limiterKey)
         let handler = BeaconToolHandler(
             client: { entry.state.withLock { $0.client } }, source: source, settings: store,
             gate: { [weak self] in
@@ -240,6 +253,12 @@ public final class BeaconHub: Sendable {
         entry.sessionBox.withLock { $0 = session }
         state.withLock { $0.entries[entry.id] = entry }
         return session
+    }
+
+    /// A limiter lives as long as a session of its client does.
+    private func releaseLimiter(_ key: String) {
+        let inUse = state.withLock { s in s.entries.values.contains { $0.limiterKey == key } }
+        if !inUse { limiters.withLock { _ = $0.removeValue(forKey: key) } }
     }
 
     private func limiterFor(_ key: String) -> BeaconLimiter {
@@ -278,6 +297,7 @@ public final class BeaconHub: Sendable {
         // After a Deny, the same program does not get a new sheet for a while.
         let verdict = state.withLock { s -> String? in
             if let at = s.denied[key], now.timeIntervalSince(at) < Self.denyCooldown { return "denied" }
+            if let at = s.lastUnansweredSheet, now.timeIntervalSince(at) < Self.sheetThrottle { return "throttled" }
             if s.pendingApprovals >= Self.maxPendingApprovals { return "busy" }
             s.pendingApprovals += 1
             return nil
@@ -289,7 +309,7 @@ public final class BeaconHub: Sendable {
             return
         }
         let generation = state.withLock { $0.generation }
-        Task { [self] in
+        let task = Task { [self] in
             await gate.enter()
             defer { Task { await gate.leave() } }
             let still = state.withLock { s -> Bool in
@@ -308,6 +328,13 @@ public final class BeaconHub: Sendable {
             }
             let clusters = await source.clusters()
             let decision = await approver.approve(BeaconApprovalRequest(clientName: name, launcher: entry.peer.launcher, secretState: secretState, clusters: clusters))
+            // A Deny counts even when the connection is already gone (the person did answer).
+            if decision == .deny {
+                state.withLock {
+                    $0.denied[entry.peer.launcher.identityKey] = clock()
+                    $0.lastUnansweredSheet = clock()
+                }
+            }
             guard state.withLock({ $0.on && $0.generation == generation && $0.entries[entry.id] != nil }), !entry.connection.isClosed else { return }
             if decision == .withdrawn {
                 if isLocked() { entry.state.withLock { $0.deferredName = name } }
@@ -315,6 +342,7 @@ public final class BeaconHub: Sendable {
             }
             apply(decision, to: entry, name: name, secretState: secretState)
         }
+        entry.approvalTask.withLock { $0 = task }
     }
 
     private func apply(_ decision: BeaconApprovalDecision, to entry: Entry, name: String, secretState: BeaconSecretState) {

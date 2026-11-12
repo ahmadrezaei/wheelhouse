@@ -130,19 +130,6 @@ public final class BeaconClientStore: ToolboxClusterSettings, Sendable {
         changed.withLock { $0 }?()
     }
 
-    /// A cluster that no longer exists is removed from every scope.
-    public func reconcile(existing: Set<ClusterID>) {
-        let stale = records.contains { !$0.readClusters.isSubset(of: existing) || !$0.changeRequestClusters.isSubset(of: existing) }
-        guard stale else { return }
-        try? persist { file in
-            for i in file.clients.indices {
-                file.clients[i].readClusters.formIntersection(existing)
-                file.clients[i].changeRequestClusters.formIntersection(existing)
-            }
-        }
-        changed.withLock { $0 }?()
-    }
-
     private func persist(_ change: (inout File) -> Void) throws {
         // Snapshot and write under one lock, so an older snapshot can never land on disk after a newer one.
         try state.withLock { s in

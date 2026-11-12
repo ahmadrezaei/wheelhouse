@@ -66,8 +66,10 @@ public struct BeaconClientConfig: Sendable, Equatable {
 
     /// Merges `mcpServers.wheelhouse` into the config at `configURL`, keeping every other key. Writes a backup first and the file
     /// atomically, and refuses when the existing JSON does not parse. Unavailable in development builds.
-    public func mergeIntoClaudeDesktop(configURL: URL, secret: String, gate: DevSafetyPolicy = .current) throws {
+    public func mergeIntoClaudeDesktop(configURL link: URL, secret: String, gate: DevSafetyPolicy = .current) throws {
         guard !gate.isActive, !developmentBuild else { throw BeaconConfigError.unavailableInDevelopmentBuild }
+        // A symlinked config (a dotfiles setup) is followed: the file it points at is changed and the link stays a link.
+        let configURL = link.resolvingSymlinksInPath()
         let fm = FileManager.default
         var root: [String: Any] = [:]
         if fm.fileExists(atPath: configURL.path) {
@@ -79,7 +81,10 @@ public struct BeaconClientConfig: Sendable, Equatable {
             }
             let backup = configURL.deletingLastPathComponent().appending(path: configURL.lastPathComponent + ".wheelhouse-backup")
             // The first backup is the user's original file: later merges keep it.
-            if !fm.fileExists(atPath: backup.path) { try data.write(to: backup, options: .atomic) }
+            if !fm.fileExists(atPath: backup.path) {
+                try data.write(to: backup, options: .atomic)
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+            }
         } else {
             try fm.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         }

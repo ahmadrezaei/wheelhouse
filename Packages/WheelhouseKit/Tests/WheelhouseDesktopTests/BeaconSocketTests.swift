@@ -296,6 +296,27 @@ struct BeaconSocketTests {
         #expect(start.duration(to: .now) < .milliseconds(100) + .milliseconds(100))
     }
 
+    @Test func deeplyNestedJSONIsRefusedBeforeDecoding() throws {
+        let deep = String(repeating: "[", count: 600) + String(repeating: "]", count: 600)
+        let dir = ShortDir()
+        defer { dir.cleanup() }
+        let server = BeaconSocketServer(verifier: FixedVerifier(result: .success(.fake()))) { _, _, connection in self.handlerSession(connection) }
+        try server.start(at: dir.socket)
+        defer { server.stop() }
+        // As the hello: closed, no crash.
+        let first = try #require(SocketClient(path: dir.socket.path))
+        first.sendRaw(BeaconFrame.encode(Data("{\"protocol\":1,\"x\":\(deep)}".utf8)))
+        #expect(first.isClosed())
+        // After a good hello: the message gets a parse error and the connection stays usable.
+        let second = try #require(SocketClient(path: dir.socket.path))
+        second.hello()
+        _ = second.receive()
+        second.sendRaw(BeaconFrame.encode(Data("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":\(deep)}".utf8)))
+        #expect(second.receive()?.value(at: "error.code")?.intValue == JSONRPCMessage.parseErrorCode)
+        #expect(second.call(2, "ping")?["result"] != nil)
+        #expect(JSONDepth.exceeds(Data(deep.utf8)) && !JSONDepth.exceeds(Data("[[[\"]]]\"]]]".utf8)))
+    }
+
     @Test func aFrameAboveTheLimitEndsTheConnection() throws {
         let dir = ShortDir()
         defer { dir.cleanup() }

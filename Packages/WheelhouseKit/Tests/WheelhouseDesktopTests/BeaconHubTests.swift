@@ -21,9 +21,11 @@ final class ScriptedApprover: BeaconApproving, @unchecked Sendable {
     var requests: [BeaconApprovalRequest] = []
     var decision: BeaconApprovalDecision = .deny
     var holds = false
+    var sawCancel = false
     func approve(_ request: BeaconApprovalRequest) async -> BeaconApprovalDecision {
         lock.withLock { requests.append(request) }
         while holds && !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
+        if Task.isCancelled { lock.withLock { sawCancel = true }; return .withdrawn }   // as the real presenter answers a withdrawn sheet
         return lock.withLock { decision }
     }
     var count: Int { lock.withLock { requests.count } }
@@ -222,6 +224,35 @@ struct BeaconHubTests {
         #expect(await waitUntil { approver.count == 1 })
     }
 
+    @Test func aSheetIsWithdrawnWhenItsConnectionGoes_andALoopOfConnectionsIsThrottled() async throws {
+        let rig = Rig()
+        try await rig.hub.turnOn()
+        rig.approver.holds = true
+        do {
+            let client = try #require(await rig.connect())
+            #expect(await waitUntil { rig.approver.count == 1 })
+            _ = client
+        }   // the client is released here and its socket closes
+        #expect(await waitUntil { rig.approver.lock.withLock { rig.approver.sawCancel } })
+        #expect(await waitUntil { rig.hub.sessionCount == 0 })
+        // A second sheet right after an unanswered one is refused: connect and disconnect cannot stack sheets.
+        let again = try #require(await rig.connect(name: "Other"))
+        #expect(again.isClosed())
+        #expect(rig.approver.count == 1)
+        rig.approver.holds = false
+    }
+
+    @Test func everyRequestCountsAgainstTheRateNotOnlyToolCalls() async throws {
+        let rig = Rig()
+        try await rig.hub.turnOn()
+        rig.approver.decision = .allow(readClusters: ["dev"], remember: false)
+        let client = try #require(await rig.connect())
+        #expect(await waitUntil { !rig.tools(client, id: 5).isEmpty })
+        var refused = 0
+        for id in 10..<30 where client.call(id, "tools/list")?.value(at: "error.message")?.stringValue == "rate_limited" { refused += 1 }
+        #expect(refused > 0)
+    }
+
     @Test func turningOffClosesEverythingAndTheSocketFile() async throws {
         let rig = Rig()
         try await rig.hub.turnOn()
@@ -280,8 +311,6 @@ struct BeaconHubTests {
         #expect(!text.contains(secret))
         let reloaded = BeaconClientStore(fileURL: file, secrets: secrets)
         #expect(reloaded.records.first?.label == "Claude")
-        reloaded.reconcile(existing: ["other"])
-        #expect(reloaded.record(id: record.id)?.readClusters.isEmpty == true)
         // A session client id cannot alias a persisted record.
         reloaded.setSessionScope(BeaconScope(readClusters: ["x"]), for: "session-1")
         #expect(reloaded.beaconScope(client: "session-1").readClusters == ["x"])
@@ -347,6 +376,24 @@ struct BeaconClientConfigTests {
         #expect(throws: BeaconConfigError.unavailableInDevelopmentBuild) { try release.mergeIntoClaudeDesktop(configURL: target, secret: "S", gate: DevSafetyPolicy(isActive: true)) }
         #expect(!FileManager.default.fileExists(atPath: target.path))
         #expect(BeaconClientConfig.claudeDesktopConfigURL(home: URL(fileURLWithPath: "/Users/x")).path == "/Users/x/Library/Application Support/Claude/claude_desktop_config.json")
+    }
+
+    @Test func desktopMergeFollowsASymlinkAndKeepsTheFirstBackup() throws {
+        let scratch = try Scratch()
+        defer { scratch.cleanup() }
+        let real = try scratch.write("dotfiles/claude_desktop_config.json", #"{"a":1}"#)
+        let folder = try scratch.dir("App")
+        let link = folder.appending(path: "claude_desktop_config.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try release.mergeIntoClaudeDesktop(configURL: link, secret: "S", gate: open)
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == real.path)   // still a link
+        #expect(try String(contentsOf: real, encoding: .utf8).contains("wheelhouse"))
+        try release.mergeIntoClaudeDesktop(configURL: link, secret: "T", gate: open)
+        let backup = real.deletingLastPathComponent().appending(path: "claude_desktop_config.json.wheelhouse-backup")
+        #expect(try String(contentsOf: backup, encoding: .utf8) == #"{"a":1}"#)   // the original, not a merged copy
+        var st = stat()
+        stat(backup.path, &st)
+        #expect(st.st_mode & 0o777 == 0o600)
     }
 
     final class RecordingRunner: BeaconCommandRunning, @unchecked Sendable {

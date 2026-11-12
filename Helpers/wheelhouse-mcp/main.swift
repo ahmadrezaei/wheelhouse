@@ -184,7 +184,12 @@ func runOffline(_ failure: Failure) -> Never {
     exit(1)
 }
 
-let (connection, failure) = connectAndHello()
+// A refused connection (the app was busy, or a sheet is open) is retried a few times with a growing pause, never in a tight loop.
+var (connection, failure) = connectAndHello()
+for pause in [1.0, 2.0, 4.0] where connection == nil && failure == .rejected {
+    Thread.sleep(forTimeInterval: pause)
+    (connection, failure) = connectAndHello()
+}
 guard let fd = connection else { runOffline(failure) }
 
 // stdin -> socket, on its own thread.

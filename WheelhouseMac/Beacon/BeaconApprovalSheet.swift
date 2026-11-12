@@ -59,13 +59,23 @@ struct BeaconApprovalSheet: View {
             .formStyle(.grouped)
             .navigationTitle("Allow \(request.clientName)?")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Deny") { decide(.deny) } }   // never delayed
-                ToolbarItemGroup(placement: .confirmationAction) {
+                // Deny is the only toolbar button. `.confirmationAction` is the sheet's default button on the Mac (Return presses it), so
+                // the Allow buttons are plain buttons in the bottom bar with no key equivalent: Return does nothing here.
+                ToolbarItem(placement: .cancellationAction) { Button("Deny") { decide(.deny) }.accessibilityIdentifier("beacon.deny") }   // never delayed
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack {
+                    Spacer()
                     if canRemember {
-                        Button("Always Allow") { decide(.allow(readClusters: selected, remember: true)) }.disabled(!inputEnabled)
+                        Button("Always Allow") { decide(.allow(readClusters: selected, remember: true)) }
+                            .disabled(!inputEnabled).accessibilityIdentifier("beacon.allow.always")
                     }
-                    Button("Allow This Session") { decide(.allow(readClusters: selected, remember: false)) }.disabled(!inputEnabled)
+                    Button("Allow This Session") { decide(.allow(readClusters: selected, remember: false)) }
+                        .disabled(!inputEnabled).accessibilityIdentifier("beacon.allow.session")
                 }
+                .buttonStyle(.bordered)
+                .padding()
+                .background(.bar)
             }
         }
         .frame(minWidth: 460, minHeight: 440)

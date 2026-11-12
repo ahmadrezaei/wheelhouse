@@ -92,9 +92,9 @@ public struct SecurityPeerVerifier: BeaconPeerVerifying {
         let pid = pid_t(token.val.5)
         guard Self.satisfies(token: token, requirement: requirement) else { return .failure(.badSignature) }
         let launcher = Self.launcher(of: pid)
-        // The same process, with the same parent, still on the other end.
-        guard let again = Self.peerToken(fd), again.val.5 == token.val.5, again.val.7 == token.val.7,
-              Self.parent(of: pid) == launcher?.pid else { return .failure(.changedWhileChecking) }
+        // The audit token names this exact process (pid and pid version): it no longer satisfies the requirement once that process
+        // is gone, so a pid that was reused meanwhile cannot pass. The parent must also be unchanged.
+        guard Self.satisfies(token: token, requirement: requirement), Self.parent(of: pid) == launcher?.pid else { return .failure(.changedWhileChecking) }
         return .success(BeaconPeer(pid: pid, uid: cred.cr_uid, launcher: launcher ?? BeaconLauncher(pid: 0, path: "")))
     }
 

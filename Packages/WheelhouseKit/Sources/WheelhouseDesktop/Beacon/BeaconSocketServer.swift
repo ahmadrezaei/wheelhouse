@@ -14,7 +14,7 @@ public struct BeaconHello: Sendable, Equatable {
     public var secret: String?
 
     static func parse(_ data: Data) -> BeaconHello? {
-        guard let value = try? JSONValue.parse(data), case .object = value, let version = value["protocol"]?.intValue else { return nil }
+        guard !JSONDepth.exceeds(data), let value = try? JSONValue.parse(data), case .object = value, let version = value["protocol"]?.intValue else { return nil }
         let secret = value["secret"]?.stringValue
         return BeaconHello(protocolVersion: version, helperVersion: value["helper"]?.stringValue ?? "", claimedPID: value["pid"]?.intValue ?? 0,
                            secret: (secret?.isEmpty ?? true) ? nil : secret)
