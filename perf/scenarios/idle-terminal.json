@@ -1,0 +1,10 @@
+{
+  "name": "idle-terminal",
+  "description": "1 cluster, 1 window, 1 tab: one Deck Terminal at an idle zsh prompt (M5b). The idle budgets apply: no wakeups, no timers, no polling of the shell.",
+  "clusters": 1,
+  "windows": 1,
+  "tabs": 1,
+  "panes": [
+    "deck-terminal:"
+  ]
+}

@@ -132,6 +132,8 @@ public final class GrantStore: Sendable {
     private struct CommandGrant {
         var commandID: String
         var expiry: Date
+        /// The process group of the requests the person approved. A command grant covers only that group, however the foreground changes.
+        var group: pid_t?
     }
     private struct State {
         var commands: [UUID: CommandGrant] = [:]
@@ -148,10 +150,10 @@ public final class GrantStore: Sendable {
 
     /// Approves one grant-eligible command for this session. Returns false (and grants nothing) for any other command line.
     @discardableResult
-    public func grantCommand(session: GangwaySession, command: ReportedCommand) -> Bool {
+    public func grantCommand(session: GangwaySession, command: ReportedCommand, group: pid_t? = nil) -> Bool {
         guard CommandEligibility.isEligible(command.line) else { return false }
         let expiry = now().addingTimeInterval(Self.commandCap)
-        state.withLock { $0.commands[session.id] = CommandGrant(commandID: command.id, expiry: expiry) }
+        state.withLock { $0.commands[session.id] = CommandGrant(commandID: command.id, expiry: expiry, group: group) }
         return true
     }
 
@@ -221,6 +223,9 @@ public final class GrantStore: Sendable {
         }
     }
 
+    /// How many approved requests of the session are still waiting to be used (tests).
+    func pendingBatchCount(session: GangwaySession) -> Int? { state.withLock { $0.batches[session.id]?.count ?? 0 } }
+
     // MARK: Covering
 
     /// Whether a held mutation is already covered: a spent batch approval, or the session's command grant when the requesting process is
@@ -236,7 +241,10 @@ public final class GrantStore: Sendable {
             guard let grant = s.commands[session.id] else { return false }
             if grant.expiry <= now() { s.commands[session.id] = nil; return false }
             // The grant belongs to the command it was given for: once the shell reports another one (or none), it does not apply.
-            return session.reportedCommand?.id == grant.commandID
+            guard session.reportedCommand?.id == grant.commandID else { return false }
+            // And only for the process group that was approved: a job that takes the foreground later is not covered.
+            if let group = grant.group { return peer?.group == group }
+            return true
         }
     }
 

@@ -1,0 +1,36 @@
+# Wheelhouse shell integration (zsh), installed as $ZDOTDIR/.zshenv of ONE session. The user's own startup files are sourced from
+# $WH_ORIG_ZDOTDIR (set by the app, never guessed from $HOME). ZDOTDIR stays ours for the whole life of the shell, so `exec zsh`
+# and `omz reload` run this again and the guard is never lost.
+
+# 1. The nonce is read FIRST (before any user file), only by an interactive shell, and never exported.
+if [[ -o interactive && -z "${__wh_nonce-}" && -n "${WH_SESSION_DIR-}" && -r "$WH_SESSION_DIR/nonce" ]]; then
+  builtin typeset __wh_read=
+  { IFS= builtin read -r __wh_read < "$WH_SESSION_DIR/nonce" } 2>/dev/null
+  command rm -f -- "$WH_SESSION_DIR/nonce" 2>/dev/null
+  if [[ $__wh_read =~ ^[0-9a-f]{32}$ ]]; then
+    builtin typeset -g +x -H __wh_nonce="$__wh_read"
+  fi
+  builtin unset __wh_read
+fi
+
+# The session kubeconfig wins over whatever the user's files set.
+__wh_reguard() {
+  if [[ -n "${WH_KUBECONFIG-}" && "${KUBECONFIG-}" != "$WH_KUBECONFIG" ]]; then
+    if [[ -o interactive && -n "${KUBECONFIG-}" && -t 2 ]]; then
+      builtin print -u2 -r -- $'\e[2mwheelhouse: KUBECONFIG from your shell startup files is overridden in this guarded session\e[0m'
+    fi
+    export KUBECONFIG="$WH_KUBECONFIG"
+  fi
+}
+
+if [[ -n "${WH_ORIG_ZDOTDIR-}" && -r "$WH_ORIG_ZDOTDIR/.zshenv" ]]; then
+  # Sourced at the top level, never inside a function: a `typeset` in the user's file must stay global. ZDOTDIR points at the user's
+  # directory while their file runs (a file that moves it moves where later user files are read from) and is taken back after.
+  __wh_ours=$ZDOTDIR
+  ZDOTDIR=$WH_ORIG_ZDOTDIR
+  builtin source "$WH_ORIG_ZDOTDIR/.zshenv"
+  WH_ORIG_ZDOTDIR=$ZDOTDIR
+  ZDOTDIR=$__wh_ours
+  builtin unset __wh_ours
+fi
+__wh_reguard

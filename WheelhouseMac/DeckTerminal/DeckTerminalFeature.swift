@@ -1,7 +1,7 @@
 import SwiftUI
 import WheelhouseKit
 
-/// Stub. M5b replaces the contents of this file (and only this folder).
+/// The Deck Terminal: a local shell guarded by Gangway (ARCHITECTURE-MAC section 3.4).
 enum DeckTerminalFeature: WheelhouseFeature {
     static var id: FeatureID { .deckTerminal }
     static var title: String { "Deck Terminal" }
@@ -11,6 +11,6 @@ enum DeckTerminalFeature: WheelhouseFeature {
     }
 
     @MainActor @ViewBuilder static func makeView(for destination: WorkspaceDestination) -> some View {
-        FeaturePlaceholderView(title: "Deck Terminal", milestone: "M5b")
+        if case .deckTerminal(let spec) = destination { DeckTerminalPane(spec: spec) }
     }
 }

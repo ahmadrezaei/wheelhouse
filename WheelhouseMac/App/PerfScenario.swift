@@ -242,7 +242,7 @@ enum PerfSwitches {
 /// How a scenario's pane list becomes windows and tabs. The single-window, single-tab scenarios (`idle-1`) keep the M1b behaviour: the
 /// last pane the app can show wins. Larger scenarios (`busy-10`, `soak-5`) get `windows x tabs` tabs, one pane description each in
 /// order (cluster `n` for the n-th tab), padded with cluster overviews when the list is short. Deck Terminal descriptions are
-/// skipped until M5b.
+/// run through `DeckTerminalSession` (M5b).
 @MainActor
 enum PerfLayout {
     /// Windows, each a list of the destinations of its tabs.
@@ -274,7 +274,10 @@ enum PerfLayout {
         case "logs":
             let id = clusters.sorted { $0.name < $1.name }.first?.id ?? nextCluster().id
             return .route(.logs(ResourceRef(clusterID: id, kind: .pod, namespace: "wh-perf", name: arg), container: nil, previous: false))
-        default: return nil          // deck-terminal: M5b
+        // M5b: a Deck Terminal that types `arg` once at its first prompt (honoured by DeckTerminalSession only while the safety gate is active).
+        case "deck-terminal": return .deckTerminal(TerminalSpec(clusterID: nextCluster().id, title: DeckTerminalSession.perfTitlePrefix + arg))
+        default: return nil
+        // end M5b
         }
     }
 

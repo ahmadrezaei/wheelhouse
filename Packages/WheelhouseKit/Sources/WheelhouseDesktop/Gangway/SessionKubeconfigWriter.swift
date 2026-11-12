@@ -123,7 +123,8 @@ public struct SessionKubeconfigWriter: Sendable {
         let file = directory.appending(path: "kubeconfig")
         chmod(directory.path, 0o700)
         unlink(file.path)
-        rmdir(directory.path)
+        // The terminal puts its shell-integration files in the same folder; removeItem unlinks symlinks without following them.
+        try? FileManager.default.removeItem(at: directory)
     }
 }
 #endif
