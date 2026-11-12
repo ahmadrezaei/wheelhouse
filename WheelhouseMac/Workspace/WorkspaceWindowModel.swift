@@ -133,19 +133,19 @@ final class WorkspaceController {
         let moving = models.values.filter { $0 !== target }.flatMap { model in model.state.allPanes.map { (model, $0.id) } }
             + detachedModels.compactMap { id, model in model === target ? nil : (model, id) }
         let dirty = moving.filter { $0.0.hasUnsavedEdits($0.1) }.count
-        guard dirty == 0 || confirmsDiscardingEdits(dirty) else { return }
+        guard dirty == 0 || confirmsDiscardingEdits(dirty, .move) else { return }
         for (id, model) in models where model !== target {
             // Placeholder tabs travel with their JSON; the source is reset so no tab or pane ID exists in two windows, even when its
             // NSWindow is already gone and cannot be closed.
             let tabs = store.state(for: id).tabs
             target.mutate { state in for tab in tabs { state.addTab(tab, select: false) } }
             model.mutate { $0 = WorkspaceWindowState.fresh() }
-            model.closeWindow()
+            model.closeWindow(asked: true)
         }
         for (id, entry) in store.detached {
             guard let pane = store.takeDetached(id) else { continue }
             target.mutate { state in state.addTab(TabState(root: .leaf(pane), focusedPane: pane.id), select: false) }
-            detachedModels[id]?.closeWindow()
+            detachedModels[id]?.closeWindow(asked: true)
             _ = entry
         }
     }
@@ -210,14 +210,35 @@ final class WorkspaceController {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// Moving panes with unapplied edits to another window discards those edits: the person confirms first (tests replace this).
-    @ObservationIgnored var confirmsDiscardingEdits: @MainActor (_ panes: Int) -> Bool = { panes in
+    /// What would lose an unapplied edit.
+    enum DiscardReason { case move, close, quit }
+
+    /// Moving panes with unapplied edits to another window, closing them, or quitting discards those edits: the person confirms
+    /// first (tests replace this).
+    @ObservationIgnored var confirmsDiscardingEdits: @MainActor (_ panes: Int, _ reason: DiscardReason) -> Bool = { panes, reason in
         let alert = NSAlert()
-        alert.messageText = panes == 1 ? "Move the pane and discard its unapplied changes?" : "Move the panes and discard their unapplied changes?"
-        alert.informativeText = "A pane that moves to another window opens its screens again, so an edit that was not applied is lost. To keep it, apply or copy it first."
-        alert.addButton(withTitle: "Move and Discard")
+        let one = panes == 1
+        switch reason {
+        case .move:
+            alert.messageText = one ? "Move the pane and discard its unapplied changes?" : "Move the panes and discard their unapplied changes?"
+            alert.informativeText = "A pane that moves to another window opens its screens again, so an edit that was not applied is lost. To keep it, apply or copy it first."
+            alert.addButton(withTitle: "Move and Discard")
+        case .close:
+            alert.messageText = one ? "Close the pane and discard its unapplied changes?" : "Close and discard the unapplied changes of \(panes) panes?"
+            alert.informativeText = "An edit that was not applied is lost when its pane closes. To keep it, apply or copy it first."
+            alert.addButton(withTitle: "Close and Discard")
+        case .quit:
+            alert.messageText = one ? "Quit and discard an unapplied change?" : "Quit and discard the unapplied changes of \(panes) panes?"
+            alert.informativeText = "Edits that were not applied are not saved. To keep them, apply or copy them first."
+            alert.addButton(withTitle: "Quit and Discard")
+        }
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Panes of every window that hold unapplied edits (quitting asks when there are any).
+    var panesWithUnsavedEdits: Int {
+        allModels.reduce(0) { count, model in count + model.state.allPanes.filter { model.hasUnsavedEdits($0.id) }.count }
     }
 
     func open(station: Station, clusters: [ClusterID: ClusterID]? = nil, fromLink: Bool = false) {
@@ -351,6 +372,7 @@ final class WorkspaceWindowModel {
         let alive = Set(state.allPanes.map(\.id))
         for id in routers.keys where !alive.contains(id) { routers[id] = nil }
         for id in editors.keys where !alive.contains(id) { editors[id] = nil }
+        refreshUnsavedEdits()
     }
 
     /// App Lock engaged: every sheet above this window's content goes, the window's own (Stations, Save Station, the cluster
@@ -376,7 +398,35 @@ final class WorkspaceWindowModel {
     /// An editor in `pane` says whether it holds unsaved edits (``PaneEditsReporter``).
     func editorReported(_ editor: AnyObject, dirty: Bool, in pane: PaneID) {
         editors[pane, default: [:]][ObjectIdentifier(editor)] = EditorEntry(editor, dirty: dirty)
+        refreshUnsavedEdits()
         onEditorReport?(pane, editor, dirty)
+    }
+
+    /// True while a pane of this window holds unapplied edits: the window's close button and ⌘W are disabled (closing would lose
+    /// them without asking); the pane and window menus ask instead.
+    private(set) var windowHasUnsavedEdits = false
+
+    /// Re-reads the editors (an editor whose screen went away is released without a report: checked again after the update).
+    func refreshUnsavedEdits() {
+        let now = editors.keys.contains(where: hasUnsavedEdits)
+        if now != windowHasUnsavedEdits { windowHasUnsavedEdits = now }
+        guard now, !refreshScheduled else { return }
+        refreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refreshScheduled = false
+                let later = self.editors.keys.contains(where: self.hasUnsavedEdits)
+                if later != self.windowHasUnsavedEdits { self.windowHasUnsavedEdits = later }
+            }
+        }
+    }
+    @ObservationIgnored private var refreshScheduled = false
+
+    /// Closing panes loses their unapplied edits: ask first when one of them has some.
+    func mayClose(_ panes: [PaneID]) -> Bool {
+        let dirty = panes.filter(hasUnsavedEdits)
+        return dirty.isEmpty || controller.confirmsDiscardingEdits(dirty.count, .close)
     }
 
     /// True while an editor of the pane holds edits that were not applied (a YAML draft).
@@ -388,7 +438,7 @@ final class WorkspaceWindowModel {
     /// Moves inside the window (split, unsplit, Move ▸ Left…, zoom, docking in the same tab) keep every pane's screen and never ask.
     func mayMoveToAnotherWindow(_ panes: [PaneID]) -> Bool {
         let dirty = panes.filter(hasUnsavedEdits)
-        return dirty.isEmpty || controller.confirmsDiscardingEdits(dirty.count)
+        return dirty.isEmpty || controller.confirmsDiscardingEdits(dirty.count, .move)
     }
 
     /// Critical memory pressure: a hidden window's content goes now, without the grace period.
@@ -482,27 +532,34 @@ final class WorkspaceWindowModel {
     func newTab() { mutate { $0.addTab(TabState(showing: .route(.fleet))) } }
 
     func closeTab(_ id: TabID) {
+        guard mayClose(state.tabs.first { $0.id == id }?.panes.map(\.id) ?? []) else { return }
         let closed = mutate { $0.closeTab(id) }
-        if !closed { closeWindow(); return }
+        if !closed { closeWindow(asked: true); return }
         // The tab's panes are gone: their routers go with them, and the memory their screens used goes back to the system.
         pruneRouters()
         MemoryRelief.schedule()
     }
 
     func closePane(_ id: PaneID) {
+        guard mayClose([id]) else { return }
         let wasPlaceholder = pane(id)?.isPlaceholder == true
         let kept = mutate { $0.closePane(id) }
         routers[id] = nil
         if !kept {
             // A window that holds only a pane that could not be restored is reset to a fresh window instead of closing (closing
             // the last window would keep the unreadable JSON saved for good).
-            if wasPlaceholder, case .window = scope { mutate { $0 = WorkspaceWindowState.fresh() } } else { closeWindow() }
+            if wasPlaceholder, case .window = scope { mutate { $0 = WorkspaceWindowState.fresh() } } else { closeWindow(asked: true) }
         }
         pruneRouters()
         MemoryRelief.schedule()
     }
 
-    func closeWindow() { window?.performClose(nil) }
+    /// Pane and window menus. A window with unapplied edits asks first (its close button and ⌘W are disabled meanwhile), then
+    /// closes without the close button.
+    func closeWindow(asked: Bool = false) {
+        guard asked || mayClose(state.allPanes.map(\.id)) else { return }
+        if windowHasUnsavedEdits { window?.close() } else { window?.performClose(nil) }
+    }
 
     func split(_ axis: SplitAxis, pane: PaneID? = nil) {
         let target = pane ?? focusedPaneID
@@ -560,7 +617,7 @@ final class WorkspaceWindowModel {
         } else {
             controller.newWindow(WorkspaceWindowState(tabs: [TabState(root: .leaf(pane), focusedPane: pane.id)]))
         }
-        closeWindow()
+        closeWindow(asked: true)
     }
 
     /// The link toggle of a pane header: follow the pane before it in the tab (or stop following).

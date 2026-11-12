@@ -128,7 +128,11 @@ struct HiddenTabResponderGuard: NSViewRepresentable {
             guard let window, let content = window.contentView, let responder = window.firstResponder as? NSView,
                   responder.isDescendant(of: content) else { return }
             let area = convert(bounds, to: nil)
-            let frame = responder.convert(responder.bounds, to: nil)
+            // The part of the responder that can be seen: an editor's text view is a scroll view's document, whose bounds are the
+            // whole document (a long manifest's centre lies far outside the window).
+            let visible = responder.visibleRect.intersection(responder.bounds)
+            guard !visible.isEmpty else { window.makeFirstResponder(nil); return }
+            let frame = responder.convert(visible, to: nil)
             let centre = CGPoint(x: frame.midX, y: frame.midY)
             guard area.contains(centre) else { return }
             if let hit = content.hitTest(content.superview?.convert(centre, from: nil) ?? centre), Self.owns(hit, responder, area: area) { return }

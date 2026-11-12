@@ -63,7 +63,7 @@ struct WorkspaceCloseOutTests {
         #expect(model.hasUnsavedEdits(pane))
         var asked: [Int] = []
         var answer = false
-        c.confirmsDiscardingEdits = { asked.append($0); return answer }
+        c.confirmsDiscardingEdits = { n, reason in #expect(reason == .move); asked.append(n); return answer }
 
         // Moves inside the window never ask.
         model.movePane(pane, .right)
@@ -105,7 +105,7 @@ struct WorkspaceCloseOutTests {
         let editor = NSObject()
         source.editorReported(editor, dirty: true, in: pane)
         var asked = 0
-        c.confirmsDiscardingEdits = { _ in asked += 1; return false }
+        c.confirmsDiscardingEdits = { _, _ in asked += 1; return false }
         guard case .window(let sourceID) = source.scope else { Issue.record("scope"); return }
         let moved = c.dockPane(PaneDragPayload(window: sourceID, pane: pane), into: target, onto: target.selectedTab.focusedPane, zone: .right)
         #expect(!moved && asked == 1 && source.pane(pane) != nil)
@@ -193,8 +193,13 @@ struct WorkspaceCloseOutTests {
 
     // MARK: F14: hidden tabs and the keyboard
 
+    /// A field that takes the keyboard, with a fixed size (an empty NSTextView shrinks to its text and would have nothing visible).
+    private class FocusView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     /// A view of a tab that is not selected: SwiftUI's `allowsHitTesting(false)` makes it take no hits.
-    private final class HiddenTextView: NSTextView {
+    private final class HiddenTextView: FocusView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 
@@ -207,8 +212,8 @@ struct WorkspaceCloseOutTests {
         let guardView = HiddenTabResponderGuard.GuardView(frame: NSRect(x: 250, y: 0, width: 550, height: 500))
         content.addSubview(guardView)
         let inHiddenTab = HiddenTextView(frame: NSRect(x: 300, y: 100, width: 300, height: 200))
-        let inVisibleTab = NSTextView(frame: NSRect(x: 300, y: 350, width: 300, height: 100))
-        let inSidebar = NSTextView(frame: NSRect(x: 10, y: 100, width: 200, height: 200))
+        let inVisibleTab = FocusView(frame: NSRect(x: 300, y: 350, width: 300, height: 100))
+        let inSidebar = FocusView(frame: NSRect(x: 10, y: 100, width: 200, height: 200))
         [inHiddenTab, inVisibleTab, inSidebar].forEach(content.addSubview)
 
         window.makeFirstResponder(inHiddenTab)
@@ -314,6 +319,127 @@ struct WorkspaceCloseOutTests {
         model.focus(pane: third)
         _ = try await toolbarItems(window, controller)
         #expect(!(window.toolbar?.items ?? []).contains { $0.itemIdentifier.rawValue == "com.apple.SwiftUI.search" })
+
+        // Under the lock no pane puts anything in the toolbar (it sits above the lock screen): no list items, no filter field.
+        model.focus(pane: first)
+        let unlocked = try await toolbarItems(window, controller)
+        env.lock.controller.lockNow()
+        let locked = try await toolbarItems(window, controller)
+        #expect(locked.count < unlocked.count)
+    }
+
+    @Test func theToolbarRuleFollowsTheFocusedOrZoomedPaneOfTheSelectedTabAndNeverTheLock() {
+        #expect(PaneHost.contributesToolbar(isFocused: true, isZoomed: false, tabIsSelected: true, locked: false))
+        #expect(PaneHost.contributesToolbar(isFocused: false, isZoomed: true, tabIsSelected: true, locked: false))
+        #expect(!PaneHost.contributesToolbar(isFocused: true, isZoomed: false, tabIsSelected: false, locked: false))
+        #expect(!PaneHost.contributesToolbar(isFocused: false, isZoomed: false, tabIsSelected: true, locked: false))
+        #expect(!PaneHost.contributesToolbar(isFocused: true, isZoomed: true, tabIsSelected: true, locked: true))
+    }
+
+    @Test func aZoomedPaneKeepsTheFocusSoTheToolbarIsNeverEmpty() {
+        let (c, cluster) = controller()
+        let model = c.model(for: c.store.createWindow(WorkspaceWindowState(tabs: [TabState(showing: .route(.resourceList(cluster, .pod, namespace: nil)))])))
+        let left = model.focusedPaneID
+        model.split(.horizontal, pane: left)
+        let right = model.focusedPaneID
+        #expect(right != left)
+        model.zoom(pane: left)                       // zooming a pane focuses it
+        #expect(model.focusedPaneID == left && model.selectedTab.zoomedPane == left)
+        model.focusPane(.right)                      // Focus Pane → cannot reach the parked pane
+        #expect(model.focusedPaneID == left)
+        model.zoom(pane: left)
+        model.focusPane(.right)                      // unzoomed: moving the focus works again
+        #expect(model.focusedPaneID == right)
+    }
+
+    // MARK: F2: closing and quitting with unapplied edits
+
+    @Test func closingAPaneATabOrTheWindowWithUnappliedEditsAsksFirst() {
+        let (c, cluster) = controller()
+        let model = c.model(for: c.store.createWindow(WorkspaceWindowState(tabs: [TabState(showing: .route(.resourceList(cluster, .pod, namespace: nil))),
+                                                                                  TabState(showing: .route(.fleet))])))
+        let pane = model.focusedPaneID
+        model.split(.horizontal, pane: pane)
+        let editor = NSObject()
+        #expect(!model.windowHasUnsavedEdits)
+        model.editorReported(editor, dirty: true, in: pane)
+        #expect(model.windowHasUnsavedEdits)          // the window's close button and ⌘W are disabled meanwhile
+        #expect(c.panesWithUnsavedEdits == 1)          // quitting asks
+        var asked: [(Int, WorkspaceController.DiscardReason)] = []
+        var answer = false
+        c.confirmsDiscardingEdits = { asked.append(($0, $1)); return answer }
+
+        model.closePane(pane)
+        #expect(model.pane(pane) != nil && asked.count == 1 && asked[0].1 == .close)
+        model.closeTab(model.selectedTab.id)
+        #expect(model.state.tabs.count == 2 && asked.count == 2)
+        model.closeWindow()
+        #expect(asked.count == 3)
+        // A clean pane closes without asking.
+        let other = model.selectedTab.panes.map(\.id).first { $0 != pane }!
+        model.closePane(other)
+        #expect(asked.count == 3 && model.pane(other) == nil)
+        // Accepting closes the dirty pane, and nothing is left to lose.
+        answer = true
+        model.closePane(pane)
+        #expect(model.pane(pane) == nil && asked.count == 4)
+        #expect(c.panesWithUnsavedEdits == 0)
+        #expect(!model.windowHasUnsavedEdits)
+    }
+
+    // MARK: B1: the Manifest Editor in a hidden tab
+
+    /// A view of a tab that is not selected: SwiftUI's `allowsHitTesting(false)` makes its subtree take no hits.
+    private final class HiddenContainer: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    @Test func aLongManifestInAHiddenTabGivesUpTheKeyboard() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
+        window.contentView = content
+        let guardView = HiddenTabResponderGuard.GuardView(frame: NSRect(x: 250, y: 0, width: 550, height: 500))
+        content.addSubview(guardView)
+        let hiddenTab = HiddenContainer(frame: guardView.frame)
+        content.addSubview(hiddenTab)
+        let editor = CodeEditorScrollView()
+        editor.frame = hiddenTab.bounds
+        hiddenTab.addSubview(editor)
+        editor.setText((0..<2_000).map { "key\($0): value \($0)" }.joined(separator: "\n"))
+        editor.setEditable(true)
+        editor.layoutSubtreeIfNeeded()
+        // The text view is the scroll view's document: far taller than the window, so the centre of its bounds is off screen.
+        let docCentre = editor.textView.convert(NSPoint(x: editor.textView.bounds.midX, y: editor.textView.bounds.midY), to: nil)
+        #expect(!content.bounds.contains(docCentre))
+        window.makeFirstResponder(editor.textView)
+        #expect(window.firstResponder === editor.textView)
+        guardView.tabWasHidden()
+        #expect(window.firstResponder !== editor.textView)
+    }
+
+    @Test func aDisabledCodeEditorNeitherEditsNorTakesTheKeyboard() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let editor = CodeEditorScrollView()
+        editor.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        window.contentView = editor
+        editor.setText("kind: ConfigMap\n")
+        editor.setEditable(true)
+        window.makeFirstResponder(editor.textView)
+        #expect(editor.textView.isEditable && window.firstResponder === editor.textView)
+        editor.setEnabled(false)                       // `.disabled`: a hidden tab or the lock
+        #expect(!editor.textView.isEditable && !editor.textView.acceptsFirstResponder)
+        #expect(window.firstResponder !== editor.textView)
+        #expect(!window.makeFirstResponder(editor.textView) || window.firstResponder !== editor.textView)
+        editor.setEnabled(true)
+        #expect(editor.textView.isEditable && editor.textView.acceptsFirstResponder)   // edit mode comes back as it was
+        editor.setEditable(false)
+        editor.setEnabled(false)
+        editor.setEnabled(true)
+        #expect(!editor.textView.isEditable)          // a viewer stays a viewer
     }
 
     // MARK: Perf harness

@@ -79,12 +79,15 @@ extension WorkspaceWindowState {
 
     mutating func focus(_ direction: MoveDirection) {
         let tab = selected
+        // While a pane is zoomed the others are parked out of sight: the focus stays on the zoomed pane.
+        guard tab.zoomedPane == nil else { return }
         if let next = tab.root.neighbour(of: tab.focusedPane, direction) { updateTab(tab.id) { $0.focusedPane = next } }
     }
 
     mutating func toggleZoom(pane id: PaneID) {
         guard let i = tabIndex(containing: id) else { return }
         tabs[i].zoomedPane = tabs[i].zoomedPane == id ? nil : id
+        if tabs[i].zoomedPane == id { tabs[i].focusedPane = id }
     }
 
     /// Splits `target`; the new pane inherits its context (DESIGN-MAC section 3.2) and opens `destination` (or is empty).

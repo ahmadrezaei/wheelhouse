@@ -137,13 +137,8 @@ struct WorkspaceWindowContent: View {
         }
         .onChange(of: env.lock.isLocked) { _, locked in
             if locked {
-                // Everything above the overlay goes: this window's sheets (Stations, Save Station, the cluster picker, Add Cluster) and
-                // every sheet presented by a screen of any window (sign-in, merge review, scanner setup).
                 model.dismissSheetsForLock()
-                for other in env.workspace.allModels { other.dismissSheetsForLock() }
-                ChartRoomMemory.scrub()
-                env.importer.dismiss()
-                Self.coverWindows()
+                Self.lockEngaged(env: env)
             } else {
                 if let url = env.workspace.pendingURL { env.workspace.pendingURL = nil; env.workspace.handle(url: url) }
                 env.importer.presentDeferred()
@@ -154,6 +149,9 @@ struct WorkspaceWindowContent: View {
             model.sidebar.rebuild()
             model.mutate { state in for pane in state.selected.panes where !pane.isPlaceholder { state.setRoot(.route(.fleet), in: pane.id) } }
         }
+        // A window with an unapplied editor draft cannot be closed with its close button or ⌘W (it would lose the draft); the pane
+        // and window menus ask instead.
+        .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
         .navigationTitle(model.focusedPane?.title(registry: registry) ?? "Wheelhouse")
         .task { env.workspace.announceMovedAsideFileOnce() }
     }
@@ -192,6 +190,16 @@ struct WorkspaceWindowContent: View {
         .navigationSplitViewStyle(.balanced)
     }
 
+    /// App Lock engaged. Everything above the overlays goes: every window's sheets (Stations, Save Station, the cluster picker, Add
+    /// Cluster) and every sheet presented by a screen of any window (sign-in, merge review, scanner setup). Run by every workspace
+    /// window and by every detached pane window, so it also happens when only detached windows are open. Idempotent.
+    static func lockEngaged(env: MacAppEnvironment) {
+        for other in env.workspace.allModels { other.dismissSheetsForLock() }
+        ChartRoomMemory.scrub()
+        env.importer.dismiss()
+        coverWindows()
+    }
+
     /// Locking takes the keyboard away from every window (a focused text field or table would otherwise keep receiving keys beneath
     /// the overlay) and closes the Settings window, which the overlay of this window does not cover.
     private static func coverWindows() {
@@ -227,6 +235,9 @@ struct DetachedPaneWindow: View {
         }
         .background(WorkspaceWindowMarker(model: model).frame(width: 0, height: 0))
         .frame(minWidth: 480, minHeight: 320)
+        // With only detached pane windows open, no workspace window is there to react to the lock.
+        .onChange(of: env.lock.isLocked) { _, locked in if locked { WorkspaceWindowContent.lockEngaged(env: env) } }
+        .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
         .navigationTitle(model.pane(paneID)?.title(registry: env.registry) ?? "Pane")
         .focusedSceneValue(\.workspaceModel, model)
     }

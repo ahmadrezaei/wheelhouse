@@ -85,6 +85,7 @@ struct PaneHost: View {
             let tabIndex = state.tabIndex(containing: paneID)
             // A pane parked behind a zoomed one is treated like a pane of a hidden tab.
             let parked = tabIndex.map { state.tabs[$0].zoomedPane.map { $0 != paneID } ?? false } ?? false
+            let zoomedHere = tabIndex.map { state.tabs[$0].zoomedPane == paneID } ?? false
             let tabIsSelected = (tabIndex.map { state.tabs[$0].id == state.selectedTab } ?? false) && !parked
             let builds = pane.isPlaceholder || pane.stack.isEmpty || !tearsDown || (tabIsSelected && model.buildsContent)
             let isFocused = model.focusedPaneID == paneID
@@ -109,8 +110,10 @@ struct PaneHost: View {
             .simultaneousGesture(TapGesture().onEnded { model.focus(pane: paneID) })
             .overlay { if multiple && isFocused { Rectangle().strokeBorder(Palette.tint.opacity(0.55), lineWidth: 1.5).allowsHitTesting(false) } }
             .paneEnvironment(env: env, model: model, router: router, visible: model.isVisible && tabIsSelected)
-            // Only the focused pane of the selected tab puts its items and its search field in the window toolbar.
-            .environment(\.paneContributesToolbar, isFocused && tabIsSelected)
+            // Only the focused (or zoomed) pane of the selected tab puts its items and its search field in the window toolbar, and
+            // none does under the lock (the toolbar is above the lock screen).
+            .environment(\.paneContributesToolbar, PaneHost.contributesToolbar(isFocused: isFocused, isZoomed: zoomedHere, tabIsSelected: tabIsSelected,
+                                                                                locked: env.lock.isLocked))
             .environment(\.paneEditsReporter, PaneEditsReporter { [model, paneID] editor, dirty in model.editorReported(editor, dirty: dirty, in: paneID) })
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Pane: \(pane.title(registry: env.registry))")
@@ -122,6 +125,10 @@ struct PaneHost: View {
         } else {
             Color.clear
         }
+    }
+
+    static func contributesToolbar(isFocused: Bool, isZoomed: Bool, tabIsSelected: Bool, locked: Bool) -> Bool {
+        tabIsSelected && (isFocused || isZoomed) && !locked
     }
 }
 

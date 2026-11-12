@@ -133,16 +133,28 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Quit: the windows closing during termination must not delete their state, and the workspace is written before the process ends.
+    /// A pane with an unapplied editor draft asks first, outside this call (`terminateLater`), so logout and restart wait for the answer.
     @MainActor func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if let env = Self.environment {
-            env.workspace.syncSidebarState()
-            env.workspace.store.isTerminating = true
-            env.workspace.store.flush()
-            // From here on every activity record is written before `record` returns: the `willTerminate` observers (Gangway's
-            // revoked sessions, Landfall, the scanner) may record after the delegate's own last flush.
-            env.activity.beginTermination()
+        guard let env = Self.environment else { return .terminateNow }
+        let dirty = env.workspace.panesWithUnsavedEdits
+        guard dirty > 0 else { Self.prepareForTermination(env); return .terminateNow }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                let quit = env.workspace.confirmsDiscardingEdits(dirty, .quit)
+                if quit { Self.prepareForTermination(env) }
+                NSApp.reply(toApplicationShouldTerminate: quit)
+            }
         }
-        return .terminateNow
+        return .terminateLater
+    }
+
+    @MainActor static func prepareForTermination(_ env: MacAppEnvironment) {
+        env.workspace.syncSidebarState()
+        env.workspace.store.isTerminating = true
+        env.workspace.store.flush()
+        // From here on every activity record is written before `record` returns: the `willTerminate` observers (Gangway's revoked
+        // sessions, Landfall, the scanner) may record after the delegate's own last flush.
+        env.activity.beginTermination()
     }
 
     @MainActor func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

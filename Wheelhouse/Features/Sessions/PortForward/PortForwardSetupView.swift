@@ -50,7 +50,7 @@ struct PortForwardSetupView: View {
         }
         .navigationTitle("Port Forward")
         .whInlineNavigationTitle()
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { finish() } } }
+        .paneToolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { finish() } } }
         .confirmSheet($confirm)
         .sheet(item: $browserFor) { PortForwardBrowserView(forward: $0) }
         .task(id: target) { await load() }
