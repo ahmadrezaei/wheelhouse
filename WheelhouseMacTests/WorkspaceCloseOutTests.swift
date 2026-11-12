@@ -315,4 +315,19 @@ struct WorkspaceCloseOutTests {
         _ = try await toolbarItems(window, controller)
         #expect(!(window.toolbar?.items ?? []).contains { $0.itemIdentifier.rawValue == "com.apple.SwiftUI.search" })
     }
+
+    // MARK: Perf harness
+
+    @Test func twoPerformanceWindowsSitSideBySideAndThreeKeepTheCascade() throws {
+        let laptop = NSRect(x: 0, y: 88, width: 1_512, height: 861)
+        let frames = try #require(PerfLayout.tiledFrames(count: 2, screen: laptop))
+        let rects = frames.map { NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) }
+        #expect(rects.count == 2 && !rects[0].intersects(rects[1]))
+        #expect(rects.allSatisfy { $0.width >= 960 && $0.height >= 600 && $0.maxY <= laptop.maxY })
+        #expect(laptop.maxX - rects[1].minX >= 400)                       // enough of the second window is on screen to count as visible
+        let wide = try #require(PerfLayout.tiledFrames(count: 2, screen: NSRect(x: 0, y: 0, width: 2_560, height: 1_400)))
+        #expect(wide[1][0] + wide[1][2] <= 2_560)                          // a large display holds both windows entirely
+        #expect(PerfLayout.tiledFrames(count: 3, screen: laptop) == nil)   // busy-10's three windows keep the cascade
+        #expect(PerfLayout.tiledFrames(count: 1, screen: laptop) == nil)
+    }
 }

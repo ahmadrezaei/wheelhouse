@@ -235,6 +235,9 @@ enum PerfSwitches {
         return arguments.indices.contains(i + 1) && arguments[i + 1] == "YES"
     }
     static var noSplit: Bool { isOn("-WHPerfNoSplit") }
+    /// `-WHPerfCascade YES`: the scenario's windows cascade over each other even where they could sit side by side (the layout
+    /// before M4a's close-out, kept to reproduce the overlap A/B recorded in perf/baselines/M4a.json).
+    static var cascade: Bool { isOn("-WHPerfCascade") }
 }
 
 /// How a scenario's pane list becomes windows and tabs. The single-window, single-tab scenarios (`idle-1`) keep the M1b behaviour: the
@@ -276,13 +279,19 @@ enum PerfLayout {
         }
     }
 
-    /// Builds the scenario's windows: the first window is the one that exists; the others open cascaded (never fully covering each
-    /// other, so every window counts as visible).
+    /// Builds the scenario's windows: the first window is the one that exists. Windows that fit side by side (`tiledFrames`) never
+    /// overlap; the others open cascaded (never fully covering each other, so every window counts as visible).
+    ///
+    /// Why side by side: with two of the app's windows overlapping, the window server charges the app a ~97 MB graphics allocation
+    /// ("Owned physical footprint (unmapped) (graphics)") for about a second whenever the front window's content changes, for
+    /// example at every 30-second cluster-overview refresh. Opaque materials, the normal window level and the pre-Liquid Glass design
+    /// all left it unchanged; non-overlapping windows removed it (perf/baselines/M4a.json, `soakEvidence`).
     static func apply(_ scenario: PerfScenario, clusters: [(name: String, id: ClusterID)], workspace: WorkspaceController) {
         let windows = plan(scenario, clusters: clusters)
         guard !windows.isEmpty else { return }
         let expanded = clusters.prefix(3).map(\.id)
         let firstID = workspace.models.keys.first
+        let tiles = PerfSwitches.cascade ? nil : tiledFrames(count: windows.count)
         for (index, destinations) in windows.enumerated() {
             let tabs = destinations.map { TabState(showing: $0) }
             var state = WorkspaceWindowState(tabs: tabs)
@@ -293,10 +302,27 @@ enum PerfLayout {
                 workspace.store.mutate(firstID) { $0 = state }
                 workspace.models[firstID]?.sidebar.restore(state.sidebar.persisted)
                 workspace.models[firstID]?.focusedPaneChanged()
+                if let tile = tiles?[index] { workspace.models[firstID]?.window?.setFrame(NSRect(x: tile[0], y: tile[1], width: tile[2], height: tile[3]), display: true) }
             } else {
-                state.frame = [Double(80 + index * 60), Double(80 + index * 40), 1_100, 720]
+                state.frame = tiles?[index] ?? [Double(80 + index * 60), Double(80 + index * 40), 1_100, 720]
                 workspace.newWindow(state)
             }
         }
+    }
+
+    /// Side-by-side frames at the top of the main screen, each as wide as the screen allows down to the workspace minimum width
+    /// (960 pt), one gap apart; nil when the windows would not fit. On a screen narrower than two minimum-width windows (a 14-inch
+    /// MacBook Pro shows 1,512 pt) the last window runs past the right edge, as long as `minimumOnScreen` of it stays on the screen
+    /// (it then still counts as visible). Three windows (`busy-10`) do not fit and keep the cascade.
+    static func tiledFrames(count: Int, screen: NSRect = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 88, width: 1_512, height: 861),
+                            minimumOnScreen: Double = 400) -> [[Double]]? {
+        guard count > 1 else { return nil }
+        let gap = 8.0, minimum = 960.0
+        let width = max(minimum, (Double(screen.width) - gap * Double(count - 1)) / Double(count))
+        let lastX = Double(screen.minX) + Double(count - 1) * (width + gap)
+        guard Double(screen.maxX) - lastX >= minimumOnScreen else { return nil }
+        let height = min(720.0, Double(screen.height))
+        let y = Double(screen.maxY) - height
+        return (0..<count).map { [Double(screen.minX) + Double($0) * (width + gap), y, width, height] }
     }
 }
