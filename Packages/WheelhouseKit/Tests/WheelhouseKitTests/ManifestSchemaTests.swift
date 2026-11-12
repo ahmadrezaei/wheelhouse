@@ -101,6 +101,18 @@ struct YAMLNodeMapTests {
         }
     }
 
+    @Test func randomCRLFAndBOMTextSplitsLikeTheCodec() {
+        let pieces = ["---", "--- ", "a: 1", "  b: 2", "# note", "", " ", "\t", "---x", "- item", "---\t"]
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<500 {
+            let body = (0..<Int.random(in: 0...14, using: &rng)).map { _ in pieces.randomElement(using: &rng)! }.joined(separator: "\r\n")
+            let text = Bool.random(using: &rng) ? "\u{FEFF}" + body : body
+            let mine = YAMLNodeMap.documents(in: text)
+            let theirs = YAMLCodec.parseDocuments(text)
+            #expect(mine.map(\.index) == theirs.map(\.index) && mine.map(\.startLine) == theirs.map(\.startLine), "\(text.debugDescription)")
+        }
+    }
+
     @Test func narrowingKeepsTheRankingPrefixFirstThenSubstrings() {
         func item(_ s: String) -> ManifestCompletion { ManifestCompletion(label: s, insertText: s + ": ", detail: nil, documentation: nil, kind: .field) }
         let items = ["replicas", "revisionHistoryLimit", "imagePullPolicy", "paused"].map(item)
