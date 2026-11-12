@@ -10,6 +10,9 @@ final class MacAlertMonitor {
     private let registry: ClusterRegistry
     private let preferences: AppPreferences
     private var task: PeriodicTask?
+    // M14a: called after every check; the widget snapshot writer decides whether anything is written.
+    var didCheck: (@MainActor () -> Void)?
+    // end M14a
     static let staleAfter: TimeInterval = 45
 
     init(registry: ClusterRegistry, preferences: AppPreferences) {
@@ -37,6 +40,7 @@ final class MacAlertMonitor {
     }
 
     func tick(now: Date = Date()) async {
+        defer { didCheck?() }   // M14a: also when alerts are off, the widgets still follow the checks
         guard preferences.alertsEnabled, !registry.isDemoMode, !registry.clusters.isEmpty else { return }
         // One cluster at a time with a pause between: the same work as a parallel refresh, without the CPU spike.
         for s in watched() where s.lastHealthRefresh.map({ now.timeIntervalSince($0) > Self.staleAfter }) ?? true {

@@ -21,6 +21,7 @@ final class MacAppEnvironment {
     let moorings: MooringsController
     let energy: MacEnergyCoordinator
     let alerts: MacAlertMonitor
+    let widgetSnapshots: MacWidgetSnapshotWriter   // M14a
     /// The local audit log (M4a). Opens its database lazily, on the first record or query.
     let activity: ActivityLog
     /// Windows, tabs, panes and Stations (M4a).
@@ -95,6 +96,16 @@ final class MacAppEnvironment {
         self.gateActive = gateActive
         self.energy = MacEnergyCoordinator(registry: registry, reportsVisibility: gateActive)
         self.alerts = MacAlertMonitor(registry: registry, preferences: preferences)
+        // M14a: the widget snapshot follows the health checks that already run.
+        self.widgetSnapshots = MacWidgetSnapshotWriter.live(registry: registry)
+        let widgetSnapshots = self.widgetSnapshots
+        self.alerts.didCheck = { widgetSnapshots.consider() }
+        // A cluster removed or changed, or Demo mode toggled: write at once (never the demo fleet), without waiting for a check.
+        // Deferred one turn: the registry posts this before it flips its own state.
+        NotificationCenter.default.addObserver(forName: ClusterEvents.invalidated, object: nil, queue: .main) { _ in
+            Task { @MainActor in widgetSnapshots.consider(force: true) }
+        }
+        // end M14a
         self.activity = activity
         self.workspace = WorkspaceController(store: workspaceStore, registry: registry, activity: activity,
                                              sidebarFactory: { SidebarModel(provider: RegistrySidebarProvider(registry: registry)) })
@@ -284,7 +295,9 @@ final class MacAppEnvironment {
         }
         energy.windowsBecameVisible = { [unowned self] in indexer.resumeIfStopped() }
         indexer.start()
-        if gateActive { fleet.didTick = { PeriodicReport.publish(.shared) } }
+        // M14a: Crow's Nest checks feed the widget snapshot too (the writer limits itself to a change, at most every 5 minutes).
+        wireFleetTick()
+        // end M14a
         rail.prefillOnce()
         applyMenuBarPreferences()
         // The first index of opted-in clusters, once the allowed hosts are known (a development build refuses every other host).
@@ -306,6 +319,13 @@ final class MacAppEnvironment {
         }
         Task { await indexer.prune() }
     }
+
+    // M14a: Crow's Nest checks feed the widget snapshot; the perf report still publishes only in a development build.
+    func wireFleetTick(snapshots: MacWidgetSnapshotWriter? = nil, publish: @escaping @MainActor () -> Void = { PeriodicReport.publish(.shared) }) {
+        let widgetSnapshots = snapshots ?? widgetSnapshots, publishReport = gateActive
+        fleet.didTick = { widgetSnapshots.consider(); if publishReport { publish() } }
+    }
+    // end M14a
 
     /// The menu bar item or "keep running" changed: Crow's Nest checks replace the alert monitor while the item is on, and the
     /// activation policy follows.

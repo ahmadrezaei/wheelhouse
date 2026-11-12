@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rigging pack reference</title>
+<meta name="description" content="The file format for Wheelhouse for Mac Rigging packs.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Rigging pack reference</h1></div></header>
+  <div class="todo"><strong>Planned format, not in this release; subject to change.</strong> Nothing on this page can be used yet. It is a draft of the design and will be updated when Rigging ships.</div>
+  <p>A Rigging pack teaches Wheelhouse about a set of custom resources: how to show them, what their status means, which commands to offer and when to raise an alert. A pack is <strong>data only</strong>. It is a folder with a <code>rigging.yaml</code> file and optional icons.</p>
+
+  <h2>What a pack can and cannot do</h2>
+  <ul>
+    <li>It can describe views, commands and health rules.</li>
+    <li>It cannot run code, make network calls, read files, or call the cluster API.</li>
+    <li>Its commands are text that is <strong>inserted</strong> into a guarded Deck Terminal on the command&rsquo;s own cluster. You press Return. A port-forward command uses the normal port-forward rules and confirmations.</li>
+    <li>Anything in the file that is not in the format below is rejected when the pack loads, not evaluated later.</li>
+  </ul>
+
+  <h2>Example</h2>
+<pre>apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata:
+  name: cert-manager
+  version: 1.2.0
+  description: "Certificates and issuers"
+views:
+  - match: { group: cert-manager.io, kind: Certificate }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Expires, path: ".status.notAfter", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical }
+      - { when: { path: ".status.renewalTime", exists: true }, tone: healthy }
+    related:
+      - { kind: Secret, nameFrom: ".spec.secretName", label: "TLS secret" }
+commands:
+  - title: "Renew certificate"
+    for: { group: cert-manager.io, kind: Certificate }
+    terminal: "cmctl renew {{name}} -n {{namespace}}"
+  - title: "Open Grafana"
+    portForward: { service: grafana, namespace: monitoring, port: 3000, open: "http://127.0.0.1:{{localPort}}/" }
+healthRules:
+  - for: { group: cert-manager.io, kind: Certificate }
+    when: { condition: Ready, status: "False", for: 1h }
+    tone: warning
+    message: "Certificate {{name}} is not ready"</pre>
+
+  <h2>Top level</h2>
+  <table>
+    <tr><th>Key</th><th>Meaning</th></tr>
+    <tr><td><code>apiVersion</code></td><td>Always <code>rigging.wheelhouse.app/v1</code>.</td></tr>
+    <tr><td><code>kind</code></td><td>Always <code>Pack</code>.</td></tr>
+    <tr><td><code>metadata</code></td><td><code>name</code>, <code>version</code> and <code>description</code>. The name identifies the pack in Settings and in Activity.</td></tr>
+    <tr><td><code>views</code></td><td>How to show a kind of custom resource.</td></tr>
+    <tr><td><code>commands</code></td><td>Menu, Rail and Compass entries.</td></tr>
+    <tr><td><code>healthRules</code></td><td>Conditions that raise an alert.</td></tr>
+  </table>
+  <p>The file is checked against a schema bundled in the app. A file that does not match is refused with the reason.</p>
+
+  <h2>Views</h2>
+  <p>A view applies to one resource kind, named by <code>match</code> (<code>group</code> and <code>kind</code>). It reuses the data Wheelhouse already watches; a pack never starts its own watch.</p>
+  <ul>
+    <li><code>columns</code>: a <code>name</code>, a <code>path</code> and an optional <code>format</code> (such as <code>age</code>).</li>
+    <li><code>status</code>: rules read top to bottom; the first match sets the tone (<code>healthy</code>, <code>warning</code>, <code>critical</code> or <code>unknown</code>). A rule tests a condition type and status, or a path that exists or equals or contains a value.</li>
+    <li><code>related</code>: objects to link to, found by a name stored in a field (<code>nameFrom</code>), with a label.</li>
+  </ul>
+
+  <h2>Paths (a JSONPath subset)</h2>
+  <p>Paths use a deliberately small subset. Nothing else is accepted.</p>
+  <table>
+    <tr><th>Form</th><th>Example</th></tr>
+    <tr><td>Dot path</td><td><code>.spec.secretName</code></td></tr>
+    <tr><td>Index</td><td><code>.status.addresses[0].ip</code></td></tr>
+    <tr><td>Every element</td><td><code>.spec.listeners[*].name</code></td></tr>
+    <tr><td>Equality filter</td><td><code>.status.conditions[?(@.type=='Ready')].status</code></td></tr>
+  </table>
+  <p>There are no script expressions, no functions and no arithmetic.</p>
+
+  <h2>Commands</h2>
+  <p>A command has a <code>title</code>, a target (<code>for</code>: a group and kind) and one action.</p>
+  <ul>
+    <li><code>terminal</code>: a command line template. It is inserted into a guarded Deck Terminal on the same cluster and never run for you.</li>
+    <li><code>portForward</code>: a service, namespace and port to forward, and an optional <code>open</code> address using <code>{{localPort}}</code>. Ports below 1024 are never offered, and the usual port-forward rules apply.</li>
+  </ul>
+
+  <h2>Templates and quoting</h2>
+  <p>Only a fixed list of variables can be used in <code>{{ }}</code>: <code>name</code>, <code>namespace</code>, <code>cluster</code>, <code>kind</code>, <code>localPort</code>, and fields the pack&rsquo;s view declares. Anything else is an error. Every value placed into terminal text is wrapped in single quotes with embedded quotes escaped, and names are checked against Kubernetes naming rules where they apply, so a resource called <code>x; rm -rf ~</code> becomes one harmless argument. Hidden and direction-changing characters are removed again just before insertion.</p>
+
+  <h2>Health rules</h2>
+  <p>A rule names a kind (<code>for</code>), a condition (<code>when</code>, with an optional <code>for</code> duration such as <code>1h</code>), a <code>tone</code> and a <code>message</code> template. Matching objects appear in Alerts like any other finding.</p>
+
+  <h2>Where packs come from</h2>
+  <ul>
+    <li><strong>Built in:</strong> cert-manager, Karpenter, KEDA, External Secrets, CloudNativePG, Istio, Velero, Gateway API.</li>
+    <li><strong>A local folder.</strong> Symbolic links and paths containing <code>..</code> are rejected.</li>
+    <li><strong>A git address.</strong> Cloned with your own <code>git</code> into the app&rsquo;s folder and pinned to the commit you see. It never updates by itself.</li>
+  </ul>
+  <p>Before you turn a pack on, Settings shows everything it declares: its source, its commit, and each view, command and rule it adds. There is no hosted catalogue. Turn a pack off, or remove it, at any time.</p>
+
+  <h2>Where it shows up</h2>
+  <ul>
+    <li>In the resource tables and detail views for the kinds it covers.</li>
+    <li>In the right-click menu for those resources, in the Rail and in Compass (commands).</li>
+    <li>In Alerts (health rules).</li>
+    <li>In Activity, with the pack&rsquo;s name as the origin, if one of its actions leads to a confirmation.</li>
+  </ul>
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="features.html#rigging">Features</a>
+    <a href="security.html">Security</a>
+    <a href="support.html">Support</a>
+  </nav>
+</main>
+</body>
+</html>
