@@ -47,6 +47,7 @@ struct GeneralPane: View {
             } header: { Text("Logs") } footer: {
                 Text("Each stream keeps the last \(preferences.logMaxLines.formatted()) lines (at most 50,000 lines and 16 MB). Older lines scroll off. Lines over 16 KB are shortened.")
             }
+            MenuBarSettingsSection()   // M4b
             Section {
                 if registry.isDemoMode {
                     Button("Exit Demo Mode", role: .destructive) { preferences.demoMode = false; registry.exitDemoMode() }

@@ -20,6 +20,12 @@ final class WorkspaceController {
     @ObservationIgnored var openDetachedWindow: ((PaneID) -> Void)?
     /// A link or notification tap that arrived while App Lock was engaged (replayed after unlock).
     @ObservationIgnored var pendingURL: URL?
+    // M4b
+    /// A link or notification tap arrived with no window to show it: the app opens one (it replays `pendingURL`).
+    @ObservationIgnored var needsWindow: (() -> Void)?
+    /// A pane took the focus on this cluster (the Compass index keeps the most recently focused cluster longest).
+    @ObservationIgnored var clusterFocused: ((ClusterID) -> Void)?
+    // end M4b
     /// Answers whether App Lock is engaged (set by the app environment); links wait while it is.
     @ObservationIgnored var isLocked: @MainActor () -> Bool = { false }
     /// One connectivity monitor for every window.
@@ -195,7 +201,7 @@ final class WorkspaceController {
             if let station = store.stations.first(where: { $0.id.rawValue == id }), confirmsLinkedStation(station) { open(station: station, fromLink: true) }
             return
         }
-        guard let model = activeModel else { pendingURL = url; return }
+        guard let model = activeModel else { pendingURL = url; needsWindow?(); return }
         model.openURL(url)
     }
 
@@ -308,6 +314,8 @@ final class WorkspaceWindowModel {
     }
 
     var store: WorkspaceStore { controller.store }
+    /// True for a detached pane window (it has no Rail).
+    var isDetachedScope: Bool { if case .detached = scope { true } else { false } }
     var registry: ClusterRegistry { controller.registry }
 
     // MARK: State
@@ -524,6 +532,7 @@ final class WorkspaceWindowModel {
         // A pane with no cluster of its own (the Fleet) leaves the registry's current cluster as the focus (the sidebar opens it).
         guard let cluster = focusedPane?.context.clusterID ?? focusedPane?.stack.lazy.compactMap(\.clusterID).first ?? registry.currentClusterID else { return }
         if registry.currentClusterID != cluster, registry.config(for: cluster) != nil { registry.select(cluster) }
+        controller.clusterFocused?(cluster)
         if case .window = scope { sidebar.focus(cluster: cluster) }
     }
 

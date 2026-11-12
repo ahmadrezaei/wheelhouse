@@ -25,6 +25,7 @@ public struct CompassIndexStats: Sendable, Equatable {
     public var clusters = 0
     public var bytes = 0
     public var updated: Date?
+    public init() {}
 }
 
 /// The Compass object index (ARCHITECTURE-MAC section 12.4): name, namespace, labels, owner and kind of the objects of the clusters
@@ -71,8 +72,12 @@ public actor CompassIndex {
     }
 
     public var stats: CompassIndexStats {
-        CompassIndexStats(objects: buckets.values.reduce(0) { $0 + $1.kinds.values.reduce(0) { $0 + $1.count } },
-                          clusters: buckets.count, bytes: totalBytes, updated: updated)
+        var s = CompassIndexStats()
+        s.objects = buckets.values.reduce(0) { $0 + $1.kinds.values.reduce(0) { $0 + $1.count } }
+        s.clusters = buckets.count
+        s.bytes = totalBytes
+        s.updated = updated
+        return s
     }
 
     public var indexedClusters: Set<ClusterID> { Set(buckets.keys) }

@@ -65,6 +65,23 @@ final class MacAppEnvironment {
         return hub
     }()
     // end M11b
+    // M4b: Compass, the Rail, Crow's Nest, the activation policy and the login item. Each is created on first use.
+    @ObservationIgnored private(set) lazy var rail = RailModel(store: workspace.store, registry: registry, preferences: macPreferences)
+    @ObservationIgnored let compassIndex = CompassIndex()
+    @ObservationIgnored private(set) lazy var frecency = FrecencyStore(file: Self.workspaceFile(paths: paths, gateActive: gateActive) == nil ? nil : paths.root.appending(path: "compass-frecency.json"))
+    @ObservationIgnored private(set) lazy var commandRegistry = CommandRegistry(env: self, openSettings: { [unowned self] in openSettingsAction() }, openActivity: { [unowned self] in openActivityAction() })
+    @ObservationIgnored private(set) lazy var compass = CompassModel(registry: registry, workspace: workspace, commands: { [unowned self] in commandRegistry.commands }, index: compassIndex,
+                                                                      frecency: frecency, rail: rail, isLocked: { [lock] in lock.isLocked }, openSettings: { [unowned self] in openSettingsAction() })
+    @ObservationIgnored private(set) lazy var fleet = MacFleetMonitor(registry: registry, preferences: preferences, mac: macPreferences, railClusters: { [unowned self] in rail.clusterIDs },
+                                                                      process: { health, clusters in await AlertNotifier.process(health: health, clusters: clusters) })
+    @ObservationIgnored private(set) lazy var activationPolicy = ActivationPolicyController(keepsRunning: { [macPreferences] in macPreferences.showsCrowsNest && macPreferences.keepsRunningInMenuBar })
+    @ObservationIgnored private(set) lazy var indexer = CompassMetadataIndexer(index: compassIndex, registry: registry, mac: macPreferences, onBattery: { [energy] in energy.onBattery })
+    @ObservationIgnored private(set) lazy var loginItem: any LoginItemService = LoginItems.make(gateActive: gateActive)
+    /// Set by the scenes (SwiftUI's `openSettings` and `openWindow` are environment values).
+    @ObservationIgnored var openSettingsAction: @MainActor () -> Void = {}
+    @ObservationIgnored var openActivityAction: @MainActor () -> Void = {}
+    @ObservationIgnored private var servicesStarted = false
+    // end M4b
     init(registry: ClusterRegistry, preferences: AppPreferences, macPreferences: MacPreferences, lock: MacLockCoordinator, importer: MacImportCoordinator, moorings: MooringsController,
          paths: AppPaths, safetySummary: String, gateActive: Bool, activity: ActivityLog, workspaceStore: WorkspaceStore) {
         self.registry = registry
@@ -215,6 +232,9 @@ final class MacAppEnvironment {
 
     /// Starts the services that need a running app (observers, monitors). Called once after the first frame.
     func startServices() {
+        // Every window's first frame asks for this, and a window opened from menu-bar mode asks again: the services start once.
+        guard !servicesStarted else { return }
+        servicesStarted = true
         lock.start(preferences: preferences, macPreferences: macPreferences)
         energy.start()
         alerts.start()
@@ -244,5 +264,72 @@ final class MacAppEnvironment {
             badgeTask = t
             t.start()
         }
+        // M4b
+        startMenuBarServices()
+        // end M4b
     }
+
+    // M4b
+    private func startMenuBarServices() {
+        macPreferences.menuBarChanged = { [unowned self] in applyMenuBarPreferences() }
+        activationPolicy.isInert = PerfScenarioRunner.keepsAccessory
+        activationPolicy.start()
+        // A new window or a tap on a notification with no window open asks for one.
+        workspace.needsWindow = { [unowned self] in showWorkspace() }
+        let index = compassIndex
+        workspace.clusterFocused = { id in Task { await index.noteFocus(id) } }
+        energy.compassMemoryPressure = { [unowned self] critical in
+            indexer.memoryPressure(critical: critical, focused: Set(workspace.activeModel?.focusedPane?.context.clusterID.map { [$0] } ?? []))
+        }
+        energy.windowsBecameVisible = { [unowned self] in indexer.resumeIfStopped() }
+        indexer.start()
+        if gateActive { fleet.didTick = { PeriodicReport.publish(.shared) } }
+        rail.prefillOnce()
+        applyMenuBarPreferences()
+        // The first index of opted-in clusters, once the allowed hosts are known (a development build refuses every other host).
+        whenReady { [unowned self] in
+            Task { @MainActor in
+                if !macPreferences.compassIndexedClusterIDs.isEmpty { await indexer.refresh() }
+            }
+        }
+    }
+
+    /// The menu bar item or "keep running" changed: Crow's Nest checks replace the alert monitor while the item is on, and the
+    /// activation policy follows.
+    func applyMenuBarPreferences() {
+        if macPreferences.showsCrowsNest {
+            alerts.stop()
+            fleet.start()
+        } else {
+            fleet.stop()
+            alerts.start()
+        }
+        activationPolicy.evaluate()
+        if gateActive { PeriodicReport.publish(.shared) }
+    }
+
+    /// A performance scenario with `crowsNest`: the menu bar item and keep-running on, and the scenario's clusters watched. Nothing is
+    /// saved (`MacPreferences.transient`); only a development build runs scenarios.
+    func applyPerfCrowsNest(watching clusters: Set<ClusterID>) {
+        guard gateActive else { return }
+        macPreferences.transient { $0.watchedClusterIDs = clusters }
+        macPreferences.transient { $0.keepsRunningInMenuBar = true }
+        macPreferences.transient { $0.showsCrowsNest = true }
+        applyMenuBarPreferences()
+    }
+
+    /// Brings a workspace window forward, opening one first when none exists (from the menu bar panel, a notification, a reopen).
+    func showWorkspace() {
+        activationPolicy.prepareForWindow()
+        NSApp.activate()
+        if let window = WorkspaceWindows.all.first(where: { $0.isVisible || $0.isMiniaturized }) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        } else if let any = WorkspaceWindows.all.first, !workspace.store.liveWindows.isEmpty {
+            any.makeKeyAndOrderFront(nil)
+        } else {
+            workspace.newWindowOrReopenLast()
+        }
+    }
+    // end M4b
 }
