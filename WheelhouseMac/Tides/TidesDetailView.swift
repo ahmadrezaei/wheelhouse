@@ -63,7 +63,7 @@ struct TidesDetailView: View {
             Group {
                 switch tab(for: app) {
                 case .resources: ArgoResourcesTab(app: app)
-                case .diff: app.tool == .argoCD ? AnyView(ArgoDiffTab(app: app, session: model.session, connection: connection, generation: tokenGeneration, connect: { connectSheet = true })) : AnyView(FluxDiffTab())
+                case .diff: app.tool == .argoCD ? AnyView(ArgoDiffTab(app: app, session: model.session, connection: connection, generation: tokenGeneration, connect: { connectSheet = true })) : AnyView(FluxDiffTab(app: app, cluster: model.session.id))
                 case .history: app.tool == .argoCD ? AnyView(ArgoHistoryTab(app: app, readOnly: model.config.readOnly) { id in present(.argoRollback, historyID: id) }) : AnyView(FluxHistoryTab(app: app))
                 case .conditions: ConditionsTab(app: app, model: model)
                 case .manifest: ManifestTab(app: app)
@@ -431,13 +431,6 @@ private struct FluxHistoryTab: View {
                 TableColumn("Deployed") { h in if let d = h.deployed { Text(d, style: .relative) } else { Text("-") } }
             }
         }
-    }
-}
-
-private struct FluxDiffTab: View {
-    var body: some View {
-        ContentUnavailableView("Diff needs a local checkout", systemImage: "doc.on.doc",
-                               description: Text("Flux does not keep the desired manifests in the cluster. Mapping a local folder and running `flux diff kustomization` in a guarded terminal session arrives with the terminal add-on."))
     }
 }
 
