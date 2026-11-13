@@ -129,7 +129,7 @@ struct CompassModelTests {
         await settle(f.model) { $0.results.contains { r in if case .object = r.target { true } else { false } } }
         f.model.selection = try #require(f.model.results.firstIndex { if case .object = $0.target { true } else { false } })
         f.model.showActions()
-        #expect(f.model.actions.map(\.id) == ["open", "logs", "previousLogs", "yaml", "pin", "copy"])
+        #expect(f.model.actions.map(\.id) == ["open", "logs", "previousLogs", "yaml", "portForward", "pin", "copy"])
         f.model.move(1)
         #expect(f.model.selection == 1)
         f.model.performSelected()                                                  // Logs
@@ -140,7 +140,7 @@ struct CompassModelTests {
         f.model.selection = try #require(f.model.results.firstIndex { if case .object = $0.target { true } else { false } })
         f.model.showActions(); f.model.hideActions()
         #expect(!f.model.showsActionList)
-        f.model.showActions(); f.model.selection = 4
+        f.model.showActions(); f.model.selection = 5   // Pin to Rail (Port Forward sits before it)
         f.model.performSelected()
         #expect(f.rail.items.contains { $0.kind == .resource })
     }

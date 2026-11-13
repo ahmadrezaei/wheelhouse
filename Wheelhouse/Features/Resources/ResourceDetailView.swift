@@ -78,6 +78,9 @@ private struct DetailScreen: View {
                         router.push(.logs(ref, container: d.containerName, previous: true))
                     }
                 }
+                #if os(macOS)
+                ActiveForwardsCard(ref: ref)   // fix-P
+                #endif
                 sections(ctx)
                 OwnersCard(ctx: ctx)
                 LabelsCard("Labels", pairs: object.metadata.labels)
@@ -146,7 +149,7 @@ private struct DetailScreen: View {
             a.append(logs())
             let running = ctx.summary.status == .healthy && !ctx.summary.isCordoned && (ctx.summary.statusText == "Running")
             if !session.config.readOnly || session.config.allowExecInReadOnly { a.append(GlassAction("Shell", symbol: "apple.terminal", isEnabled: running) { router.push(.shell(ref, container: nil)) }) }
-            if !session.config.readOnly || session.config.allowExecInReadOnly { a.append(GlassAction("Forward", symbol: "arrow.left.arrow.right") { router.push(.portForward(ref)) }) }
+            if !session.config.readOnly || session.config.allowExecInReadOnly { a.append(GlassAction("Forward", symbol: "arrow.left.arrow.right") { router.forward(ref) }) }
             a.append(yaml())
             if mutable { a.append(GlassAction("Delete", symbol: "trash", role: .destructive) { host.delete(t) }) }
         case "Deployment":
@@ -174,7 +177,7 @@ private struct DetailScreen: View {
             if mutable { a += [GlassAction(t.isCordoned ? "Uncordon" : "Cordon", symbol: t.isCordoned ? "play.circle" : "nosign") { host.cordon(t) }, GlassAction("Drain", symbol: "arrow.down.to.line") { host.drain(t) }] }
             a.append(yaml())
         case "Service":
-            if !session.config.readOnly || session.config.allowExecInReadOnly { a.append(GlassAction("Forward", symbol: "arrow.left.arrow.right") { router.push(.portForward(ref)) }) }
+            if !session.config.readOnly || session.config.allowExecInReadOnly { a.append(GlassAction("Forward", symbol: "arrow.left.arrow.right") { router.forward(ref) }) }
             a.append(yaml())
         default:
             a.append(yaml())
@@ -194,7 +197,7 @@ private struct DetailScreen: View {
                     Button { host.pauseRollout(t) } label: { Label(t.isPaused ? "Resume Rollout" : "Pause Rollout", systemImage: t.isPaused ? "play.circle" : "pause.circle") }
                 }
                 if ref.kind == .service || ref.kind == .pod, !session.config.readOnly || session.config.allowExecInReadOnly {
-                    Button { router.push(.portForward(ref)) } label: { Label("Port-forward…", systemImage: "arrow.left.arrow.right") }
+                    Button { router.forward(ref, configure: true) } label: { Label("Port-forward…", systemImage: "arrow.left.arrow.right") }
                 }
                 if host.canMutate, ref.kind != .event {
                     Divider()
