@@ -73,16 +73,16 @@
   <p>A built-in MCP server that lets AI agents you already use (such as Claude Code or Claude Desktop) read cluster state through Wheelhouse, with Wheelhouse&rsquo;s redaction and safety rules. It is <strong>off by default</strong>, and turning it on asks for Touch ID or your password every time.</p>
   <ul>
     <li>It works over a local connection only, between a small helper and the app. There is no network listener.</li>
-    <li>Each client you approve gets its own secret. You can see and stop clients in Settings and in Crow&rsquo;s Nest.</li>
+    <li>Each client you approve gets its own secret. You can see and stop clients in Settings; Crow&rsquo;s Nest shows how many are connected and can stop Beacon.</li>
     <li>An agent can read. Anything that would change a cluster goes through the same confirmation as your own actions, and you are the one who confirms it.</li>
   </ul>
 
   <h2 id="compass">Compass and the Rail</h2>
-  <p><strong>Compass</strong> (Command-K) is one search field for everything: menu actions (with their shortcuts), resources, clusters and namespaces, Helm releases, GitOps apps, layouts, settings and help. It understands short names (<code>po</code>, <code>deploy</code>), fuzzy and acronym matching, and puts problems first. Press Return for the default action, or the right arrow for more. Compass never runs a change directly: a mutating action opens the confirmation sheet. Typing <code>!</code> first runs the text you typed in a terminal, and nothing else ever runs in a terminal on your behalf.</p>
-  <p>The <strong>Rail</strong> (Shift-Command-B) is a strip of pinned items: clusters, resources, saved layouts (Stations), and namespaces. Drag anything onto it, or use Option-Command-B. Clicking a cluster switches the focused pane to that cluster and keeps the current view. The Rail and Stations stay on this Mac.</p>
+  <p><strong>Compass</strong> (Command-K) is one search field for everything: menu actions (with their shortcuts), resources, clusters and namespaces, layouts and settings. It understands short names (<code>po</code>, <code>deploy</code>), fuzzy and acronym matching, and puts problems first. Press Return for the default action, or Tab for more. Compass never runs a change directly: a mutating action opens the confirmation sheet, and Compass never runs anything in a terminal.</p>
+  <p>The <strong>Rail</strong> (Shift-Command-B) is a strip of pinned items: clusters, resources, saved layouts (Stations), and namespaces. Pin the current item with Option-Command-B. Clicking a cluster switches the focused pane to that cluster and keeps the current view. The Rail and Stations stay on this Mac.</p>
 
   <h2 id="crows-nest">Crow&rsquo;s Nest</h2>
-  <p>The menu bar item. Its icon shows a small dot when something needs attention (orange for warning, red for critical). The panel lists what needs attention and each cluster&rsquo;s health, shows how many Beacon clients are connected with a Stop Beacon button, and has a one-hour pause for checks.</p>
+  <p>The menu bar item. Its icon shows a small badge when something needs attention. The panel lists what needs attention and each cluster&rsquo;s health, shows how many Beacon clients are connected with a Stop Beacon button, and has a one-hour pause for checks.</p>
   <ul>
     <li>Turn on <em>Keep running in the menu bar</em> to keep monitoring after you close the last window. The Dock icon is hidden in that state.</li>
     <li>Health checks run about once a minute for Production and Staging clusters and the ones you add to the Rail or opt in. With no window open, checks are small probes, and a full evaluation runs every few minutes. Low Power Mode halves the pace.</li>

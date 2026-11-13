@@ -77,8 +77,9 @@ enum FeatureRegistry {
     ]
 
     /// Features whose milestone has passed its exit criteria and may ship in a Distribution build. Edited when a milestone
-    /// is released (a one-line change in its own PR); empty in M1a.
-    static let releaseEnabled: Set<FeatureID> = []
+    /// is released (a one-line change in its own PR); empty in M1a. Mac 1.0 ships everything except Rigging (M13 follows in a
+    /// later update).
+    static let releaseEnabled: Set<FeatureID> = Set(FeatureID.allCases).subtracting([.rigging])
 
     /// Development builds (the safety gate is active: Debug, Profile and local Release) show every feature, so each milestone is
     /// built and measured behind its flag. Distribution shows only `releaseEnabled`.

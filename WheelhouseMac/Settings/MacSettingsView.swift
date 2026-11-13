@@ -7,7 +7,7 @@ struct MacSettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsPane.allCases, selection: $selection) { pane in
+            List(SettingsPane.visible, selection: $selection) { pane in
                 Label(pane.title, systemImage: pane.symbol).tag(pane)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
