@@ -13,9 +13,9 @@ Mac 1.0 ships every feature except Rigging (M13). Rigging is built on its own br
 ## Owner steps, in order
 
 ### 1. One-time setup on this Mac
-- [ ] **Helm binary.** Run `scripts/fetch-helm.sh`. It downloads `helm-v4.3.1-darwin-arm64.tar.gz` from https://get.helm.sh (about 20 MB) and checks it against the committed SHA-256. Release builds bundle it.
+- [x] **Helm binary.** Downloaded with `scripts/fetch-helm.sh` and checked against the committed SHA-256 (helm 4.3.1). It is git-ignored, so a fresh checkout must run the script again.
 - [ ] **Notarization profile.** Run `xcrun notarytool store-credentials wheelhouse-notary ...` with an App Store Connect API key or an app-specific password. See the header of `scripts/release-mac.sh`.
-- [ ] **Sparkle private key.** It must be in the login keychain and match `WH_SU_PUBLIC_ED_KEY` in `WheelhouseMac/Resources/Distribution.xcconfig`. `generate_keys -p` must print that key. Back the private key up somewhere safe: losing it means no more updates for installed copies.
+- [x] **Sparkle private key.** It is in the login keychain and matches `WH_SU_PUBLIC_ED_KEY`; the release preflight checked this. Back the private key up somewhere safe if you haven't: losing it means no more updates for installed copies.
 - [ ] The Developer ID Application certificate (team JCZY58QP3L) is already in the keychain.
 
 ### 2. Decisions still open
@@ -26,6 +26,7 @@ Mac 1.0 ships every feature except Rigging (M13). Rigging is built on its own br
 - [ ] **GitHub private vulnerability reporting:** turn it on for the repo. `docs/mac/support.html` points security reports there.
 
 ### 3. Build the release candidate
+- [x] Signed dry run on 2026-11-13: `scripts/release-mac.sh 1.0.0 1 --local --no-notarize --skip-tests` passed. Archive and Developer ID export succeeded, every Mach-O has the hardened runtime, a timestamp and the Developer ID signature, `mac-entitlement-check` passed for Distribution, and the signed DMG was built. Gatekeeper accepted it before notarization.
 - [ ] Run `scripts/release-mac.sh 1.0.0 1`. It runs lint and tests, archives Distribution, signs with Developer ID, applies the hardened runtime, runs the entitlement check, builds the DMG, and notarizes and staples it. It does **not** publish.
 
 ### 4. Smoke test on a separate macOS user
