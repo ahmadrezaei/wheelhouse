@@ -245,6 +245,9 @@ public struct GlassActionRow: View {
                             Text(a.title).font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.8)
                         }
                         .frame(maxWidth: .infinity, minHeight: 56)
+                        // A plain button only hits its drawn pixels: without a shape, a mouse click on the empty glass (most of the
+                        // tile) reached nothing on the Mac, so YAML, Logs and Shell looked dead.
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.tile, style: .continuous))
                         .foregroundStyle(a.role == .destructive ? Palette.criticalText : Color.primary)
                     }
                     .buttonStyle(.plain)

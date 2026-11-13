@@ -49,7 +49,7 @@ struct FeatureRegistryTests {
 @MainActor @Suite("SidebarCatalog")
 struct SidebarCatalogTests {
     @Test func groupOrderIsFixed() {
-        #expect(SidebarCatalog.groups.map(\.id) == [.overview, .workloads, .config, .network, .storage, .namespaces, .events,
+        #expect(SidebarCatalog.groups.map(\.id) == [.overview, .nodes, .workloads, .config, .network, .storage, .namespaces, .events,
                                                      .chartRoom, .tides, .survey, .accessControl, .customResources])
     }
 
