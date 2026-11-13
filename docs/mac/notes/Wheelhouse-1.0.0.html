@@ -9,7 +9,29 @@
 <body>
 <main>
   <h1>Wheelhouse for Mac 1.0.0</h1>
-  <p>The first release. This is a placeholder: replace it with the real notes before running <code>scripts/release-mac.sh 1.0.0 1</code>.</p>
+  <p>The first release of Wheelhouse for Mac: a native Kubernetes manager for your whole fleet, with the same safety model as Wheelhouse for iPhone and iPad.</p>
+
+  <h2>What&rsquo;s in it</h2>
+  <ul>
+    <li><strong>Workspace.</strong> Windows, tabs and split panes for any mix of clusters, with layouts you can save as Stations. Each pane shows which cluster it is on, and Production is always marked.</li>
+    <li><strong>Deck Terminal and Gangway.</strong> A real shell where kubectl, helm and your other tools work against the pane&rsquo;s cluster through a guard that applies the app&rsquo;s rules: read-only clusters refuse changes, and Production changes need your confirmation.</li>
+    <li><strong>Chart Room.</strong> Helm releases, charts and repositories: install, upgrade, roll back and uninstall after a review of exactly what will change.</li>
+    <li><strong>Survey.</strong> Vulnerabilities, configuration problems and access risks across the fleet, from Trivy Operator reports or a scan you start.</li>
+    <li><strong>Tides.</strong> Flux and Argo CD at a glance: what is out of sync or failing, with sync, reconcile, suspend and a dry-run Flux diff against a local folder.</li>
+    <li><strong>Landfall.</strong> Find and add your EKS, GKE and AKS clusters using the cloud sign-in you already have.</li>
+    <li><strong>First Mate.</strong> An assistant that explains failures and drafts YAML and commands, using your own Anthropic API key. It never changes anything itself, and Secret values are never sent.</li>
+    <li><strong>Beacon.</strong> A local MCP server so the AI agents you already use can read cluster state through Wheelhouse&rsquo;s redaction and safety rules. Off by default.</li>
+    <li><strong>Compass and the Rail.</strong> Command-K to find any action, resource, cluster or layout, and a strip of pinned items with Command-1 to 9.</li>
+    <li><strong>Crow&rsquo;s Nest.</strong> A menu bar item that keeps watching cluster health after you close the last window, and notifies you about crash loops, failed jobs, unready nodes and unreachable clusters.</li>
+    <li><strong>Widgets.</strong> Fleet Health and Cluster widgets for the desktop and Notification Center.</li>
+  </ul>
+
+  <h2>Good to know</h2>
+  <ul>
+    <li>Every change, from any part of the app, goes through the same confirmation and is recorded in the Activity window.</li>
+    <li>Wheelhouse has no account and no server. Your clusters, credentials and settings stay on your Mac.</li>
+    <li>Rigging, declarative extension packs for custom resources, comes in a later update.</li>
+  </ul>
 </main>
 </body>
 </html>

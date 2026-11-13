@@ -22,7 +22,16 @@ struct FeatureRegistryTests {
     @Test func developmentBuildsShowEveryFeatureAndDistributionOnlyReleasedOnes() {
         for id in FeatureID.allCases {
             #expect(FeatureRegistry.isEnabled(id, gateActive: true))
-            #expect(!FeatureRegistry.isEnabled(id, gateActive: false))   // nothing is released in M1a
+            // Mac 1.0 releases every feature except Rigging.
+            #expect(FeatureRegistry.isEnabled(id, gateActive: false) == (id != .rigging), "\(id)")
+        }
+    }
+
+    @Test func distributionHidesTheSettingsPanesOfUnreleasedFeatures() {
+        #expect(SettingsPane.rigging.isVisible(gateActive: true))
+        #expect(!SettingsPane.rigging.isVisible(gateActive: false))
+        for pane in SettingsPane.allCases where pane != .rigging {
+            #expect(pane.isVisible(gateActive: false), "\(pane)")
         }
     }
 

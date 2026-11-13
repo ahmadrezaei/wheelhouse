@@ -1,4 +1,5 @@
 import SwiftUI
+import WheelhouseDesktop
 
 /// The Settings panes, in display order (DESIGN-MAC §12). Each pane's view lives in `Settings/Panes/<Name>Pane.swift`.
 enum SettingsPane: String, CaseIterable, Identifiable {
@@ -19,6 +20,16 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case updates
     case rigging
     case advanced
+
+    /// The panes this build shows: a pane that belongs to a feature not enabled in this build (Rigging in Distribution 1.0) is left out.
+    static var visible: [SettingsPane] { allCases.filter { $0.isVisible() } }
+
+    func isVisible(gateActive: Bool = DevSafety.isActive) -> Bool {
+        switch self {
+        case .rigging: FeatureRegistry.isEnabled(.rigging, gateActive: gateActive)
+        default: true
+        }
+    }
     var id: String { rawValue }
 
     var title: String {

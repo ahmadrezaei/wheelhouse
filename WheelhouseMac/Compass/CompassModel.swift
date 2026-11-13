@@ -230,7 +230,7 @@ final class CompassModel {
         }
         if q.mode == .actions { return rows }
         if q.mode == .all || q.mode == .settings {
-            for pane in SettingsPane.allCases {
+            for pane in SettingsPane.visible {
                 guard q.mode == .settings ? (match(pane.title) != nil) : (!tokens.isEmpty && match("settings \(pane.title)") != nil && match(pane.title) != nil) else { continue }
                 rows.append(CompassResult(id: "set|" + pane.rawValue, group: .settings, title: pane.title, subtitle: "Settings", symbol: pane.symbol,
                                           score: (match(pane.title) ?? 0) / max(1, tokens.count), target: .settings(pane)))
