@@ -48,20 +48,6 @@ struct NavigationFixTests {
         #expect(FeatureRegistry.isEnabled(.deckTerminal, gateActive: false))
     }
 
-    // MARK: Item 3: window
-
-    @Test func workspaceWindowsCanEnterFullScreenAndZoom() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable], backing: .buffered, defer: true)
-        window.collectionBehavior = [.fullScreenNone, .moveToActiveSpace]
-        window.maxSize = NSSize(width: 900, height: 700)
-        WindowObserver.enableFullScreenAndZoom(window)
-        #expect(window.styleMask.contains(.resizable))
-        #expect(window.collectionBehavior.contains(.fullScreenPrimary))
-        #expect(!window.collectionBehavior.contains(.fullScreenNone))
-        #expect(window.collectionBehavior.contains(.moveToActiveSpace))
-        #expect(window.maxSize.width > 100_000 && window.contentMaxSize.height > 100_000)
-    }
-
     // MARK: Item 4: single click
 
     @Test func followingASelectionReachesOnlyLinkedPanes() {
@@ -82,6 +68,71 @@ struct NavigationFixTests {
         let next = ResourceRef(clusterID: f.cluster, kind: .pod, namespace: "shop", name: "api-1")
         model.router(for: source).follow(.resourceDetail(next))
         #expect(model.pane(follower)?.stack == [.route(.resourceDetail(next))])
+    }
+
+    /// A window with a source pane and one follower of it.
+    private func linked() -> (f: Fixture, model: WorkspaceWindowModel, source: PaneID, follower: PaneID, pod: ResourceRef) {
+        let f = fixture()
+        let model = f.controller.model(for: f.controller.store.createWindow())
+        let source = model.focusedPaneID
+        model.split(.horizontal, pane: source)
+        let follower = model.selectedTab.panes.first { $0.id != source }!.id
+        model.mutate { $0.setLink(follower, to: source) }
+        model.focus(pane: source)
+        return (f, model, source, follower, ResourceRef(clusterID: f.cluster, kind: .pod, namespace: "shop", name: "api-0"))
+    }
+
+    @Test func aFollowerThatAlreadyShowsTheRouteIsNotRebuilt() {
+        let (_, model, source, follower, pod) = linked()
+        model.push(.resourceDetail(pod), from: source)
+        let editor = NSObject()
+        model.editorReported(editor, dirty: false, in: follower)
+        var asked = 0
+        model.controller.confirmsDiscardingEdits = { _, _ in asked += 1; return true }
+        #expect(model.mutate { $0.deliver(selection: .resourceDetail(pod), from: source) }.isEmpty)          // nothing changed
+        #expect(model.pane(follower)?.stack == [.route(.resourceDetail(pod))])
+        #expect(asked == 0)
+    }
+
+    @Test func aClickAsksBeforeReplacingAFollowersUnsavedDraftAndKeyboardNeverDoes() {
+        let (f, model, source, follower, pod) = linked()
+        let other = ResourceRef(clusterID: f.cluster, kind: .pod, namespace: "shop", name: "api-1")
+        model.push(.resourceDetail(pod), from: source)
+        let editor = NSObject()
+        model.editorReported(editor, dirty: true, in: follower)
+        var asked = 0, answer = false
+        model.controller.confirmsDiscardingEdits = { _, _ in asked += 1; return answer }
+        model.push(.resourceDetail(other), from: source)                                               // click, declined
+        #expect(asked == 1 && model.pane(follower)?.stack == [.route(.resourceDetail(pod))])
+        #expect(model.pane(source)?.stack.count == 1)                                                  // and not pushed in place either
+        #expect(model.followSelection(.resourceDetail(other), from: source))                           // arrow key: skipped, never asked
+        #expect(asked == 1 && model.pane(follower)?.stack == [.route(.resourceDetail(pod))])
+        answer = true
+        model.push(.resourceDetail(other), from: source)                                               // click, accepted
+        #expect(asked == 2 && model.pane(follower)?.stack == [.route(.resourceDetail(other))])
+    }
+
+    @Test func aFollowerParkedBehindAZoomedPaneIsNotUsedAndTheRoutePushesInPlace() {
+        let (_, model, source, follower, pod) = linked()
+        model.zoom(pane: source)
+        #expect(model.state.visibleFollowers(of: source).isEmpty)
+        #expect(!model.router(for: source).hasFollowers)
+        #expect(!model.followSelection(.resourceDetail(pod), from: source))
+        model.push(.resourceDetail(pod), from: source)
+        #expect(model.pane(source)?.stack.last == .route(.resourceDetail(pod)))
+        #expect(model.pane(follower)?.stack.contains(.route(.resourceDetail(pod))) != true)
+        model.zoom(pane: source)                                                                       // restored: the follower is visible again
+        #expect(model.router(for: source).hasFollowers)
+    }
+
+    @Test func aClickOpenIgnoresTheModifiersHeldWhenItRuns() {
+        let f = fixture()
+        let model = f.controller.model(for: f.controller.store.createWindow())
+        let pane = model.focusedPaneID
+        let pod = ResourceRef(clusterID: f.cluster, kind: .pod, namespace: "shop", name: "api-0")
+        model.router(for: pane).pushFromClick(.resourceDetail(pod))
+        #expect(model.pane(pane)?.stack.last == .route(.resourceDetail(pod)))
+        #expect(model.state.tabs.count == 1)
     }
 
     private final class Box { var ids: [String] = [] }
@@ -112,6 +163,25 @@ struct NavigationFixTests {
         #expect(opened.ids.isEmpty)                                    // waits for a possible second click
         try await Task.sleep(for: .milliseconds(250))
         #expect(opened.ids == ["p2"])
+    }
+
+    @Test func aClickFollowsAtOnceWhenALinkedPaneShowsTheSelection() {
+        let (t, opened, _) = table()
+        t.followsImmediately = { true }
+        t.selectRows([2])
+        t.handleClick(row: 2, modifiers: [])
+        #expect(opened.ids == ["p2"])
+    }
+
+    @Test func theDefaultClickDelayIsTheSystemDoubleClickInterval() {
+        #expect(KubeTableScrollView().clickDelay == .seconds(NSEvent.doubleClickInterval))
+    }
+
+    @Test func aProgrammaticSelectionChangeDoesNotFollow() async throws {
+        let (t, opened, followed) = table()
+        t.selectRows([3])                                  // what a reload or a live update does: no key event is being handled
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(followed.ids.isEmpty && opened.ids.isEmpty)
     }
 
     @Test func commandShiftAndControlClicksSelectWithoutOpening() async throws {
@@ -181,7 +251,7 @@ struct NavigationFixTests {
         let cells = ListScreen.nodeColumns(n, summary: summary, pods: 7)
         #expect(cells == ["roles": "control-plane", "version": "v1.31.2", "pods": "7", "taints": "2"])
         #expect(summary.statusText == "Ready,SchedulingDisabled")
-        #expect(ListScreen.nodeColumns(n, summary: summary, pods: nil)["pods"] == "")                 // before the pod watch has loaded
+        #expect(ListScreen.nodeColumns(n, summary: summary, pods: nil)["pods"] == "\u{2014}")         // no live pod store: a dash
         let row = KubeTableRow(id: "n1", name: "n1", namespace: "", status: "", tone: .healthy, ready: "", upToDate: "", restarts: "", node: "", cpu: "", memory: "",
                                details: "", age: "", extra: [], accessibility: "", kindColumns: cells)
         #expect(row.text(for: "version") == "v1.31.2" && row.text(for: "taints") == "2")

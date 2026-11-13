@@ -118,6 +118,8 @@ struct KubeTable: NSViewRepresentable {
     var onSelect: (String) -> Void = { _ in }
     /// fix-N: the keyboard moved the selection to one row: a linked detail pane follows, nothing else changes.
     var onFollow: (String) -> Void = { _ in }
+    /// fix-N: true when a linked pane shows this list's selection.
+    var followsImmediately: () -> Bool = { false }
     var actions: (String) -> [KubeRowAction]
 
     func makeNSView(context: Context) -> KubeTableScrollView { KubeTableScrollView() }
@@ -127,6 +129,7 @@ struct KubeTable: NSViewRepresentable {
         v.onOpen = onOpen
         v.onSelect = onSelect
         v.onFollow = onFollow
+        v.followsImmediately = followsImmediately
         v.actions = actions
         v.update(kindID: kindID, columns: columns, sort: sort, reversed: reversed, keys: keys, rowAt: rowAt)
     }
@@ -146,8 +149,13 @@ final class KubeNSTable: NSTableView {
         if event.clickCount == 1, row >= 0 { clickHandler?(row, event.modifierFlags) }
     }
 
+    /// True only while a key event is being handled: selection changes then come from the person, not from a reload or a live update.
+    private(set) var isHandlingKey = false
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76 { openHandler?(); return }     // Return, Enter
+        isHandlingKey = true
+        defer { isHandlingKey = false }
         super.keyDown(with: event)
     }
 
@@ -169,7 +177,9 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     var onSelect: (String) -> Void = { _ in }
     var onFollow: (String) -> Void = { _ in }
     /// A click waits this long for a second click, so a double click opens once and never lands on the detail it just opened.
-    var clickDelay: Duration = .milliseconds(250)
+    var clickDelay: Duration = .seconds(NSEvent.doubleClickInterval)
+    /// True when a linked pane follows this table's selection: a click then follows at once (nothing is replaced, so no double click lands on it).
+    var followsImmediately: () -> Bool = { false }
     /// Arrow keys settle for this long before a linked detail follows (holding an arrow must not restart a log stream per row).
     var followDelay: Duration = .milliseconds(150)
     private var pendingSelect: Task<Void, Never>?
@@ -391,12 +401,15 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     /// A left click finished on `row`. A plain click that left exactly that row selected opens it after the double-click window.
     func handleClick(row: Int, modifiers: NSEvent.ModifierFlags) {
         guard !Self.isSelectionOnly(modifiers), keys.indices.contains(row), table.selectedRowIndexes == IndexSet(integer: row) else { return }
-        schedule(keys[row].id, after: clickDelay, action: { [weak self] id in self?.onSelect(id) })
+        let immediate = followsImmediately()
+        let id = keys[row].id
+        if immediate { pendingSelect?.cancel(); pendingSelect = nil; onSelect(id); return }
+        schedule(id, after: clickDelay, action: { [weak self] id in self?.onSelect(id) })
     }
 
     /// The selection changed. Only a keyboard move that leaves one row selected is followed; clicks are handled by `handleClick`.
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard NSApp.currentEvent?.type == .keyDown else { return }
+        guard table.isHandlingKey else { return }
         selectionMovedByKeyboard()
     }
 

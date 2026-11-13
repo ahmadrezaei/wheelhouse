@@ -365,7 +365,9 @@ final class WorkspaceWindowModel {
             push: { [weak self] route, _ in self?.push(route, from: pane, commandHeld: NSEvent.modifierFlags.contains(.command)) },
             open: { [weak self] route in self?.open(route: route) },
             openChain: { [weak self] chain in self?.open(chain: chain) },
-            follow: { [weak self] route in self?.followSelection(route, from: pane) ?? false })
+            follow: { [weak self] route in self?.followSelection(route, from: pane) ?? false },
+            hasFollowers: { [weak self] in self.map { !$0.state.visibleFollowers(of: pane).isEmpty } ?? false },
+            pushPlain: { [weak self] route in self?.push(route, from: pane, commandHeld: false) })
         routers[pane] = router
         routerCount += 1
         return router
@@ -467,18 +469,27 @@ final class WorkspaceWindowModel {
     /// pushed onto the pane's stack.
     func push(_ route: Route, from pane: PaneID, commandHeld: Bool = false) {
         if commandHeld { openInNewTab(.route(route)); return }
-        if route.isDetail, state.hasLinkedPanes(following: pane) {
-            mutate { $0.deliver(selection: route, from: pane) }
+        // A follower that is parked behind a zoomed pane cannot show it: the route is pushed in place then.
+        let followers = route.isDetail ? state.visibleFollowers(of: pane) : []
+        if !followers.isEmpty {
+            // Replacing a follower's stack loses an unapplied draft in it: ask first (the close path), and do nothing if declined.
+            let dirty = followers.map(\.id).filter(hasUnsavedEdits)
+            guard dirty.isEmpty || mayClose(dirty) else { return }
+            mutate { $0.deliver(selection: route, from: pane, only: Set(followers.map(\.id))) }
             return
         }
         mutate { $0.push(.route(route), in: pane) }
     }
 
-    /// fix-N: delivers a selection to the panes following `pane` without moving focus or the pane's own stack; false when none follows.
+    /// fix-N: delivers a selection (arrow keys) to the visible panes following `pane` without moving focus or the pane's own stack.
+    /// Followers holding an unapplied draft are skipped, never asked. False when no visible pane follows.
     @discardableResult
     func followSelection(_ route: Route, from pane: PaneID) -> Bool {
-        guard route.isDetail, state.hasLinkedPanes(following: pane) else { return false }
-        mutate { $0.deliver(selection: route, from: pane) }
+        guard route.isDetail else { return false }
+        let followers = state.visibleFollowers(of: pane)
+        guard !followers.isEmpty else { return false }
+        let targets = followers.map(\.id).filter { !hasUnsavedEdits($0) }
+        if !targets.isEmpty { mutate { $0.deliver(selection: route, from: pane, only: Set(targets)) } }
         return true
     }
 

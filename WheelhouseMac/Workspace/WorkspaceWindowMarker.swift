@@ -47,7 +47,6 @@ final class WindowObserver {
         self.model = model
         model.window = window
         window.isRestorable = false          // the workspace restores its own windows (WorkspaceStore), not AppKit
-        Self.enableFullScreenAndZoom(window)
         restoreFrame(window)
         let center = NotificationCenter.default
         func observe(_ name: Notification.Name, _ body: @escaping @MainActor (WindowObserver) -> Void) {
@@ -65,17 +64,6 @@ final class WindowObserver {
         observe(NSWindow.willCloseNotification) { $0.closed() }
         updateVisibility()
         if window.isKeyWindow { becameKey() }
-    }
-
-    /// fix-N: the green button must full-screen or zoom a workspace window: it is resizable, has no size cap and may enter full screen.
-    static func enableFullScreenAndZoom(_ window: NSWindow) {
-        window.styleMask.insert(.resizable)
-        var behavior = window.collectionBehavior
-        behavior.remove([.fullScreenNone, .fullScreenAuxiliary, .fullScreenDisallowsTiling])
-        behavior.insert(.fullScreenPrimary)
-        window.collectionBehavior = behavior
-        window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        window.contentMaxSize = window.maxSize
     }
 
     isolated deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
