@@ -45,6 +45,9 @@ struct PortForwardSetupView: View {
     private var started: PortForwardInfo? { startedID.flatMap { hub.forward(id: $0) } }
 
     var body: some View {
+        #if os(macOS)
+        MacPortForwardSheet(target: target, onDone: onDone)   // fix-P: the Mac has its own form (PortForwardViews+macOS.swift)
+        #else
         Group {
             if let session { content(session) } else { EmptyState(.empty(title: "Cluster Not Found", systemImage: "server.rack", hint: "This cluster was removed.")) }
         }
@@ -54,6 +57,7 @@ struct PortForwardSetupView: View {
         .confirmSheet($confirm)
         .sheet(item: $browserFor) { PortForwardBrowserView(forward: $0) }
         .task(id: target) { await load() }
+        #endif
     }
 
     private func finish() { if let onDone { onDone() } else { router.dismissSheet() } }

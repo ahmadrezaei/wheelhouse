@@ -365,6 +365,13 @@ final class WorkspaceWindowModel {
             push: { [weak self] route, _ in self?.push(route, from: pane, commandHeld: NSEvent.modifierFlags.contains(.command)) },
             open: { [weak self] route in self?.open(route: route) },
             openChain: { [weak self] chain in self?.open(chain: chain) })
+        // fix-P: one-click port-forward. The launcher lives with the router; the advanced form is a sheet on this pane's router.
+        let launcher = PortForwardLauncher.live(registry: registry, isLocked: { [weak self] in self?.controller.isLocked() ?? false }) { [weak router] ref in router?.sheet = PresentedRoute(route: .portForward(ref)) }
+        router.portForwardHost = launcher
+        router.portForwardStarter = { [weak launcher] ref, port, configure in
+            guard let launcher else { return }
+            Task { await launcher.forward(ref, port: port, configure: configure) }
+        }
         routers[pane] = router
         routerCount += 1
         return router
@@ -388,8 +395,14 @@ final class WorkspaceWindowModel {
     func dismissSheetsForLock() {
         sheet = nil
         windowRouter.sheet = nil
-        for router in routers.values { router.sheet = nil }
+        for router in routers.values {
+            router.sheet = nil
+            (router.portForwardHost as? PortForwardLauncher)?.dismissForLock()   // fix-P
+        }
     }
+
+    /// fix-P: the pane's port-forward launcher (its confirmation and banner are presented by `PaneHost`).
+    func launcher(for pane: PaneID) -> PortForwardLauncher? { router(for: pane).portForwardHost as? PortForwardLauncher }
 
     // MARK: Unsaved edits
 

@@ -47,6 +47,18 @@ final class AppRouter {
     }
     @ObservationIgnored var paneNavigation: PaneNavigation?
 
+    // fix-P: the Mac starts a port-forward without a sheet. The workspace sets this on every pane router; it is always nil on iOS and
+    // for the window-level router, so there `forward` is the old sheet.
+    @ObservationIgnored var portForwardStarter: (@MainActor (_ ref: ResourceRef, _ port: Int?, _ configure: Bool) -> Void)?
+
+    /// The Mac's per-pane launcher lives and dies with its router (typed `AnyObject` so iOS needn't know the type).
+    @ObservationIgnored var portForwardHost: AnyObject?
+
+    /// Port-forward a service or pod. `port` forwards that port, `configure` asks for the advanced form.
+    func forward(_ ref: ResourceRef, port: Int? = nil, configure: Bool = false) {
+        if let portForwardStarter { portForwardStarter(ref, port, configure) } else { push(.portForward(ref)) }
+    }
+
     /// User-initiated sidebar selection: switching sections clears both columns' stacks. Programmatic navigation
     /// (`open`) sets `sidebarSelection` directly and keeps the detail path it just built.
     func selectSidebar(_ item: SidebarItem?) {

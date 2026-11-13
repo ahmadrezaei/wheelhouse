@@ -109,6 +109,7 @@ struct PaneHost: View {
             .overlay { if PaneDragState.shared.isActive { PaneDropTarget(model: model, paneID: paneID) } }
             .simultaneousGesture(TapGesture().onEnded { model.focus(pane: paneID) })
             .overlay { if multiple && isFocused { Rectangle().strokeBorder(Palette.tint.opacity(0.55), lineWidth: 1.5).allowsHitTesting(false) } }
+            .portForwardPane(model.launcher(for: paneID))   // fix-P: inside the pane environment (registry, activity log)
             .paneEnvironment(env: env, model: model, router: router, visible: model.isVisible && tabIsSelected)
             // Only the focused (or zoomed) pane of the selected tab puts its items and its search field in the window toolbar, and
             // none does under the lock (the toolbar is above the lock screen).
@@ -285,12 +286,21 @@ struct PaneStack: View {
                 .navigationDestination(for: WorkspaceDestination.self) { PaneDestinationView(destination: $0) }
         }
         .sheet(item: $router.sheet) { presented in
-            SheetRouteView(route: presented.route)
-                .paneEnvironment(env: env, model: model, router: router)
-                // A sheet is its own window: it owns its toolbar, and its editors are not the pane's.
-                .environment(\.paneContributesToolbar, true)
-                .environment(\.paneEditsReporter, nil)
-                .frame(minWidth: 520, minHeight: 480)
+            // fix-P: the port-forward form is a plain sized Form, not a navigation stack with a 520 x 480 minimum.
+            if case .portForward(let target) = presented.route {
+                MacPortForwardSheet(target: target)
+                    .environment(\.portForwardLauncher, router.portForwardHost as? PortForwardLauncher)
+                    .paneEnvironment(env: env, model: model, router: router)
+                    .environment(\.paneContributesToolbar, true)
+                    .environment(\.paneEditsReporter, nil)
+            } else {
+                SheetRouteView(route: presented.route)
+                    .paneEnvironment(env: env, model: model, router: router)
+                    // A sheet is its own window: it owns its toolbar, and its editors are not the pane's.
+                    .environment(\.paneContributesToolbar, true)
+                    .environment(\.paneEditsReporter, nil)
+                    .frame(minWidth: 520, minHeight: 480)
+            }
         }
         .onChange(of: router.sheet) { _, sheet in
             // Settings is a scene on the Mac, not a sheet.

@@ -63,6 +63,14 @@ public struct PortForwardInfo: Identifiable, Hashable, Sendable {
     public var resolvedPod: String?
     public var lastError: String?
 
+    public init(id: UUID, clusterID: ClusterID, clusterName: String, target: PortForwardTarget, localPort: Int, state: PortForwardState, startedAt: Date,
+                endedAt: Date? = nil, bytesDown: Int = 0, bytesUp: Int = 0, openConnections: Int = 0, totalConnections: Int = 0,
+                resolvedPod: String? = nil, lastError: String? = nil) {
+        self.id = id; self.clusterID = clusterID; self.clusterName = clusterName; self.target = target; self.localPort = localPort
+        self.state = state; self.startedAt = startedAt; self.endedAt = endedAt; self.bytesDown = bytesDown; self.bytesUp = bytesUp
+        self.openConnections = openConnections; self.totalConnections = totalConnections; self.resolvedPod = resolvedPod; self.lastError = lastError
+    }
+
     public var localAddress: String { "127.0.0.1:\(localPort)" }
     public var url: URL? { URL(string: "\(target.looksLikeHTTPS ? "https" : "http")://127.0.0.1:\(localPort)") }
 }

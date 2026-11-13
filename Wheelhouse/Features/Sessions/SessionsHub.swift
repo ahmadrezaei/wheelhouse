@@ -23,7 +23,15 @@ final class SessionsHub {
     static let shared = SessionsHub()
 
     let manager = PortForwardManager()
-    private(set) var forwards: [PortForwardInfo] = []
+    private(set) var forwards: [PortForwardInfo] = [] {
+        didSet {
+            // fix-P: a coarse index (no byte counters) so screens that only need "is this forwarded" don't refresh every tick.
+            let index = ForwardIndex(forwards)
+            if index != forwardIndex { forwardIndex = index }
+        }
+    }
+    /// Which services and pods have a live forward; changes only when a forward starts, stops or changes its ports.
+    private(set) var forwardIndex = ForwardIndex([])
     private(set) var shells: [ShellModel] = []
     private(set) var logModels: [LogsModel] = []
     private(set) var recents: [RecentSession] = []

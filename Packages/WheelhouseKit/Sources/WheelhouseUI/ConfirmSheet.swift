@@ -39,6 +39,9 @@ public struct ConfirmRequest: Identifiable {
     /// Where the request came from. nil means the UI (a person pressed the button), so iOS call sites do not change.
     /// AI, MCP, terminal and extension origins can never use the typing exemption on Production (`MutationPolicy`).
     public var origin: ChangeOrigin?
+    /// How the policy classifies this request when it decides whether the cluster refuses it. A port-forward is not an ordinary
+    /// mutation: a read-only cluster that allows exec and port-forward must not refuse it.
+    public var requestClass: RequestClass = .mutation(dryRun: false)
     /// Server dry-run; the primary button stays disabled until it passes.
     public var dryRun: (@MainActor @Sendable () async -> DryRunOutcome)?
     public var action: @MainActor @Sendable () async throws -> Void
@@ -88,7 +91,7 @@ public struct ConfirmRequest: Identifiable {
     /// Why the action must not run against `live`, or nil when it may proceed. `live == nil` means the cluster no longer exists.
     public func refusal(live: ClusterConfig?) -> String? {
         guard let live else { return "This cluster was removed." }
-        if case .refuse(let reason) = MutationPolicy.decide(.mutation(dryRun: false), cluster: live, origin: origin) { return reason }
+        if case .refuse(let reason) = MutationPolicy.decide(requestClass, cluster: live, origin: origin) { return reason }
         return nil
     }
 }

@@ -13,13 +13,26 @@ extension ListScreen {
         let rows = rows
         let usage = usage
         let kind = kind
-        let keys = rows.map { KubeRowKey(id: $0.id, version: Self.version(of: $0, usage: usage, kind: kind)) }
+        // fix-P: live forwards of pods and services (coarse index: byte counters don't refresh the table).
+        let forwardIndex = (kind == .pod || kind == .service) ? SessionsHub.shared.forwardIndex : ForwardIndex([])
+        let clusterID = session.id
+        let forwarding: (ListRowModel) -> String = { row in
+            guard !forwardIndex.isEmpty else { return "" }
+            let ref = ResourceRef(clusterID: clusterID, kind: kind, namespace: row.object.metadata.namespace, name: row.object.metadata.name)
+            return forwardIndex.entries(for: ref).map { String($0.localPort) }.joined(separator: ", ")
+        }
+        let keys = rows.map { KubeRowKey(id: $0.id, version: Self.version(of: $0, usage: usage, kind: kind) + "|f" + forwarding($0)) }
         VStack(spacing: 0) {
             macHeader(store)
             Divider()
             KubeTable(
                 kindID: kind.id, keys: keys, columns: layout, sort: sort, reversed: sortReversed,
-                rowAt: { i in Self.tableRow(rows[i], kind: kind, usage: usage, columns: columns, showNamespace: showNamespace) },
+                rowAt: { i in
+                    var row = Self.tableRow(rows[i], kind: kind, usage: usage, columns: columns, showNamespace: showNamespace)
+                    row.forwarding = forwarding(rows[i])
+                    if !row.forwarding.isEmpty { row.accessibility += ", port forwarded on \(row.forwarding)" }
+                    return row
+                },
                 onSort: { s, reversed in sort = s; sortReversed = reversed },
                 onOpen: { id in if let r = rows.first(where: { $0.id == id }) { open(r) } },
                 actions: { id in rows.first { $0.id == id }.map(macActions) ?? [] }
@@ -108,6 +121,7 @@ extension ListScreen {
         if kind == .pod {
             out.append(KubeRowAction(title: "Logs", symbol: "text.alignleft") { router.push(.logs(ref, container: nil, previous: false), from: column) })
         }
+        out += portForwardActions(for: row, ref: ref)   // fix-P: before the canMutate guard (read-only clusters may allow forwarding)
         guard canMutate else { return out }
         out.append(.separator)
         switch kind.kind {

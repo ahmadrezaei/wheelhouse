@@ -64,6 +64,8 @@ struct KubeTableRow {
     var age: String
     var extra: [String]
     var accessibility: String
+    /// fix-P: local ports of live forwards to this object, "3306" or "3306, 9104"; empty when none.
+    var forwarding = ""
 
     func text(for column: String) -> String {
         switch column {
@@ -336,7 +338,9 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         let id = NSUserInterfaceItemIdentifier("kubeCell")
         let cell = (tableView.makeView(withIdentifier: id, owner: self) as? KubeCellView) ?? { let c = KubeCellView(); c.identifier = id; return c }()
         let data = rowAt(row)
-        cell.configure(text: data.text(for: def.id), column: def, tone: def.id == "status" ? data.tone : nil)
+        // fix-P: a forwarded pod or service shows its local port after the name (the name itself stays clean for Copy Name).
+        let text = def.id == "name" && !data.forwarding.isEmpty ? "\(data.text(for: "name"))   ⇄ \(data.forwarding)" : data.text(for: def.id)
+        cell.configure(text: text, column: def, tone: def.id == "status" ? data.tone : nil)
         return cell
     }
 

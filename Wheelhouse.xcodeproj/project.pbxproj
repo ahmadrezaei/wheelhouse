@@ -67,6 +67,7 @@
 		27CC93247310EDAD59ADCE1C /* WheelhouseMacWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A9511A09D09C905B4F324992 /* WheelhouseMacWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		28D9C061E9D0C5868BE49330 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */; };
 		290C9E131B63ED487B8F0A96 /* WorkspaceCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */; };
+		2945C15BC4258E9A577E9686 /* PortForwardLauncher+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC09008B6EBAFB1E50464039 /* PortForwardLauncher+macOS.swift */; };
 		29DE6803444638872AB20381 /* WorkspaceDestination+Title.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44290BE3E988F1F3F0EC87A1 /* WorkspaceDestination+Title.swift */; };
 		2A30148AB82606A68013C59C /* TidesConfirmations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194E572C05497A3D3C488831 /* TidesConfirmations.swift */; };
 		2AA5E2345D820CF89FD01A1B /* MacShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2510CB32856011E69BA55BE1 /* MacShell.swift */; };
@@ -111,6 +112,7 @@
 		4A23802C93DEDD9A19A563C3 /* BeaconPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB9B4B53B1781036C80C12A4 /* BeaconPane.swift */; };
 		4A7D4239BCA77080F016445E /* AppKitPortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */; };
 		4ADCA5BF28F17CDCB05FF7CA /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880B90623F4A1A1A37B3D59F /* SessionsView.swift */; };
+		4AECF5A0C2D239723A832F17 /* PortForwardViews+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF09673FCF71E2DAF8C1B10 /* PortForwardViews+macOS.swift */; };
 		4B4BB3BD97E6B22BE89DE53A /* WorkspaceDestination+Clusters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08790B8AD5629A5F56B5C65C /* WorkspaceDestination+Clusters.swift */; };
 		4BEFC363D1AA767D635C5110 /* SurveyFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E754B51D3704699B8AA7597 /* SurveyFeature.swift */; };
 		4C6269FA6F314D2FEA48C1DA /* RailModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086FF7B4E5C15F59E447A189 /* RailModel.swift */; };
@@ -246,6 +248,7 @@
 		B3A5E14508AF4B593932DDE7 /* MacImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B01F58EFE269038200722A /* MacImportCoordinator.swift */; };
 		B4520956EB85B03D3B638357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FEB2709D91DA81BAF1028927 /* Assets.xcassets */; };
 		B607829F5B89295DA4C0B437 /* KubeTable+Diff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35820EAECD2EB8458D5E8F2 /* KubeTable+Diff.swift */; };
+		B750C0FD3F0E67200E26CEC2 /* PortForwardLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */; };
 		B83D3FA93F9AAC9A3622142C /* RouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */; };
 		B8E9CDBE8D2EC80170026193 /* PaneTreeLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827B4EB31C8D12A1EBDEE0B6 /* PaneTreeLayout.swift */; };
 		B8FD399C9B7A5869CC613C6F /* ActionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */; };
@@ -275,6 +278,7 @@
 		C4F858BF8386AB9F54632D17 /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3C546C16695AD9E2351D6E /* Providers.swift */; };
 		C572807372A65744AC2EDC39 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BFDD26E1A7212B653A9485 /* ShareViewController.swift */; };
 		C5C3EC014AD92210E5D774FE /* AppLockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25DBC4EC930E2924210B3E63 /* AppLockController.swift */; };
+		C74D2A0047953811D4AB2849 /* ListScreen+PortForward+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E543407C20B2F1ADFC33347D /* ListScreen+PortForward+macOS.swift */; };
 		C8181633F383806B15B401B0 /* PortForwardSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B7D7483C2794A33E9601AC /* PortForwardSetupView.swift */; };
 		C8CA295AD6896E6193598156 /* KubeTable+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC1C9A08BAA202CA06E9326 /* KubeTable+macOS.swift */; };
 		C9A2A781E09873B3D02FD3DF /* FirstMatePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C1B102BAB0F219E8D1278A /* FirstMatePane.swift */; };
@@ -527,6 +531,7 @@
 		4A261F9D30C26FA979F0EFE0 /* FeatureRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistryTests.swift; sourceTree = "<group>"; };
 		4AC9112AFDD43844779E752D /* MooringsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsViews.swift; sourceTree = "<group>"; };
 		4B5A2060B46AB6012246D1A1 /* ManifestEditorView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManifestEditorView+macOS.swift"; sourceTree = "<group>"; };
+		4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardLauncherTests.swift; sourceTree = "<group>"; };
 		4FAA412529D59CBC7707DC77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
 		5055EC3B62276A5C29AF4357 /* RailActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailActivation.swift; sourceTree = "<group>"; };
@@ -640,6 +645,7 @@
 		B92939BAB81753820027D51F /* TidesOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesOverviewView.swift; sourceTree = "<group>"; };
 		BA37AF948581F58A22C8045D /* Distribution.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Distribution.xcconfig; sourceTree = "<group>"; };
 		BC05C15A1E8ED6D6E42BBBCB /* RiggingFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiggingFeature.swift; sourceTree = "<group>"; };
+		BC09008B6EBAFB1E50464039 /* PortForwardLauncher+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardLauncher+macOS.swift"; sourceTree = "<group>"; };
 		BCBDBC6AEB7228D64D69529F /* BeaconApprovalSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconApprovalSheet.swift; sourceTree = "<group>"; };
 		BD6EFD06CAE1A0E63B81DDAA /* PadShell+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PadShell+iOS.swift"; sourceTree = "<group>"; };
 		BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHost.swift; sourceTree = "<group>"; };
@@ -686,6 +692,7 @@
 		DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditorView.swift; sourceTree = "<group>"; };
 		E049D4508D051D4AE57ED1C0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManifestEditorTests.swift; sourceTree = "<group>"; };
+		E543407C20B2F1ADFC33347D /* ListScreen+PortForward+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ListScreen+PortForward+macOS.swift"; sourceTree = "<group>"; };
 		E67EC3F0EC76D6F1ED176190 /* ChartRoomPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomPane.swift; sourceTree = "<group>"; };
 		E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSettingsSection.swift; sourceTree = "<group>"; };
 		E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSectionsView.swift; sourceTree = "<group>"; };
@@ -727,6 +734,7 @@
 		FEB2709D91DA81BAF1028927 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FEDA517B11ACE78F0DC20E28 /* AboutViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutViews.swift; sourceTree = "<group>"; };
 		FEDC89EAF411887826A97205 /* SidebarModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarModelTests.swift; sourceTree = "<group>"; };
+		FFF09673FCF71E2DAF8C1B10 /* PortForwardViews+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardViews+macOS.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -824,6 +832,7 @@
 				E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */,
 				6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */,
 				B1E50281A64525DC54AE1BB4 /* PaneDragTests.swift */,
+				4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */,
 				6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */,
 				5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */,
 				595E05758EBAA172D428E075 /* ShellRegressionTests.swift */,
@@ -965,7 +974,9 @@
 			children = (
 				F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */,
 				DEBCFD6CF322429D05E73B66 /* PortForwardBrowserView+macOS.swift */,
+				BC09008B6EBAFB1E50464039 /* PortForwardLauncher+macOS.swift */,
 				D1B7D7483C2794A33E9601AC /* PortForwardSetupView.swift */,
+				FFF09673FCF71E2DAF8C1B10 /* PortForwardViews+macOS.swift */,
 			);
 			path = PortForward;
 			sourceTree = "<group>";
@@ -1176,6 +1187,7 @@
 				80B5A977728C271B46021ACC /* DetailParts.swift */,
 				F35820EAECD2EB8458D5E8F2 /* KubeTable+Diff.swift */,
 				CBC1C9A08BAA202CA06E9326 /* KubeTable+macOS.swift */,
+				E543407C20B2F1ADFC33347D /* ListScreen+PortForward+macOS.swift */,
 				9FB6DDDD598E77EF51206330 /* ListSupport.swift */,
 				F495E201E0610A974851C166 /* ObjectRow.swift */,
 				F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */,
@@ -1945,6 +1957,7 @@
 				48B1EF47DE41E2B644FA5714 /* LandfallModel.swift in Sources */,
 				21145216806B71625C53402B /* LandfallPane.swift in Sources */,
 				BADECE44B6462E05F0F14E56 /* LandfallViews.swift in Sources */,
+				C74D2A0047953811D4AB2849 /* ListScreen+PortForward+macOS.swift in Sources */,
 				D26B5EDEC0A30B265148E5FB /* ListSupport.swift in Sources */,
 				7CCCFB7058902092FAE82C14 /* LockScreenView.swift in Sources */,
 				898D8DD4EA7ECB8543A06C5B /* LoginItem.swift in Sources */,
@@ -1987,7 +2000,9 @@
 				A876BA1C2EF7010826E22BDB /* PerfScenario.swift in Sources */,
 				64E837E129ACC2C84D34341F /* PlaceholderView.swift in Sources */,
 				7884D6414D9DFDF5EAA71BA5 /* PortForwardBrowserView+macOS.swift in Sources */,
+				2945C15BC4258E9A577E9686 /* PortForwardLauncher+macOS.swift in Sources */,
 				B208D920A96AFBE9F2B6CE44 /* PortForwardSetupView.swift in Sources */,
+				4AECF5A0C2D239723A832F17 /* PortForwardViews+macOS.swift in Sources */,
 				818B2291051E4CDFB8B57FE1 /* ProposalCard.swift in Sources */,
 				9EFC963CA0161071EB8BDFD5 /* ProposalReview.swift in Sources */,
 				E0B6E36BA5A7B69316444539 /* RailActivation.swift in Sources */,
@@ -2198,6 +2213,7 @@
 				0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */,
 				4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */,
 				91A539CFEDF0E62EAC0DBFF4 /* PaneDragTests.swift in Sources */,
+				B750C0FD3F0E67200E26CEC2 /* PortForwardLauncherTests.swift in Sources */,
 				5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */,
 				B9AADF6A86E6EE9D581003CD /* ScanReviewTests.swift in Sources */,
 				25E3B4F3A5FC26CA22425B46 /* ShellRegressionTests.swift in Sources */,

@@ -327,7 +327,11 @@ struct ServiceSections: View {
                     }
                     Spacer()
                     if ctx.host.cluster.readOnly == false || ctx.host.cluster.allowExecInReadOnly {
-                        Button("Forward") { router.push(.portForward(ctx.ref)) }.buttonStyle(.bordered).controlSize(.small)
+                        #if os(macOS)
+                        ServicePortForwardControl(ref: ctx.ref, port: p["port"]?.intValue ?? 0, isTCP: (p["protocol"]?.stringValue ?? "TCP") == "TCP")   // fix-P
+                        #else
+                        Button("Forward") { router.forward(ctx.ref) }.buttonStyle(.bordered).controlSize(.small)
+                        #endif
                     }
                 }
             }
