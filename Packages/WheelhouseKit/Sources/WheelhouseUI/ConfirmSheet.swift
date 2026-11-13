@@ -41,7 +41,7 @@ public struct ConfirmRequest: Identifiable {
     public var origin: ChangeOrigin?
     /// How the policy classifies this request when it decides whether the cluster refuses it. A port-forward is not an ordinary
     /// mutation: a read-only cluster that allows exec and port-forward must not refuse it.
-    public var requestClass: RequestClass = .mutation(dryRun: false)
+    public private(set) var requestClass: RequestClass = .mutation(dryRun: false)
     /// Server dry-run; the primary button stays disabled until it passes.
     public var dryRun: (@MainActor @Sendable () async -> DryRunOutcome)?
     public var action: @MainActor @Sendable () async throws -> Void
@@ -68,6 +68,19 @@ public struct ConfirmRequest: Identifiable {
         self.origin = origin
         self.dryRun = dryRun
         self.action = action
+    }
+
+    /// A port-forward request: classified as `.portForward` (so a read-only cluster that allows exec and port-forward does not
+    /// refuse it) and a button confirmation on Production, never typing (DESIGN-MAC section 9; the pod shell is the same).
+    public static func portForward(title: String, message: String, verb: String, cluster: ClusterConfig, namespace: String?, resource: String,
+                                   confirmationText: String, facts: [Fact] = [], origin: ChangeOrigin? = nil,
+                                   dryRun: (@MainActor @Sendable () async -> DryRunOutcome)? = nil,
+                                   action: @escaping @MainActor @Sendable () async throws -> Void) -> ConfirmRequest {
+        var request = ConfirmRequest(title: title, message: message, verb: verb, cluster: cluster, namespace: namespace, resource: resource,
+                                     confirmationText: confirmationText, facts: facts, isDisruptive: true, typeToConfirmOnProduction: false,
+                                     origin: origin, dryRun: dryRun, action: action)
+        request.requestClass = .portForward
+        return request
     }
 
     /// Input from AI, MCP, terminal and extension origins is ignored for this long after the sheet appears, so a keystroke in flight

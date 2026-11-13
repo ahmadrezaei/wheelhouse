@@ -251,6 +251,56 @@ struct PortForwardLauncherTests {
         #expect(h.launcher.banner == nil)
     }
 
+    @Test func aProductionDoubleClickMakesTwoConfirmationsButExactlyOneStart() async throws {
+        let h = Harness(.production)
+        await h.launcher.forward(service(), port: 3306, configure: false)
+        let first = try #require(h.launcher.confirm)
+        await h.launcher.forward(service(), port: 3306, configure: false)
+        let second = try #require(h.launcher.confirm)
+        #expect(first.id != second.id)
+        try await first.action()
+        try await second.action()
+        #expect(h.started.count == 1)
+    }
+
+    // MARK: Advanced form (explicit local port)
+
+    private func target() -> PortForwardTarget { PortForwardTarget(kind: .service, namespace: "db", name: "mariadb", remotePort: 3306) }
+
+    @Test func theAdvancedFormStartsOnTheChosenLocalPort() async throws {
+        let h = Harness()
+        let outcome = await h.launcher.begin(session: try #require(h.session), target: target(), local: 4406, present: { _ in })
+        guard case .started = outcome else { Issue.record("expected started, got \(outcome)"); return }
+        #expect(h.started.first?.1 == 4406)
+    }
+
+    @Test func theAdvancedFormMayAddASecondLocalPortForAForwardedRemotePort() async throws {
+        let h = Harness()
+        let session = try #require(h.session)
+        await h.launcher.begin(session: session, target: target(), local: 3306, present: { _ in })
+        let again = await h.launcher.begin(session: session, target: target(), local: 4406, present: { _ in })
+        guard case .started = again else { Issue.record("expected a second forward, got \(again)"); return }
+        #expect(h.started.map(\.1) == [3306, 4406])
+        // But not on a local port another forward holds.
+        let taken = await h.launcher.begin(session: session, target: target(), local: 4406, present: { _ in })
+        #expect(taken == .failed("Another forward already uses this port."))
+        #expect(h.started.count == 2)
+    }
+
+    @Test func theAdvancedFormKeepsTheGateTheLockAndTheProductionConfirmation() async throws {
+        let ro = Harness(.development, readOnly: true)
+        #expect(await ro.launcher.begin(session: try #require(ro.session), target: target(), local: 4406, present: { _ in }) == .refused(MutationPolicy.readOnlyReason))
+        let locked = Harness()
+        locked.locked = true
+        #expect(await locked.launcher.begin(session: try #require(locked.session), target: target(), local: 4406, present: { _ in }) == .busy)
+        let prod = Harness(.production)
+        var presented: ConfirmRequest?
+        #expect(await prod.launcher.begin(session: try #require(prod.session), target: target(), local: 4406, present: { presented = $0 }) == .confirming)
+        #expect(prod.started.isEmpty)
+        try await #require(presented).action()
+        #expect(prod.started.first?.1 == 4406)
+    }
+
     // MARK: Router hook
 
     @Test func theRouterGoesThroughTheHookWhenOneIsSetAndThroughTheSheetOtherwise() {

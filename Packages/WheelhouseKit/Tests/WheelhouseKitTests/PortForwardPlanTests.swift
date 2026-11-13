@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Darwin
 @testable import WheelhouseKit
+@testable import WheelhouseUI
 
 @Suite("Port-forward plan")
 struct PortForwardPlanTests {
@@ -94,6 +95,48 @@ struct PortForwardPlanTests {
         #expect(!LocalPort.isAvailable(port))
         let chosen = try #require(ForwardPlanner.localPort(remote: port, used: []))
         #expect(chosen != port)
+    }
+
+    @Test func aPortInTimeWaitAfterAStoppedForwardIsAvailableAgain() throws {
+        // Listener and client on a fixed loopback port, server closes first: the port sits in TIME_WAIT.
+        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        try #require(listener >= 0)
+        var yes: Int32 = 1
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0
+        addr.sin_addr = in_addr(s_addr: UInt32(0x7F00_0001).bigEndian)
+        try #require(withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } } == 0)
+        try #require(listen(listener, 1) == 0)
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &len) } }
+        let port = Int(UInt16(bigEndian: addr.sin_port))
+        let client = socket(AF_INET, SOCK_STREAM, 0)
+        try #require(withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(client, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } } == 0)
+        let accepted = accept(listener, nil, nil)
+        try #require(accepted >= 0)
+        close(accepted); close(client); close(listener)    // server side closes first: TIME_WAIT on `port`
+        #expect(LocalPort.isAvailable(port))
+    }
+
+    // MARK: Confirmation
+
+    @Test func aDefaultConfirmationOnAReadOnlyClusterThatAllowsExecIsStillRefused() {
+        let request = ConfirmRequest(title: "t", message: "m", verb: "v", cluster: config(.production, readOnly: true, allowExec: true), resource: "r",
+                                     confirmationText: "r", action: {})
+        #expect(request.refusal(live: config(.production, readOnly: true, allowExec: true)) == MutationPolicy.readOnlyReason)
+        #expect(request.requiresTyping)
+    }
+
+    @Test func thePortForwardFactoryIsAButtonConfirmationAllowedByExecInReadOnly() {
+        let c = config(.production, readOnly: true, allowExec: true)
+        let request = ConfirmRequest.portForward(title: "t", message: "m", verb: "Forward", cluster: c, namespace: "db", resource: "svc/x:1", confirmationText: "x", action: {})
+        #expect(request.requestClass == .portForward)
+        #expect(!request.requiresTyping)
+        #expect(request.refusal(live: c) == nil)
+        #expect(request.refusal(live: config(.production, readOnly: true)) == MutationPolicy.readOnlyReason)
     }
 
     // MARK: Index

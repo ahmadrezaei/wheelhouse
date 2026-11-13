@@ -300,7 +300,7 @@ final class CompassModel {
             list.append(CompassAction(id: "previousLogs", title: "Previous Logs", symbol: "clock.arrow.circlepath"))
         }
         if hit.kind != .namespace { list.append(CompassAction(id: "yaml", title: "Manifest", symbol: "doc.plaintext")) }
-        if hit.kind == .pod || hit.kind == .service { list.append(CompassAction(id: "portForward", title: "Port Forward", symbol: "arrow.left.arrow.right")) }   // fix-P
+        if hit.kind == .pod || hit.kind == .service, let config = registry.config(for: hit.cluster), case .allowed = PortForwardGate.decide(config) { list.append(CompassAction(id: "portForward", title: "Port Forward", symbol: "arrow.left.arrow.right")) }   // fix-P
         list.append(CompassAction(id: "pin", title: "Pin to Rail", symbol: "pin"))
         list.append(CompassAction(id: "copy", title: "Copy Name", symbol: "doc.on.doc"))
         actions = list

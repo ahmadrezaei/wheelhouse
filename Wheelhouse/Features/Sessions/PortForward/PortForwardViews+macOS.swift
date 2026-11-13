@@ -99,16 +99,13 @@ private struct ActiveForwardRow: View {
     @Environment(\.portForwardLauncher) private var launcher
 
     var body: some View {
-        let info = hub.forward(id: entry.id)
+        // Only the coarse index fields: byte counters and state ticks must not re-render this row every second.
         let address = "127.0.0.1:\(entry.localPort)"
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(address) → \(entry.remotePort)").font(.whCode).textSelection(.enabled)
-                if let pod = info?.resolvedPod { Text("via \(pod)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-            }
-            if let info { ForwardStatePill(state: info.state) }
+            Text("\(address) → \(entry.remotePort)").font(.whCode).textSelection(.enabled)
+            StatusPill(tone: .healthy, text: "Forwarding", symbol: "arrow.left.arrow.right")
             Spacer()
-            if ForwardablePort(port: entry.remotePort).isHTTP, let url = info?.url {
+            if ForwardablePort(port: entry.remotePort).isHTTP, let url = URL(string: "\(PortForwardTarget(kind: .service, namespace: "", name: "", remotePort: entry.remotePort).looksLikeHTTPS ? "https" : "http")://\(address)") {
                 Button("Open in Browser") { NSWorkspace.shared.open(url) }.buttonStyle(.bordered).controlSize(.small)
             }
             Button("Copy Address") { Pasteboard.copy(address, localOnly: true) }.buttonStyle(.bordered).controlSize(.small)
@@ -158,6 +155,10 @@ struct MacPortForwardSheet: View {
     @State private var error: String?
     @State private var working = false
     @State private var confirm: ConfirmRequest?
+    /// The local-port check (a bind and two connection probes), cached per typed value and not run from the body.
+    @State private var localProblem: String?
+    /// Forwards that existed when Forward was pressed: the sheet finishes only on a new one for this target.
+    @State private var knownIDs: Set<UUID>?
     private let hub = SessionsHub.shared
 
     enum Phase: Equatable { case loading, ready, failed(String) }
@@ -184,9 +185,12 @@ struct MacPortForwardSheet: View {
         .confirmSheet($confirm)
         .task(id: target) { await load() }
         .onChange(of: form.effectiveRemote) { _, _ in refreshAuto() }
-        // Whoever started it (this form, or its confirmation), the form is done once the forward is live.
+        .onChange(of: form.localText) { _, _ in refreshLocalProblem() }
         .onChange(of: hub.forwardIndex) { _, index in
-            if let remote = form.effectiveRemote, index.isForwarding(target, remotePort: remote) { finish() }
+            refreshLocalProblem()
+            // Done once a forward this form started (itself or through its confirmation) is live: a new one for this target and port.
+            guard let known = knownIDs, let remote = form.effectiveRemote else { return }
+            if index.entries(for: target).contains(where: { $0.remotePort == remote && !known.contains($0.id) }) { finish() }
         }
     }
 
@@ -218,7 +222,7 @@ struct MacPortForwardSheet: View {
                 }
                 if !form.options.isEmpty { Toggle("Use another port", isOn: $form.useCustomRemote) }
                 TextField("Local port", text: $form.localText, prompt: Text(autoLocal.map { "Automatic (\($0))" } ?? "Automatic"))
-                if let problem = form.localProblem(used: used) {
+                if let problem = localProblem {
                     Label(problem, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(Palette.criticalText)
                 }
             } footer: {
@@ -232,9 +236,11 @@ struct MacPortForwardSheet: View {
         .scrollContentBackground(.hidden)
     }
 
-    private var canForward: Bool { phase == .ready && !working && form.canForward(used: used) }
+    private var canForward: Bool { phase == .ready && !working && form.effectiveRemote != nil && localProblem == nil }
 
     private func finish() { if let onDone { onDone() } else { router.dismissSheet() } }
+
+    private func refreshLocalProblem() { localProblem = form.localProblem(used: used) }
 
     private func refreshAuto() {
         autoLocal = form.effectiveRemote.flatMap { ForwardPlanner.localPort(remote: $0, used: used) }
@@ -260,6 +266,7 @@ struct MacPortForwardSheet: View {
         working = true
         defer { working = false }
         error = nil
+        knownIDs = Set(hub.forwardIndex.entries(for: target).map(\.id))
         let forwardTarget = PortForwardTarget(kind: target.kind == .service ? .service : .pod, namespace: namespace, name: target.name, remotePort: remote)
         switch await launcher.begin(session: session, target: forwardTarget, local: local, present: { confirm = $0 }) {
         case .started, .alreadyForwarding: finish()

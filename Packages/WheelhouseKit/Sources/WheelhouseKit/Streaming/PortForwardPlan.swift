@@ -56,9 +56,9 @@ public enum ForwardablePorts {
 }
 
 extension LocalPort {
-    /// Stricter than ``isFree``: nothing may be listening on the port on any local address. `isFree` sets SO_REUSEADDR, which lets a
-    /// bind on 127.0.0.1 succeed next to a wildcard listener (a local database on `*:3306`) and silently shadow it. This binds
-    /// without SO_REUSEADDR and also tries a connection over IPv4 and IPv6 loopback.
+    /// Stricter than ``isFree``: nothing may be listening on the port on any local address. A bind with SO_REUSEADDR succeeds
+    /// next to a wildcard listener (a local database on `*:3306`) and would silently shadow it, so this also tries a connection
+    /// over IPv4 and IPv6 loopback.
     public static func isAvailable(_ port: Int) -> Bool {
         guard (1...65535).contains(port) else { return false }
         return canBindLoopback(port) && !acceptsConnections(port, ipv6: false) && !acceptsConnections(port, ipv6: true)
@@ -68,6 +68,10 @@ extension LocalPort {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        // SO_REUSEADDR so a port in TIME_WAIT after a stopped forward reads as free again; a live listener (wildcard or
+        // loopback) is caught by the connection probes in `isAvailable`.
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)

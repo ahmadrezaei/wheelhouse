@@ -101,10 +101,12 @@ final class PortForwardLauncher {
         // Decide on the cluster as configured now (it may have become Production or read-only since the click).
         guard !seams.isLocked() else { return .busy }
         guard let session = seams.session(passed.id) else { return .failed("This cluster was removed.") }
-        if let live = seams.liveForwards().first(where: { $0.state.isLive && $0.clusterID == session.id && $0.target == target }) {
+        // One click on something already forwarded just shows it; the advanced form (an explicit local port) may add another.
+        if local == nil, let live = liveForward(session.id, target) {
             showStarted(live)
             return .alreadyForwarding(live.id)
         }
+        if let local, usedLocalPorts.contains(local) { return .failed("Another forward already uses this port.") }
         if inFlight.contains(Self.key(session.id, target)) { return .busy }   // a double click, or the menu and the button together
         guard let port = local ?? ForwardPlanner.localPort(remote: target.remotePort, used: usedLocalPorts, isAvailable: seams.isAvailable) else {
             return .failed("No free local port was found.")
@@ -112,11 +114,11 @@ final class PortForwardLauncher {
         let gate = PortForwardGate.decide(session.config)
         if case .refused(let reason) = gate { return .refused(reason) }
         if gate == .allowed(confirmation: true) {
-            present(confirmRequest(session: session, target: target, local: port))
+            present(confirmRequest(session: session, target: target, local: port, explicit: local != nil))
             return .confirming
         }
         do {
-            return .started(try await startNow(session: session, target: target, local: port).id)
+            return .started(try await startNow(session: session, target: target, local: port, explicit: local != nil).id)
         } catch {
             return .failed(Self.message(for: error))
         }
@@ -124,10 +126,12 @@ final class PortForwardLauncher {
 
     /// Re-checks the live cluster configuration, then starts. Throws so a confirmation sheet can show the reason and stay open.
     @discardableResult
-    func startNow(session: ClusterSession, target: PortForwardTarget, local: Int) async throws -> PortForwardInfo {
+    func startNow(session: ClusterSession, target: PortForwardTarget, local: Int, explicit: Bool = false) async throws -> PortForwardInfo {
         // The cluster may have been edited (read-only, removed) since the click: ask again, with the current session.
         guard let current = seams.session(session.id) else { throw LaunchError.message("This cluster was removed.") }
         if case .refused(let reason) = PortForwardGate.decide(current.config) { throw LaunchError.message(reason) }
+        // Two confirmations for the same click (a double click on Production): the second finds the first one's forward.
+        if !explicit, let live = liveForward(current.id, target) { showStarted(live); return live }
         let key = Self.key(current.id, target)
         guard inFlight.insert(key).inserted else { throw LaunchError.message("That port is already being forwarded.") }
         defer { inFlight.remove(key) }
@@ -147,19 +151,22 @@ final class PortForwardLauncher {
 
     static func message(for error: Error) -> String { (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
 
+    private func liveForward(_ cluster: ClusterID, _ target: PortForwardTarget) -> PortForwardInfo? {
+        seams.liveForwards().first { $0.state.isLive && $0.clusterID == cluster && $0.target == target }
+    }
+
     var usedLocalPorts: Set<Int> { Set(seams.liveForwards().filter { $0.state.isLive }.map(\.localPort)) }
 
     // MARK: Confirmation
 
-    func confirmRequest(session: ClusterSession, target: PortForwardTarget, local: Int) -> ConfirmRequest {
+    func confirmRequest(session: ClusterSession, target: PortForwardTarget, local: Int, explicit: Bool = false) -> ConfirmRequest {
         let podName = target.kind == .pod ? target.name : nil
         let client = session.client
-        var request = ConfirmRequest(
+        ConfirmRequest.portForward(
             title: "Port Forward",
             message: "This opens a tunnel from this Mac into a production cluster. Anything listening on the remote port becomes reachable at 127.0.0.1:\(local).",
             verb: "Forward", cluster: session.config, namespace: target.namespace, resource: target.title, confirmationText: target.name,
-            facts: [.init("Local address", "127.0.0.1:\(local)")], isDisruptive: true,
-            typeToConfirmOnProduction: false,
+            facts: [.init("Local address", "127.0.0.1:\(local)")],
             dryRun: {
                 switch await SessionAccessCheck.canCreate(client, namespace: target.namespace, pod: podName, subresource: "portforward") {
                 case .allowed: return .passed("Access review: you can create pods/portforward here.")
@@ -168,11 +175,9 @@ final class PortForwardLauncher {
                 }
             },
             action: { [weak self] in
-                guard let self else { return }
-                try await self.startNow(session: session, target: target, local: local)
+                guard let self else { throw LaunchError.message("Port forwarding is no longer available in this window.") }
+                try await self.startNow(session: session, target: target, local: local, explicit: explicit)
             })
-        request.requestClass = .portForward
-        return request
     }
 
     // MARK: Banner
