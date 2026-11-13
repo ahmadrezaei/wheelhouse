@@ -41,8 +41,17 @@ final class AppRouter {
         var push: @MainActor (Route, RouteColumn) -> Void
         var open: @MainActor (Route) -> Void
         var openChain: @MainActor ([Route]) -> Void
-        init(push: @escaping @MainActor (Route, RouteColumn) -> Void, open: @escaping @MainActor (Route) -> Void, openChain: @escaping @MainActor ([Route]) -> Void) {
-            self.push = push; self.open = open; self.openChain = openChain
+        /// fix-N: hands a selection to the panes that follow this one; false when none does (nothing else happens).
+        var follow: @MainActor (Route) -> Bool
+        /// fix-N: true when a visible pane follows this one.
+        var hasFollowers: @MainActor () -> Bool
+        /// fix-N: a push that ignores the modifier keys held right now (a delayed click open must not read them when it fires).
+        var pushPlain: @MainActor (Route) -> Void
+        init(push: @escaping @MainActor (Route, RouteColumn) -> Void, open: @escaping @MainActor (Route) -> Void, openChain: @escaping @MainActor ([Route]) -> Void,
+             follow: @escaping @MainActor (Route) -> Bool = { _ in false }, hasFollowers: @escaping @MainActor () -> Bool = { false },
+             pushPlain: (@MainActor (Route) -> Void)? = nil) {
+            self.push = push; self.open = open; self.openChain = openChain; self.follow = follow; self.hasFollowers = hasFollowers
+            self.pushPlain = pushPlain ?? { push($0, .detail) }
         }
     }
     @ObservationIgnored var paneNavigation: PaneNavigation?
@@ -99,6 +108,17 @@ final class AppRouter {
         } else {
             contentPath.append(route)
         }
+    }
+
+    /// fix-N: a selection that only a linked pane shows (arrow keys in a list); a no-op on iOS and in a pane nobody follows.
+    func follow(_ route: Route) { _ = paneNavigation?.follow(route) }
+
+    /// fix-N: true when a visible linked pane shows what this pane selects.
+    var hasFollowers: Bool { paneNavigation?.hasFollowers() ?? false }
+
+    /// fix-N: `push` with the modifiers of the click that started it (none), for a navigation that runs after a delay.
+    func pushFromClick(_ route: Route, from column: RouteColumn = .detail) {
+        if route.isSheet || paneNavigation == nil { push(route, from: column) } else { paneNavigation?.pushPlain(route) }
     }
 
     func dismissSheet() { sheet = nil }

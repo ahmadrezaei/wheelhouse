@@ -5,7 +5,7 @@ import WheelhouseKit
 /// Declared in M1a. The tree (`SidebarTree`, discovery-driven kinds, RBAC hiding, counts from running stores) is M1b. Feature
 /// groups (Chart Room, Tides, Survey) supply their nodes through their `Feature` stub's `sidebarNodes`.
 enum SidebarGroupID: String, CaseIterable, Hashable, Sendable {
-    case overview, workloads, config, network, storage, namespaces, events
+    case overview, nodes, workloads, config, network, storage, namespaces, events
     case chartRoom, tides, survey
     case accessControl, customResources
 }
@@ -70,6 +70,8 @@ enum SidebarCatalog {
     /// The groups in their fixed order. Kinds whose API is not served are never shown (the tree filters by discovery).
     static let groups: [SidebarGroup] = [
         SidebarGroup(id: .overview, title: "Overview", symbol: "gauge.with.dots.needle.67percent", isLeaf: true),
+        // Owner decision (Mac 1.0 feedback): Nodes sit right after Overview, a leaf row like Namespaces and Events.
+        SidebarGroup(id: .nodes, title: "Nodes", symbol: "server.rack", isLeaf: true, kinds: [SidebarKindEntry(kind: .node)]),
         SidebarGroup(id: .workloads, title: "Workloads", symbol: "square.stack.3d.up", kinds: [
             SidebarKindEntry(kind: .pod), SidebarKindEntry(kind: .deployment), SidebarKindEntry(kind: .daemonSet), SidebarKindEntry(kind: .statefulSet),
             SidebarKindEntry(kind: .replicaSet), SidebarKindEntry(kind: replicationController, onlyWhenAnyExist: true),
@@ -115,6 +117,6 @@ enum SidebarCatalog {
         "horizontalpodautoscalers": ["hpa"], "poddisruptionbudgets": ["pdb"], "priorityclasses": ["pc"], "services": ["svc"],
         "endpointslices": ["eps"], "endpoints": ["ep"], "ingresses": ["ing"], "networkpolicies": ["netpol"],
         "persistentvolumeclaims": ["pvc"], "persistentvolumes": ["pv"], "storageclasses": ["sc"], "namespaces": ["ns"],
-        "events": ["ev"], "serviceaccounts": ["sa"], "customresourcedefinitions": ["crd", "crds"],
+        "events": ["ev"], "nodes": ["no"], "serviceaccounts": ["sa"], "customresourcedefinitions": ["crd", "crds"],
     ]
 }

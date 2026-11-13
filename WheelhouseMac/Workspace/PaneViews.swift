@@ -283,7 +283,7 @@ struct PaneStack: View {
         NavigationStack(path: Binding(get: { Array(pane.stack.dropFirst()) }, set: { model.setPushed($0, in: pane.id) })) {
             PaneDestinationView(destination: pane.stack[0])
                 .id(pane.stack[0])
-                .navigationDestination(for: WorkspaceDestination.self) { PaneDestinationView(destination: $0) }
+                .navigationDestination(for: WorkspaceDestination.self) { PaneDestinationView(destination: $0).environment(router) }   // fix-N: pushed screens always get the pane's router
         }
         .sheet(item: $router.sheet) { presented in
             // fix-P: the port-forward form is a plain sized Form, not a navigation stack with a 520 x 480 minimum.

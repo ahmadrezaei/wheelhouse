@@ -162,7 +162,7 @@ final class PortForwardLauncher {
     func confirmRequest(session: ClusterSession, target: PortForwardTarget, local: Int, explicit: Bool = false) -> ConfirmRequest {
         let podName = target.kind == .pod ? target.name : nil
         let client = session.client
-        ConfirmRequest.portForward(
+        return ConfirmRequest.portForward(
             title: "Port Forward",
             message: "This opens a tunnel from this Mac into a production cluster. Anything listening on the remote port becomes reachable at 127.0.0.1:\(local).",
             verb: "Forward", cluster: session.config, namespace: target.namespace, resource: target.title, confirmationText: target.name,

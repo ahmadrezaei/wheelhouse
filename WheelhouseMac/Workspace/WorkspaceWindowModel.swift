@@ -364,7 +364,10 @@ final class WorkspaceWindowModel {
         router.paneNavigation = AppRouter.PaneNavigation(
             push: { [weak self] route, _ in self?.push(route, from: pane, commandHeld: NSEvent.modifierFlags.contains(.command)) },
             open: { [weak self] route in self?.open(route: route) },
-            openChain: { [weak self] chain in self?.open(chain: chain) })
+            openChain: { [weak self] chain in self?.open(chain: chain) },
+            follow: { [weak self] route in self?.followSelection(route, from: pane) ?? false },
+            hasFollowers: { [weak self] in self.map { !$0.state.visibleFollowers(of: pane).isEmpty } ?? false },
+            pushPlain: { [weak self] route in self?.push(route, from: pane, commandHeld: false) })
         // fix-P: one-click port-forward. The launcher lives with the router; the advanced form is a sheet on this pane's router.
         let launcher = PortForwardLauncher.live(registry: registry, isLocked: { [weak self] in self?.controller.isLocked() ?? false }) { [weak router] ref in router?.sheet = PresentedRoute(route: .portForward(ref)) }
         router.portForwardHost = launcher
@@ -479,11 +482,28 @@ final class WorkspaceWindowModel {
     /// pushed onto the pane's stack.
     func push(_ route: Route, from pane: PaneID, commandHeld: Bool = false) {
         if commandHeld { openInNewTab(.route(route)); return }
-        if route.isDetail, state.hasLinkedPanes(following: pane) {
-            mutate { $0.deliver(selection: route, from: pane) }
+        // A follower that is parked behind a zoomed pane cannot show it: the route is pushed in place then.
+        let followers = route.isDetail ? state.visibleFollowers(of: pane) : []
+        if !followers.isEmpty {
+            // Replacing a follower's stack loses an unapplied draft in it: ask first (the close path), and do nothing if declined.
+            let dirty = followers.map(\.id).filter(hasUnsavedEdits)
+            guard dirty.isEmpty || mayClose(dirty) else { return }
+            mutate { $0.deliver(selection: route, from: pane, only: Set(followers.map(\.id))) }
             return
         }
         mutate { $0.push(.route(route), in: pane) }
+    }
+
+    /// fix-N: delivers a selection (arrow keys) to the visible panes following `pane` without moving focus or the pane's own stack.
+    /// Followers holding an unapplied draft are skipped, never asked. False when no visible pane follows.
+    @discardableResult
+    func followSelection(_ route: Route, from pane: PaneID) -> Bool {
+        guard route.isDetail else { return false }
+        let followers = state.visibleFollowers(of: pane)
+        guard !followers.isEmpty else { return false }
+        let targets = followers.map(\.id).filter { !hasUnsavedEdits($0) }
+        if !targets.isEmpty { mutate { $0.deliver(selection: route, from: pane, only: Set(targets)) } }
+        return true
     }
 
     /// Pushes a feature destination (Chart Room release, Survey finding…) onto a pane.

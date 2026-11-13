@@ -87,7 +87,7 @@ struct PortForwardPlanTests {
         addr.sin_addr = in_addr(s_addr: 0)
         let bound = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
         try #require(bound == 0)
-        try #require(listen(fd, 1) == 0)
+        try #require(listen(fd, 128) == 0)   // probes queue in the backlog; a real server accepts them
         var len = socklen_t(MemoryLayout<sockaddr_in>.size)
         let named = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) } }
         try #require(named == 0)

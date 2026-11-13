@@ -229,11 +229,13 @@ extension WorkspaceWindowState {
     }
 
     /// The pane `source` selected `selection` (a detail route): every pane linked to it shows it, REPLACING its stack (a stack
-    /// of logs panes would hold one live follow per click). Returns the panes that changed.
+    /// of logs panes would hold one live follow per click). `only` limits it to some followers; a follower that already shows the
+    /// route is left alone (its screen, and any draft in it, is not rebuilt). Returns the panes that changed.
     @discardableResult
-    mutating func deliver(selection: Route, from source: PaneID) -> [PaneID] {
+    mutating func deliver(selection: Route, from source: PaneID, only: Set<PaneID>? = nil) -> [PaneID] {
         guard let i = tabIndex(containing: source) else { return [] }
-        let targets = tabs[i].root.leaves.filter { $0.link == source }
+        let targets = tabs[i].root.leaves.filter { $0.link == source && only?.contains($0.id) != false }
+        var changed: [PaneID] = []
         for target in targets {
             let route: Route
             if target.linkedView == .logs, case .resourceDetail(let ref) = selection, ref.kind == .pod {
@@ -241,12 +243,21 @@ extension WorkspaceWindowState {
             } else {
                 route = selection
             }
+            guard target.stack != [.route(route)] else { continue }
+            changed.append(target.id)
             updatePane(target.id) {
                 $0.stack = [.route(route)]
                 if let cluster = route.clusterID { $0.context.clusterID = cluster }
             }
         }
-        return targets.map(\.id)
+        return changed
+    }
+
+    /// The panes following `source` that can be seen: while a pane of the tab is zoomed, the others are parked behind it.
+    func visibleFollowers(of source: PaneID) -> [PaneState] {
+        guard let i = tabIndex(containing: source) else { return [] }
+        let zoomed = tabs[i].zoomedPane
+        return tabs[i].root.leaves.filter { $0.link == source && (zoomed == nil || zoomed == $0.id) }
     }
 
     /// True when some pane of the tab follows `source`.

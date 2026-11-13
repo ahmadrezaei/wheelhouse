@@ -422,4 +422,35 @@ struct SidebarModelTests {
         #expect(m.rowID(for: .kind("alpha", .pod)) == "kind.alpha.\(ResourceKind.pod.id)")
         #expect(m.rowID(for: .fleet) == "top.fleet")
     }
+
+    // MARK: Nodes (owner decision: a Nodes row right after Overview)
+
+    @Test func nodesSitRightAfterOverviewAndOpenTheNodesList() async {
+        let p = FakeSidebarProvider(clusters: [cfg("alpha")])
+        p.discoveryByCluster["alpha"] = discovery(coreServed + [resource("nodes", kind: "Node", namespaced: false)])
+        let m = model(p)
+        m.expand(cluster: "alpha")
+        await settle(m) { m.discovery["alpha"] != nil }
+        let c = cluster(m, "alpha")
+        #expect(titles(c.children).prefix(3) == ["Overview", "Nodes", "Workloads"])
+        #expect(group(c, .nodes)?.destination == .kind("alpha", .node))
+        #expect(m.rowID(for: .kind("alpha", .node)) == "group.alpha.nodes")
+        // The filter finds it by its kubectl short name too.
+        #expect(SidebarCatalog.filterTerms(for: .node).contains("no"))
+        #expect(SidebarCatalog.allKinds.contains(.node))
+    }
+
+    @Test func notReadyNodesBadgeTheNodesRowFromTheHealthSnapshot() async {
+        let p = FakeSidebarProvider(clusters: [cfg("alpha")])
+        p.discoveryByCluster["alpha"] = discovery(coreServed + [resource("nodes", kind: "Node", namespaced: false)])
+        var counts = ClusterCounts(); counts.nodesNotReady = 2
+        p.healthByCluster["alpha"] = ClusterHealth(clusterID: "alpha", status: .critical, isReachable: true, items: [], counts: counts, updatedAt: Date())
+        let m = model(p)
+        m.expand(cluster: "alpha")
+        await settle(m) { m.discovery["alpha"] != nil }
+        m.refreshBadges()
+        let nodes = group(cluster(m, "alpha"), .nodes)!
+        #expect(m.badges[nodes.id] == SidebarBadge(count: 2, severity: .critical))
+        #expect(m.badges["agg.cluster.alpha"]?.severity == .critical)
+    }
 }
