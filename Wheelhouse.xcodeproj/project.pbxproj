@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		006652BBA80234B9523A1C8A /* WorkspaceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E6E628C0C5FF1C9CF0EAAE /* WorkspaceStoreTests.swift */; };
+		020022FD9886A2BA463ED651 /* NavigationFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDCE68441C6599560C589581 /* NavigationFixTests.swift */; };
 		02B0E134F7C243DDD5EBEECB /* AlertNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */; };
 		02FFED5D30E66EF238D02E44 /* SessionsHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309FD722690ACE35D393E993 /* SessionsHub.swift */; };
 		03381643954AD1B9FC1ADC14 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5059A2198553AB06D391E97A /* ShellModel.swift */; };
@@ -698,6 +699,7 @@
 		EBFA6AD9CDB04ECBF171BB4F /* WHTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WHTestHooks.swift; sourceTree = "<group>"; };
 		EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertNotifier.swift; sourceTree = "<group>"; };
 		ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommand.swift; sourceTree = "<group>"; };
+		EDCE68441C6599560C589581 /* NavigationFixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationFixTests.swift; sourceTree = "<group>"; };
 		EE1409C7CDCD5574F2BF1528 /* NotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoordinator.swift; sourceTree = "<group>"; };
 		EE1E1A6FDF47330568949403 /* ResourceListView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResourceListView+macOS.swift"; sourceTree = "<group>"; };
 		EFEABE6E49FB30DECFF641A7 /* MacPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPreferences.swift; sourceTree = "<group>"; };
@@ -823,6 +825,7 @@
 				DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */,
 				E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */,
 				6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */,
+				EDCE68441C6599560C589581 /* NavigationFixTests.swift */,
 				B1E50281A64525DC54AE1BB4 /* PaneDragTests.swift */,
 				6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */,
 				5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */,
@@ -2197,6 +2200,7 @@
 				C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */,
 				0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */,
 				4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */,
+				020022FD9886A2BA463ED651 /* NavigationFixTests.swift in Sources */,
 				91A539CFEDF0E62EAC0DBFF4 /* PaneDragTests.swift in Sources */,
 				5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */,
 				B9AADF6A86E6EE9D581003CD /* ScanReviewTests.swift in Sources */,

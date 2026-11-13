@@ -309,6 +309,11 @@ final class SidebarModel {
             let badge: SidebarBadge? = failing > 0 ? SidebarBadge(count: failing, severity: .critical) : (pending > 0 ? SidebarBadge(count: pending, severity: .warning) : nil)
             return (nil, badge)
         }
+        // Nodes: the health snapshot knows the NotReady count before any node list has run (orange for cordoned is not shown).
+        if kind == .node, let h = health, h.isReachable {
+            let notReady = h.counts.nodesNotReady
+            return (nil, notReady > 0 ? SidebarBadge(count: notReady, severity: .critical) : nil)
+        }
         return nil
     }
 

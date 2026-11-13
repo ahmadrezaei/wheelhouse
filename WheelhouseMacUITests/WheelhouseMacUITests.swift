@@ -87,6 +87,26 @@ final class WheelhouseMacUITests: XCTestCase {
         attach(app, "demo-filter")
     }
 
+    /// The detail's action tiles (YAML, Logs, Shell) navigate inside the pane: the pane title follows each push.
+    func testDetailActionTilesNavigate() throws {
+        let app = try launch(["-WHDemoMode"])
+        XCTAssertTrue(app.outlines["sidebar.tree"].waitForExistence(timeout: 20))
+        expand(app, "Workloads")
+        cell(app, "Pods").click()
+        let table = app.tables["Resources"]
+        XCTAssertTrue(table.tableRows.firstMatch.waitForExistence(timeout: 20), "no rows")
+        table.tableRows.element(boundBy: 0).doubleClick()
+        let title = app.descendants(matching: .any).matching(identifier: "pane.title").firstMatch
+        let yaml = app.buttons["YAML"]
+        XCTAssertTrue(yaml.waitForExistence(timeout: 20), "no YAML tile")
+        dump(app, "detail-tree")
+        let before = title.label
+        yaml.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.15)).click()   // a corner of the tile, not its glyph
+        sleep(2)
+        dump(app, "after-yaml-tree")
+        XCTAssertNotEqual(title.label, before, "YAML did nothing")
+    }
+
     func testSettingsOpens() throws {
         let app = try launch(["-WHDemoMode"])
         app.typeKey(",", modifierFlags: .command)

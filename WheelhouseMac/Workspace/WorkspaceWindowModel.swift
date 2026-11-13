@@ -364,7 +364,8 @@ final class WorkspaceWindowModel {
         router.paneNavigation = AppRouter.PaneNavigation(
             push: { [weak self] route, _ in self?.push(route, from: pane, commandHeld: NSEvent.modifierFlags.contains(.command)) },
             open: { [weak self] route in self?.open(route: route) },
-            openChain: { [weak self] chain in self?.open(chain: chain) })
+            openChain: { [weak self] chain in self?.open(chain: chain) },
+            follow: { [weak self] route in self?.followSelection(route, from: pane) ?? false })
         routers[pane] = router
         routerCount += 1
         return router
@@ -471,6 +472,14 @@ final class WorkspaceWindowModel {
             return
         }
         mutate { $0.push(.route(route), in: pane) }
+    }
+
+    /// fix-N: delivers a selection to the panes following `pane` without moving focus or the pane's own stack; false when none follows.
+    @discardableResult
+    func followSelection(_ route: Route, from pane: PaneID) -> Bool {
+        guard route.isDetail, state.hasLinkedPanes(following: pane) else { return false }
+        mutate { $0.deliver(selection: route, from: pane) }
+        return true
     }
 
     /// Pushes a feature destination (Chart Room release, Survey finding…) onto a pane.

@@ -33,10 +33,14 @@ struct KubeColumn: Equatable {
                      KubeColumn(id: "uptodate", title: "Up-to-date", width: 80, alignment: .right),
                      KubeColumn(id: "status", title: "Status", width: 150, sort: .status)]
         case "Node":
-            cols += [KubeColumn(id: "status", title: "Status", width: 120, sort: .status),
+            // fix-N: the Nodes table (Lens-like). Roles, version, pods and taints come from the node itself or the pod watch.
+            cols += [KubeColumn(id: "status", title: "Status", width: 170, sort: .status),
+                     KubeColumn(id: "roles", title: "Roles", width: 130),
+                     KubeColumn(id: "version", title: "Version", width: 110, monospaced: true),
                      KubeColumn(id: "cpu", title: "CPU", width: 70, alignment: .right, sort: .cpu),
                      KubeColumn(id: "memory", title: "Memory", width: 80, alignment: .right, sort: .memory),
-                     KubeColumn(id: "details", title: "Details", width: 260)]
+                     KubeColumn(id: "pods", title: "Pods", width: 60, alignment: .right),
+                     KubeColumn(id: "taints", title: "Taints", width: 60, alignment: .right)]
         default:
             cols += [KubeColumn(id: "status", title: "Status", width: 150, sort: .status),
                      KubeColumn(id: "details", title: "Details", width: 280)]
@@ -64,6 +68,8 @@ struct KubeTableRow {
     var age: String
     var extra: [String]
     var accessibility: String
+    /// Columns only some kinds have (the Nodes table: roles, version, pods, taints), by column id.
+    var kindColumns: [String: String] = [:]
 
     func text(for column: String) -> String {
         switch column {
@@ -79,7 +85,8 @@ struct KubeTableRow {
         case "details": details
         case "age": age
         default:
-            if column.hasPrefix("extra"), let i = Int(column.dropFirst(5)), extra.indices.contains(i) { extra[i] } else { "" }
+            if let value = kindColumns[column] { value }
+            else if column.hasPrefix("extra"), let i = Int(column.dropFirst(5)), extra.indices.contains(i) { extra[i] } else { "" }
         }
     }
 }
@@ -107,6 +114,10 @@ struct KubeTable: NSViewRepresentable {
     let rowAt: (Int) -> KubeTableRow
     var onSort: (ListSort, Bool) -> Void
     var onOpen: (String) -> Void
+    /// fix-N: a plain single click on a row (no modifier) opens its detail, like Lens.
+    var onSelect: (String) -> Void = { _ in }
+    /// fix-N: the keyboard moved the selection to one row: a linked detail pane follows, nothing else changes.
+    var onFollow: (String) -> Void = { _ in }
     var actions: (String) -> [KubeRowAction]
 
     func makeNSView(context: Context) -> KubeTableScrollView { KubeTableScrollView() }
@@ -114,6 +125,8 @@ struct KubeTable: NSViewRepresentable {
     func updateNSView(_ v: KubeTableScrollView, context: Context) {
         v.onSort = onSort
         v.onOpen = onOpen
+        v.onSelect = onSelect
+        v.onFollow = onFollow
         v.actions = actions
         v.update(kindID: kindID, columns: columns, sort: sort, reversed: reversed, keys: keys, rowAt: rowAt)
     }
@@ -124,6 +137,14 @@ struct KubeTable: NSViewRepresentable {
 final class KubeNSTable: NSTableView {
     var openHandler: (() -> Void)?
     var copyHandler: (() -> Void)?
+    /// Called after a left click finished selecting: the clicked row and the modifiers held.
+    var clickHandler: ((Int, NSEvent.ModifierFlags) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        super.mouseDown(with: event)        // tracks the click until the button is released (a double click fires the double action)
+        if event.clickCount == 1, row >= 0 { clickHandler?(row, event.modifierFlags) }
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76 { openHandler?(); return }     // Return, Enter
@@ -145,6 +166,13 @@ final class KubeNSTable: NSTableView {
 final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     var onSort: (ListSort, Bool) -> Void = { _, _ in }
     var onOpen: (String) -> Void = { _ in }
+    var onSelect: (String) -> Void = { _ in }
+    var onFollow: (String) -> Void = { _ in }
+    /// A click waits this long for a second click, so a double click opens once and never lands on the detail it just opened.
+    var clickDelay: Duration = .milliseconds(250)
+    /// Arrow keys settle for this long before a linked detail follows (holding an arrow must not restart a log stream per row).
+    var followDelay: Duration = .milliseconds(150)
+    private var pendingSelect: Task<Void, Never>?
     var actions: (String) -> [KubeRowAction] = { _ in [] }
 
     private let table = KubeNSTable()
@@ -187,6 +215,7 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         table.intercellSpacing = NSSize(width: 8, height: 0)
         table.setAccessibilityLabel("Resources")
         table.openHandler = { [weak self] in self?.openSelected() }
+        table.clickHandler = { [weak self] row, flags in self?.handleClick(row: row, modifiers: flags) }
         table.copyHandler = { [weak self] in self?.copyNames() }
         let menu = NSMenu()
         menu.delegate = self
@@ -200,6 +229,7 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func teardown() {
+        pendingSelect?.cancel(); pendingSelect = nil
         flushTask?.cancel(); flushTask = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
@@ -349,8 +379,44 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     @objc private func doubleClicked() {
         let row = table.clickedRow
         guard row >= 0, row < keys.count else { return }
+        pendingSelect?.cancel(); pendingSelect = nil
         onOpen(keys[row].id)
     }
+
+    /// True for the modifiers that mean "select without opening" (command and shift extend the selection, control opens the menu).
+    static func isSelectionOnly(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        !modifiers.intersection([.command, .shift, .control]).isEmpty
+    }
+
+    /// A left click finished on `row`. A plain click that left exactly that row selected opens it after the double-click window.
+    func handleClick(row: Int, modifiers: NSEvent.ModifierFlags) {
+        guard !Self.isSelectionOnly(modifiers), keys.indices.contains(row), table.selectedRowIndexes == IndexSet(integer: row) else { return }
+        schedule(keys[row].id, after: clickDelay, action: { [weak self] id in self?.onSelect(id) })
+    }
+
+    /// The selection changed. Only a keyboard move that leaves one row selected is followed; clicks are handled by `handleClick`.
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard NSApp.currentEvent?.type == .keyDown else { return }
+        selectionMovedByKeyboard()
+    }
+
+    func selectionMovedByKeyboard() {
+        guard table.selectedRowIndexes.count == 1, let row = table.selectedRowIndexes.first, keys.indices.contains(row) else { return }
+        schedule(keys[row].id, after: followDelay, action: { [weak self] id in self?.onFollow(id) })
+    }
+
+    private func schedule(_ id: String, after delay: Duration, action: @escaping @MainActor (String) -> Void) {
+        pendingSelect?.cancel()
+        pendingSelect = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.pendingSelect = nil
+            action(id)
+        }
+    }
+
+    /// Test seam: selects rows without a mouse.
+    func selectRows(_ rows: IndexSet) { table.selectRowIndexes(rows, byExtendingSelection: false) }
 
     private func openSelected() {
         guard let row = table.selectedRowIndexes.first, row < keys.count else { return }

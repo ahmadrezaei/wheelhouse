@@ -245,11 +245,21 @@ struct ClusterDashboardView: View {
             let c = session.health?.counts ?? ClusterCounts()
             let cols = isWide ? 4 : 2
             return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.cardGap), count: cols), spacing: Spacing.cardGap) {
-                KPITile(label: "Nodes Ready", value: "\(c.nodesReady)/\(c.nodesTotal)", caption: c.nodesNotReady > 0 ? "\(c.nodesNotReady) NotReady" : (c.nodesCordoned > 0 ? "\(c.nodesCordoned) cordoned" : "All ready"), tone: c.nodesNotReady > 0 ? .critical : nil)
+                nodesTile(c)
                 KPITile(label: "Pods Running", value: "\(c.podsRunning)/\(c.podsTotal)", caption: "\(c.podsPending) pending · \(c.podsFailing) failing", tone: c.podsFailing > 0 ? .warning : nil)
                 KPITile(label: "Namespaces", value: "\(c.namespaces)", caption: "\(c.deploymentsAvailable)/\(c.deploymentsTotal) deployments available")
                 KPITile(label: "Version", value: session.version?.gitVersion ?? "–", caption: sourceName)
             }
+        }
+
+        /// fix-N: on the Mac the tile opens the Nodes list.
+        @ViewBuilder private func nodesTile(_ c: ClusterCounts) -> some View {
+            let tile = KPITile(label: "Nodes Ready", value: "\(c.nodesReady)/\(c.nodesTotal)", caption: c.nodesNotReady > 0 ? "\(c.nodesNotReady) NotReady" : (c.nodesCordoned > 0 ? "\(c.nodesCordoned) cordoned" : "All ready"), tone: c.nodesNotReady > 0 ? .critical : nil)
+            #if os(macOS)
+            RouteLink(route: .resourceList(session.id, .node, namespace: nil)) { tile }
+            #else
+            tile
+            #endif
         }
 
         private var sourceName: String {

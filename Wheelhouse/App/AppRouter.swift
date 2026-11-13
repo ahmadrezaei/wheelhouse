@@ -41,8 +41,11 @@ final class AppRouter {
         var push: @MainActor (Route, RouteColumn) -> Void
         var open: @MainActor (Route) -> Void
         var openChain: @MainActor ([Route]) -> Void
-        init(push: @escaping @MainActor (Route, RouteColumn) -> Void, open: @escaping @MainActor (Route) -> Void, openChain: @escaping @MainActor ([Route]) -> Void) {
-            self.push = push; self.open = open; self.openChain = openChain
+        /// fix-N: hands a selection to the panes that follow this one; false when none does (nothing else happens).
+        var follow: @MainActor (Route) -> Bool
+        init(push: @escaping @MainActor (Route, RouteColumn) -> Void, open: @escaping @MainActor (Route) -> Void, openChain: @escaping @MainActor ([Route]) -> Void,
+             follow: @escaping @MainActor (Route) -> Bool = { _ in false }) {
+            self.push = push; self.open = open; self.openChain = openChain; self.follow = follow
         }
     }
     @ObservationIgnored var paneNavigation: PaneNavigation?
@@ -88,6 +91,9 @@ final class AppRouter {
             contentPath.append(route)
         }
     }
+
+    /// fix-N: a selection that only a linked pane shows (arrow keys in a list); a no-op on iOS and in a pane nobody follows.
+    func follow(_ route: Route) { _ = paneNavigation?.follow(route) }
 
     func dismissSheet() { sheet = nil }
 

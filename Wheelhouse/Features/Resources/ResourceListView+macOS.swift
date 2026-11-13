@@ -13,18 +13,22 @@ extension ListScreen {
         let rows = rows
         let usage = usage
         let kind = kind
-        let keys = rows.map { KubeRowKey(id: $0.id, version: Self.version(of: $0, usage: usage, kind: kind)) }
+        let nodePods = nodePods
+        let keys = rows.map { KubeRowKey(id: $0.id, version: Self.version(of: $0, usage: usage, kind: kind, nodePods: nodePods)) }
         VStack(spacing: 0) {
             macHeader(store)
             Divider()
             KubeTable(
                 kindID: kind.id, keys: keys, columns: layout, sort: sort, reversed: sortReversed,
-                rowAt: { i in Self.tableRow(rows[i], kind: kind, usage: usage, columns: columns, showNamespace: showNamespace) },
+                rowAt: { i in Self.tableRow(rows[i], kind: kind, usage: usage, columns: columns, showNamespace: showNamespace, nodePods: nodePods) },
                 onSort: { s, reversed in sort = s; sortReversed = reversed },
                 onOpen: { id in if let r = rows.first(where: { $0.id == id }) { open(r) } },
+                onSelect: { id in if let r = rows.first(where: { $0.id == id }) { open(r) } },     // fix-N: single click opens
+                onFollow: { id in if let r = rows.first(where: { $0.id == id }) { router.follow(.resourceDetail(ref(r))) } },
                 actions: { id in rows.first { $0.id == id }.map(macActions) ?? [] }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .task(id: kind.id) { await trackNodePods() }
             .overlay {
                 if store.phase == .loaded, store.items.isEmpty { emptyState }
                 else if !store.items.isEmpty, rows.isEmpty, hasFilters { filteredEmpty }
@@ -54,18 +58,21 @@ extension ListScreen {
 
     // MARK: Rows
 
-    private static func version(of row: ListRowModel, usage: [String: PodUsageSample], kind: ResourceKind) -> String {
+    private static func version(of row: ListRowModel, usage: [String: PodUsageSample], kind: ResourceKind, nodePods: [String: Int]) -> String {
         let meta = row.object.metadata
         var v = meta.resourceVersion ?? ""
         switch kind.kind {
         case "Pod": if let u = usage["\(meta.namespace ?? "")/\(meta.name)"] { v += "|\(u.cpuCores)|\(u.memoryBytes)" }
-        case "Node": if let u = usage[meta.name] { v += "|\(u.cpuCores)|\(u.memoryBytes)" }
+        case "Node":
+            if let u = usage[meta.name] { v += "|\(u.cpuCores)|\(u.memoryBytes)" }
+            v += "|p\(nodePods[meta.name] ?? -1)"
         default: break
         }
         return v
     }
 
-    private static func tableRow(_ row: ListRowModel, kind: ResourceKind, usage: [String: PodUsageSample], columns: [CRDColumn], showNamespace: Bool) -> KubeTableRow {
+    private static func tableRow(_ row: ListRowModel, kind: ResourceKind, usage: [String: PodUsageSample], columns: [CRDColumn], showNamespace: Bool,
+                                 nodePods: [String: Int]) -> KubeTableRow {
         let o = row.object, s = row.summary, meta = o.metadata
         let u: PodUsageSample? = kind.kind == "Pod" ? usage["\(meta.namespace ?? "")/\(meta.name)"] : (kind.kind == "Node" ? usage[meta.name] : nil)
         let ready: String
@@ -83,7 +90,44 @@ extension ListScreen {
             id: row.id, name: meta.name, namespace: meta.namespace ?? "", status: s.statusText.isEmpty ? s.status.title : s.statusText, tone: s.status,
             ready: ready, upToDate: s.upToDate.map(String.init) ?? "", restarts: kind.kind == "Pod" ? "\(s.restarts)" : "", node: s.nodeName ?? "",
             cpu: u.map { Quantity.formatCPU(cores: $0.cpuCores) } ?? "", memory: u.map { Quantity.formatBytes($0.memoryBytes) } ?? "",
-            details: s.details.joined(separator: " · "), age: age, extra: extra, accessibility: sentence)
+            details: s.details.joined(separator: " · "), age: age, extra: extra, accessibility: sentence,
+            kindColumns: kind.kind == "Node" ? Self.nodeColumns(o, summary: s, pods: nodePods[meta.name]) : [:])
+    }
+
+    /// The Nodes-only cells: roles, kubelet version, pods running on the node (once the pod watch has loaded) and the taint count.
+    static func nodeColumns(_ node: Unstructured, summary: ResourceSummary, pods: Int?) -> [String: String] {
+        [
+            "roles": summary.roles.joined(separator: ", "),
+            "version": node.string("status.nodeInfo.kubeletVersion") ?? "",
+            "pods": pods.map(String.init) ?? "",
+            "taints": "\(node.array("spec.taints").count)",
+        ]
+    }
+
+    /// Pods per node: counted from an all-namespaces pod watch that runs only while a Nodes table is on screen (shared with every
+    /// other consumer of that store). Counted a few times a minute, never per event.
+    func trackNodePods() async {
+        guard kind == .node else { nodePods = [:]; return }
+        let pods = session.unstructuredStore(kind: .pod, namespace: nil)
+        let watch = Task { await pods.run() }
+        defer { watch.cancel() }
+        while !Task.isCancelled {
+            let counts = Self.podCounts(pods.items)
+            if counts != nodePods { nodePods = counts }
+            try? await Task.sleep(for: .seconds(EnergyPolicy.current.interval(5)))
+        }
+    }
+
+    /// Pods per `spec.nodeName`; pods that are finished (Succeeded or Failed) do not occupy the node.
+    static func podCounts(_ pods: [Unstructured]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for pod in pods {
+            guard let node = pod.string("spec.nodeName"), !node.isEmpty else { continue }
+            let phase = pod.string("status.phase")
+            if phase == "Succeeded" || phase == "Failed" { continue }
+            counts[node, default: 0] += 1
+        }
+        return counts
     }
 
     // MARK: Opening and menu

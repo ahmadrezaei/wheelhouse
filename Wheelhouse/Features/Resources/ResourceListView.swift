@@ -41,6 +41,8 @@ struct ListScreen: View {
     @State var showLabelSheet = false
     @State var rows: [ListRowModel] = []
     @State var usage: [String: PodUsageSample] = [:]
+    /// fix-N: pods per node, for the Mac Nodes table (empty elsewhere).
+    @State var nodePods: [String: Int] = [:]
     @State var columns: [CRDColumn] = []
     @State var cache = SummaryCache()
     @State var host: ActionHost
