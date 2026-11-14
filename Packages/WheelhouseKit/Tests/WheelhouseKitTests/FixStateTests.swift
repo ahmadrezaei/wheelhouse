@@ -15,12 +15,16 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
     var versionFails = false
     var versionError: KubeError?
     var podNames = ["a", "b"]
+    /// Per-namespace scripting for lists that name a namespace (multi-namespace tests).
+    var podNamesByNamespace: [String: [String]] = [:]
+    var podsErrorByNamespace: [String: KubeError] = [:]
+    var metricsByNamespace: [String: Result<[PodMetrics], KubeError>] = [:]
 
     var lists: Int { lock.withLock { _lists } }
     var watches: Int { lock.withLock { _watches } }
 
-    private func podJSON(_ name: String) -> JSONValue {
-        ["apiVersion": "v1", "kind": "Pod", "metadata": ["name": .string(name), "namespace": "ns", "uid": .string(name), "resourceVersion": "7"],
+    private func podJSON(_ name: String, namespace: String = "ns") -> JSONValue {
+        ["apiVersion": "v1", "kind": "Pod", "metadata": ["name": .string(name), "namespace": .string(namespace), "uid": .string(name), "resourceVersion": "7"],
          "spec": ["containers": [["name": "c", "image": "i"]]]]
     }
 
@@ -35,8 +39,10 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
         if listDelay > .zero { try await Task.sleep(for: listDelay) }
         var items: [JSONValue] = []
         if kind.id == ResourceKind.pod.id {
+            if let namespace, let e = lock.withLock({ podsErrorByNamespace[namespace] }) { throw e }
             if let podsError { throw podsError }
-            items = podNames.map(podJSON)
+            if let namespace, let names = lock.withLock({ podNamesByNamespace[namespace] }) { items = names.map { podJSON($0, namespace: namespace) } }
+            else { items = podNames.map { podJSON($0) } }
         }
         let json: JSONValue = ["apiVersion": "v1", "kind": "List", "metadata": ["resourceVersion": "7"], "items": .array(items)]
         return try json.decode(KubeList<T>.self)
@@ -65,7 +71,10 @@ final class ScriptedClient: KubeClientProtocol, @unchecked Sendable {
         if let h = lock.withLock({ logsHandler }) { return h(options) }
         return AsyncThrowingStream { $0.finish() }
     }
-    func podMetrics(namespace: String?) async throws -> [PodMetrics] { [] }
+    func podMetrics(namespace: String?) async throws -> [PodMetrics] {
+        guard let namespace, let r = lock.withLock({ metricsByNamespace[namespace] }) else { return [] }
+        return try r.get()
+    }
     func nodeMetrics() async throws -> [NodeMetrics] { [] }
     func proxyGET(namespace: String, service: String, port: String, path: String, query: [String: String]) async throws -> Data { Data() }
     func execWebSocket(namespace: String, pod: String, options: ExecOptions) throws -> KubeWebSocket { throw KubeError.unsupported("scripted") }
@@ -332,6 +341,39 @@ private func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool)
         #expect(r1.namespace(for: "r1") == nil)
         r1.setNamespace("payments", for: "r1")
         #expect(r1.namespace(for: "r1") == "payments")   // an explicit pick in this launch still applies
+    }
+
+    @Test func namespaceSelectionPersistsAndStaysBackwardCompatible() throws {
+        let d = defaults()
+        d.set(["r1": "shop", "r2": "*"], forKey: "namespaceSelections")          // what every earlier version wrote
+        let r = registry(d: d)
+        try r.add(config, secrets: ClusterSecrets(token: "t"))
+        #expect(r.namespaceSelection(for: "r1") == .namespaces(["shop"]))
+        #expect(r.namespace(for: "r1") == "shop")
+        #expect(r.namespaceSelection(for: "r2") == .all)
+        r.setNamespaceSelection(NamespaceSelection(names: ["web", "payments"]), for: "r1")
+        #expect(r.namespace(for: "r1") == nil)                                   // several: no single namespace
+        #expect(r.namespaceSelection(for: "r1").names == ["payments", "web"])
+        #expect((d.dictionary(forKey: "namespaceSelections") as? [String: String])?["r1"] == "payments,web")
+        let reloaded = registry(d: d)
+        #expect(reloaded.namespaceSelection(for: "r1").names == ["payments", "web"])
+        r.setNamespace("web", for: "r1")                                         // a single pick replaces the set
+        #expect(r.namespace(for: "r1") == "web")
+        #expect((d.dictionary(forKey: "namespaceSelections") as? [String: String])?["r1"] == "web")
+        r.setNamespace(nil, for: "r1")
+        #expect(r.namespaceSelection(for: "r1") == .all)
+    }
+
+    @Test func multiSelectionIsAllUnderAlwaysAllUntilPicked() throws {
+        let d = defaults()
+        let r = registry(d: d)
+        try r.add(config, secrets: ClusterSecrets(token: "t"))
+        r.setNamespaceSelection(NamespaceSelection(names: ["a", "b"]), for: "r1")
+        d.set(NamespaceBehavior.alwaysAll.rawValue, forKey: "namespaceBehavior")
+        let fresh = registry(d: d)
+        #expect(fresh.namespaceSelection(for: "r1") == .all)
+        fresh.setNamespaceSelection(NamespaceSelection(names: ["a", "b"]), for: "r1")
+        #expect(fresh.namespaceSelection(for: "r1").names == ["a", "b"])
     }
 
     @Test func clusterWithoutHealthIsNotOfflineOrAttention() throws {

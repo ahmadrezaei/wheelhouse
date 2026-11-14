@@ -16,6 +16,13 @@ extension ClusterRegistry {
 final class SecretStoreCache {
     private var stores: [String: ResourceStore<Unstructured>] = [:]
 
+    /// One stripped store per selected namespace (or the cluster-wide one for All).
+    func group(session: ClusterSession, selection: NamespaceSelection, labelSelector: String?) -> NamespaceStoreGroup {
+        let names = selection.names
+        if names.isEmpty { return NamespaceStoreGroup(stores: [store(session: session, namespace: nil, labelSelector: labelSelector)]) }
+        return NamespaceStoreGroup(stores: names.map { store(session: session, namespace: $0, labelSelector: labelSelector) })
+    }
+
     func store(session: ClusterSession, namespace: String?, labelSelector: String?) -> ResourceStore<Unstructured> {
         let key = "\(namespace ?? "*")|\(labelSelector ?? "")"
         if let existing = stores[key] { return existing }

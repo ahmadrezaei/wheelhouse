@@ -98,6 +98,9 @@ struct MacCommands: Commands {
                 Button("Go to Kind…") { env.compass.open(seed: "go ") }.keyboardShortcut("k", modifiers: [.command, .shift]).disabled(!hasWindow)
                 // end M4b
                 Divider()
+                Button("Back") { if let m = model { m.goBack(in: m.focusedPaneID) } }
+                    .keyboardShortcut("[").disabled(model.map { !$0.canGoBack(in: $0.focusedPaneID) } ?? true)
+                Divider()
                 Button("Search…") { go(.search) }.keyboardShortcut("f").disabled(!hasWindow)
                 Divider()
                 Button("Fleet") { go(.fleet) }.keyboardShortcut("0").disabled(!hasWindow)

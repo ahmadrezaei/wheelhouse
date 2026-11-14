@@ -216,11 +216,6 @@ extension WorkspaceWindowState {
         updatePane(pane) { if $0.stack.count > 1 { $0.stack.removeLast() } }
     }
 
-    /// Replaces the pushed part of the stack (the path of a `NavigationStack`), keeping the root.
-    mutating func setPushed(_ pushed: [WorkspaceDestination], in pane: PaneID) {
-        updatePane(pane) { if let root = $0.stack.first { $0.stack = [root] + pushed } }
-    }
-
     // MARK: Linked panes
 
     mutating func setLink(_ pane: PaneID, to source: PaneID?, view: LinkedView = .detail) {

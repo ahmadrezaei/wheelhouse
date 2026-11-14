@@ -70,8 +70,8 @@ extension EnvironmentValues {
     @Entry var paneEditsReporter: PaneEditsReporter? = nil
 }
 
-/// One pane: a 28 pt header (context chip, title, link toggle, ⋯ menu, close) and its content, a navigation stack over the pane's
-/// destinations. It reads its own state from the store, so the hosting view's root never changes.
+/// One pane: a 28 pt header (Back, context chip, title, link toggle, ⋯ menu, close) and its content, the stack of the pane's
+/// screens (`PaneStack`). It reads its own state from the store, so the hosting view's root never changes.
 struct PaneHost: View {
     let env: MacAppEnvironment
     let model: WorkspaceWindowModel
@@ -146,6 +146,10 @@ struct PaneHeader: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if pane.stack.count > 1 {
+                Button { model.goBack(in: pane.id) } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(.plain).help("Back").accessibilityLabel("Back").accessibilityIdentifier("pane.back")
+            }
             contextChip
             Text(pane.title(registry: env.registry))
                 .font(.system(size: 12, weight: isFocused ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
@@ -195,7 +199,9 @@ struct PaneHeader: View {
                     Circle().fill(color(cluster.environment)).frame(width: 7, height: 7)
                     Text(cluster.name).lineLimit(1)
                     if cluster.environment == .production { Image(systemName: "shield.fill").imageScale(.small).foregroundStyle(Palette.envProduction) }
-                    if let ns = env.registry.namespace(for: cluster.id) { Text("· \(ns)").foregroundStyle(.secondary).lineLimit(1) }
+                    // fix-NS: the same label as the namespace picker
+                    let selection = env.registry.namespaceSelection(for: cluster.id)
+                    if !selection.isAll { Text("· \(selection.label)").foregroundStyle(.secondary).lineLimit(1).help(selection.detail) }
                 } else {
                     Text("No cluster").foregroundStyle(.secondary)
                 }
@@ -271,19 +277,39 @@ struct EmptyPane: View {
     }
 }
 
-/// The pane's content: a navigation stack whose root is `stack[0]` and whose path is the rest of the pane's stack.
+/// The pane's content: every screen of the pane's stack, the top one shown and the ones under it kept alive (their state and scroll
+/// position survive Back), hidden, out of the window toolbar, without hits or the keyboard, and drawing nothing.
+///
+/// Not a `NavigationStack`: inside the workspace's `NavigationSplitView` the split view's detail column takes a pane's stack over after
+/// its first push. The pushed screen is then hosted by the column, outside the pane, and the pane's own changes stop reaching the
+/// screen: a sidebar click, a further push (YAML, Logs, Shell) and the pane's sheets (the port-forward form) all waited until Back.
 struct PaneStack: View {
     let env: MacAppEnvironment
     let model: WorkspaceWindowModel
     let pane: PaneState
     @Bindable var router: AppRouter
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.paneIsVisible) private var paneIsVisible
+    @Environment(\.paneContributesToolbar) private var contributesToolbar
 
     var body: some View {
-        NavigationStack(path: Binding(get: { Array(pane.stack.dropFirst()) }, set: { model.setPushed($0, in: pane.id) })) {
-            PaneDestinationView(destination: pane.stack[0])
-                .id(pane.stack[0])
-                .navigationDestination(for: WorkspaceDestination.self) { PaneDestinationView(destination: $0).environment(router) }   // fix-N: pushed screens always get the pane's router
+        let top = pane.stack.count - 1
+        ZStack {
+            ForEach(Array(pane.stack.enumerated()), id: \.offset) { index, destination in
+                let isTop = index == top
+                PaneDestinationView(destination: destination)
+                    .id(destination)
+                    // A hidden screen's minimum must not hold the pane open; the top screen keeps its own.
+                    .frame(minWidth: isTop ? nil : 0, maxWidth: .infinity, minHeight: isTop ? nil : 0, maxHeight: .infinity)
+                    .background(HiddenTabResponderGuard(isSelected: isTop))
+                    .environment(\.paneIsVisible, paneIsVisible && isTop)
+                    .environment(\.paneScreenIsCovered, !isTop)
+                    .environment(\.paneContributesToolbar, contributesToolbar && isTop)
+                    .opacity(isTop ? 1 : 0)
+                    .allowsHitTesting(isTop)
+                    .disabled(!isTop)      // a hidden screen's keyboard shortcuts (a shell's ⌘W) must not fire
+                    .accessibilityHidden(!isTop)
+            }
         }
         .sheet(item: $router.sheet) { presented in
             // fix-P: the port-forward form is a plain sized Form, not a navigation stack with a 520 x 480 minimum.
