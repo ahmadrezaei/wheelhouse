@@ -511,6 +511,27 @@ final class WorkspaceWindowModel {
         mutate { $0.push(destination, in: pane) }
     }
 
+    /// True when the pane shows a pushed screen that Back can leave.
+    func canGoBack(in pane: PaneID) -> Bool { (state.pane(pane)?.stack.count ?? 0) > 1 }
+
+    /// Back in a pane: its top screen goes. Leaving a manifest editor with an unapplied draft loses it, so that asks first.
+    @discardableResult
+    func goBack(in pane: PaneID) -> Bool {
+        guard let top = state.pane(pane)?.stack.last, canGoBack(in: pane) else { return false }
+        if Self.holdsDraft(top), hasUnsavedEdits(pane), !controller.confirmsDiscardingEdits(1, .close) { return false }
+        mutate { $0.pop(in: pane) }
+        return true
+    }
+
+    /// The screens that report drafts (`paneEditsReporter`): the manifest editors.
+    static func holdsDraft(_ destination: WorkspaceDestination) -> Bool {
+        guard case .route(let route) = destination else { return false }
+        switch route {
+        case .yaml, .createYAML: return true
+        default: return false
+        }
+    }
+
     func setPushed(_ pushed: [WorkspaceDestination], in pane: PaneID) {
         guard state.pane(pane)?.stack.dropFirst().elementsEqual(pushed) == false else { return }
         mutate { $0.setPushed(pushed, in: pane) }

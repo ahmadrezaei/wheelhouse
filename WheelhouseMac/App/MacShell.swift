@@ -199,6 +199,11 @@ struct WorkspaceWindowContent: View {
                 InspectorView(model: model).inspectorColumnWidth(min: 300, ideal: 340, max: 480)
             }
             .toolbar {
+                // The focused pane's Back (a pane's own header has one too).
+                ToolbarItem(placement: .navigation) {
+                    Button { model.goBack(in: model.focusedPaneID) } label: { Label("Back", systemImage: "chevron.left") }
+                        .help("Back").disabled(!model.canGoBack(in: model.focusedPaneID)).accessibilityIdentifier("toolbar.back")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { model.isInspectorOpen.toggle() } label: { Label("Inspector", systemImage: "sidebar.trailing") }
                         .help("Show or Hide Inspector").accessibilityIdentifier("toolbar.inspector")
