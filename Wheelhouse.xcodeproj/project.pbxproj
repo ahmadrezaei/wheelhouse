@@ -251,6 +251,7 @@
 		B607829F5B89295DA4C0B437 /* KubeTable+Diff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35820EAECD2EB8458D5E8F2 /* KubeTable+Diff.swift */; };
 		B750C0FD3F0E67200E26CEC2 /* PortForwardLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */; };
 		B83D3FA93F9AAC9A3622142C /* RouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */; };
+		B89F6EBAC17673AE00049572 /* NamespacePickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81C235C069A0D19127254B6 /* NamespacePickerTests.swift */; };
 		B8E9CDBE8D2EC80170026193 /* PaneTreeLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827B4EB31C8D12A1EBDEE0B6 /* PaneTreeLayout.swift */; };
 		B8FD399C9B7A5869CC613C6F /* ActionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */; };
 		B914E09E747960CCC7594BF2 /* BeaconHelperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E38F5342A24A50E7AFD0FF5 /* BeaconHelperTests.swift */; };
@@ -282,6 +283,7 @@
 		C74D2A0047953811D4AB2849 /* ListScreen+PortForward+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E543407C20B2F1ADFC33347D /* ListScreen+PortForward+macOS.swift */; };
 		C8181633F383806B15B401B0 /* PortForwardSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B7D7483C2794A33E9601AC /* PortForwardSetupView.swift */; };
 		C8CA295AD6896E6193598156 /* KubeTable+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC1C9A08BAA202CA06E9326 /* KubeTable+macOS.swift */; };
+		C9683457C813D2B2B63D5102 /* NamespacePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5608F662A7864DED8A901889 /* NamespacePicker.swift */; };
 		C9A2A781E09873B3D02FD3DF /* FirstMatePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C1B102BAB0F219E8D1278A /* FirstMatePane.swift */; };
 		C9F1B88BD4DA99DDF8F23C91 /* ResourceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */; };
 		CA1CF824D8AAFAD24EE0F132 /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 45A6EC26313B04879530B78A /* WheelhouseKit */; };
@@ -541,6 +543,7 @@
 		53995759C6782852A5AF1FCC /* LockScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenView.swift; sourceTree = "<group>"; };
 		555250EC97224ADB83551896 /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
 		55C1006AAD374553466EE7AD /* PaneVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneVisibility.swift; sourceTree = "<group>"; };
+		5608F662A7864DED8A901889 /* NamespacePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NamespacePicker.swift; sourceTree = "<group>"; };
 		595E05758EBAA172D428E075 /* ShellRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellRegressionTests.swift; sourceTree = "<group>"; };
 		5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanReviewTests.swift; sourceTree = "<group>"; };
 		5BB1FCD66D34C4F2F592D7BA /* LandfallViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallViews.swift; sourceTree = "<group>"; };
@@ -679,6 +682,7 @@
 		D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitPortTests.swift; sourceTree = "<group>"; };
 		D5ACFC492FBDDB66BB25512D /* MemoryRelief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryRelief.swift; sourceTree = "<group>"; };
 		D625134AC4DAB151A6616D8B /* SurveyViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyViews.swift; sourceTree = "<group>"; };
+		D81C235C069A0D19127254B6 /* NamespacePickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NamespacePickerTests.swift; sourceTree = "<group>"; };
 		D83C8128E5F48D7BA516AADD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D8E75C16150CB0AB7FF57D50 /* AlertsInboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsInboxView.swift; sourceTree = "<group>"; };
 		D9E300E1754A22253076ADD0 /* GangwaySheetCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GangwaySheetCoordinator.swift; sourceTree = "<group>"; };
@@ -833,6 +837,7 @@
 				DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */,
 				E428FC66EAC6138225505AC0 /* ManifestEditorTests.swift */,
 				6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */,
+				D81C235C069A0D19127254B6 /* NamespacePickerTests.swift */,
 				EDCE68441C6599560C589581 /* NavigationFixTests.swift */,
 				B1E50281A64525DC54AE1BB4 /* PaneDragTests.swift */,
 				4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */,
@@ -1012,6 +1017,7 @@
 				0FFCD10EA1CB69BCF2DD0B9E /* Import */,
 				99AAE072E290CA9C1D205971 /* Landfall */,
 				0F40020C0EF308BF94C8BA3F /* Moorings */,
+				3E0330BB10DD8D6FB554EE7E /* Namespaces */,
 				9A7302B2DA1CEFE1384B7A13 /* Rail */,
 				0CCD22C92A11C210AF766BBF /* Resources */,
 				CBA3AC0BD32E6849DCB7ACE2 /* Rigging */,
@@ -1050,6 +1056,14 @@
 				E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */,
 			);
 			path = CrowsNest;
+			sourceTree = "<group>";
+		};
+		3E0330BB10DD8D6FB554EE7E /* Namespaces */ = {
+			isa = PBXGroup;
+			children = (
+				5608F662A7864DED8A901889 /* NamespacePicker.swift */,
+			);
+			path = Namespaces;
 			sourceTree = "<group>";
 		};
 		440B72AEDF96DAC6A6C0C20F /* Widgets */ = {
@@ -1992,6 +2006,7 @@
 				E2A60930650EFCC7BA3B2847 /* MooringsFeature.swift in Sources */,
 				12EC7E6133CC53D13C1292A1 /* MooringsPane.swift in Sources */,
 				C288B6A3AA936A1A23772EEF /* MooringsViews.swift in Sources */,
+				C9683457C813D2B2B63D5102 /* NamespacePicker.swift in Sources */,
 				20D58BCF8DADAFBC8F9748D9 /* NetworkMonitor.swift in Sources */,
 				1CF3C3F35606568FBEE53904 /* NotificationCoordinator.swift in Sources */,
 				F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */,
@@ -2215,6 +2230,7 @@
 				C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */,
 				0F500A68BB478340C83A972D /* ManifestEditorTests.swift in Sources */,
 				4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */,
+				B89F6EBAC17673AE00049572 /* NamespacePickerTests.swift in Sources */,
 				020022FD9886A2BA463ED651 /* NavigationFixTests.swift in Sources */,
 				91A539CFEDF0E62EAC0DBFF4 /* PaneDragTests.swift in Sources */,
 				B750C0FD3F0E67200E26CEC2 /* PortForwardLauncherTests.swift in Sources */,

@@ -37,8 +37,6 @@ public final class ClusterRegistry {
     /// True while the app is in the background (watches paused).
     @ObservationIgnored private var isSuspended = false
 
-    private static let allNamespaces = "*"
-
     public init(credentials: any CredentialStoring = KeychainCredentialStore(),
                 metadata: any ClusterMetadataStoring = ClusterMetadataStore(),
                 defaults: UserDefaults = AppGroup.defaults,
@@ -74,16 +72,25 @@ public final class ClusterRegistry {
     /// "Always All namespaces" (Settings): start every launch in All namespaces; a pick made in this launch still applies.
     private var alwaysAllNamespaces: Bool { defaults.string(forKey: "namespaceBehavior") == NamespaceBehavior.alwaysAll.rawValue }
 
-    public func namespace(for clusterID: ClusterID) -> String? {
-        if alwaysAllNamespaces && !touchedNamespaces.contains(clusterID) { return nil }
-        if let selection = namespaceSelections[clusterID] { return selection == Self.allNamespaces ? nil : selection }
-        return clusters.first { $0.id == clusterID }?.defaultNamespace
+    /// The namespaces shown for a cluster: the user's pick, else the cluster default, else All.
+    public func namespaceSelection(for clusterID: ClusterID) -> NamespaceSelection {
+        if alwaysAllNamespaces && !touchedNamespaces.contains(clusterID) { return .all }
+        if let selection = namespaceSelections[clusterID] { return NamespaceSelection(encoded: selection) }
+        return NamespaceSelection(clusters.first { $0.id == clusterID }?.defaultNamespace)
     }
 
-    public func setNamespace(_ namespace: String?, for clusterID: ClusterID) {
+    public func setNamespaceSelection(_ selection: NamespaceSelection, for clusterID: ClusterID) {
         touchedNamespaces.insert(clusterID)
-        namespaceSelections[clusterID] = namespace ?? Self.allNamespaces
+        namespaceSelections[clusterID] = selection.encoded
         defaults.set(namespaceSelections, forKey: "namespaceSelections")
+    }
+
+    /// The single selected namespace; `nil` for All namespaces and also for a multi-selection
+    /// (``namespaceSelection(for:)`` tells them apart).
+    public func namespace(for clusterID: ClusterID) -> String? { namespaceSelection(for: clusterID).single }
+
+    public func setNamespace(_ namespace: String?, for clusterID: ClusterID) {
+        setNamespaceSelection(NamespaceSelection(namespace), for: clusterID)
     }
 
     /// Namespace of the current cluster; `nil` = All namespaces.

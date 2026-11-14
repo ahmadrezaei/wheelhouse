@@ -15,6 +15,17 @@ protocol SidebarSessionProviding: AnyObject {
     /// Items of a store that ALREADY EXISTS and is running (`consumerCount > 0` and loaded). Never creates anything.
     func runningItems(for id: ClusterID, kind: ResourceKind, namespace: String?) -> (items: [Unstructured], updated: Date?)?
     func health(for id: ClusterID) -> ClusterHealth?
+    /// The namespaces the cluster is filtered to (a set on the Mac).
+    func selection(for id: ClusterID) -> NamespaceSelection
+    /// Like `runningItems(for:kind:namespace:)` for a selection of several namespaces: only the running stores that cover it.
+    func runningItems(for id: ClusterID, kind: ResourceKind, selection: NamespaceSelection) -> (items: [Unstructured], updated: Date?)?
+}
+
+extension SidebarSessionProviding {
+    func selection(for id: ClusterID) -> NamespaceSelection { NamespaceSelection(namespace(for: id)) }
+    func runningItems(for id: ClusterID, kind: ResourceKind, selection: NamespaceSelection) -> (items: [Unstructured], updated: Date?)? {
+        runningItems(for: id, kind: kind, namespace: selection.single)
+    }
 }
 
 /// The sidebar's state: the tree built from discovery and RBAC, disclosure, filter, and problem badges.
@@ -152,7 +163,8 @@ final class SidebarModel {
     func load(cluster id: ClusterID) {
         guard expandedClusters.contains(id) || !filter.isEmpty else { return }
         inflight[id]?.cancel()
-        let namespace = provider.namespace(for: id)
+        let selection = provider.selection(for: id)
+        let namespace = selection.single ?? selection.names.first      // several namespaces: review the first one
         inflight[id] = Task { [weak self] in
             guard let self else { return }
             if self.discovery[id] == nil {
@@ -211,7 +223,7 @@ final class SidebarModel {
     func rebuild() {
         let provider = provider
         let anyExist: (ClusterID, ResourceKind) -> Bool = { id, kind in
-            provider.runningItems(for: id, kind: kind, namespace: provider.namespace(for: id))?.items.isEmpty == false
+            provider.runningItems(for: id, kind: kind, selection: provider.selection(for: id))?.items.isEmpty == false
         }
         var input = SidebarBuildInput(clusters: provider.clusters, expandedClusters: expandedClusters, expandedGroups: expandedGroups, filter: filter,
                                       showsForbiddenKinds: showsForbiddenKinds, discovery: discovery, discoveryFailed: discoveryFailed, rules: rules,
@@ -259,14 +271,14 @@ final class SidebarModel {
         for cluster in rows where cluster.role == .cluster {
             guard let id = cluster.clusterID, expandedClusters.contains(id) else { continue }
             let health = provider.health(for: id)
-            let namespace = provider.namespace(for: id)
+            let selection = provider.selection(for: id)
             var clusterBadge: SidebarBadge?
             for group in cluster.children {
                 var groupBadge: SidebarBadge?
                 func visit(_ row: SidebarRow) {
                     for child in row.children { visit(child) }
                     guard let kind = row.kind, row.role == .kind || { if case .group = row.role { return true } else { return false } }() else { return }
-                    if let r = readKind(id, kind: kind, namespace: namespace, health: health) {
+                    if let r = readKind(id, kind: kind, selection: selection, health: health) {
                         if let c = r.count { newCounts[row.id] = c }
                         if let b = r.badge {
                             newBadges[row.id] = b
@@ -292,8 +304,8 @@ final class SidebarModel {
     }
 
     /// Reads one kind: a running store first, then the health snapshot (pods only). Never creates a store.
-    private func readKind(_ id: ClusterID, kind: ResourceKind, namespace: String?, health: ClusterHealth?) -> (count: Int?, badge: SidebarBadge?)? {
-        if let live = provider.runningItems(for: id, kind: kind, namespace: namespace) {
+    private func readKind(_ id: ClusterID, kind: ResourceKind, selection: NamespaceSelection, health: ClusterHealth?) -> (count: Int?, badge: SidebarBadge?)? {
+        if let live = provider.runningItems(for: id, kind: kind, selection: selection) {
             let stamp = "\(id)|\(kind.id)"
             _ = stamp
             var critical = 0, warning = 0
@@ -304,7 +316,7 @@ final class SidebarModel {
             let badge: SidebarBadge? = critical > 0 ? SidebarBadge(count: critical, severity: .critical) : (warning > 0 ? SidebarBadge(count: warning, severity: .warning) : nil)
             return (live.items.count, badge)
         }
-        if kind == .pod, let h = health, h.isReachable {
+        if kind == .pod, selection.names.count < 2, let h = health, h.isReachable {     // the snapshot is cluster-wide: not for a set
             let failing = h.counts.podsFailing, pending = h.counts.podsPending
             let badge: SidebarBadge? = failing > 0 ? SidebarBadge(count: failing, severity: .critical) : (pending > 0 ? SidebarBadge(count: pending, severity: .warning) : nil)
             return (nil, badge)
@@ -377,6 +389,23 @@ final class RegistrySidebarProvider: SidebarSessionProviding {
         guard let session = registry.session(for: id) else { return nil }
         let body: JSONValue = ["apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectRulesReview", "spec": ["namespace": .string(namespace ?? "")]]
         return try? await session.client.create(.selfSubjectRulesReview, namespace: nil, name: nil, subresource: nil, body: body, options: MutationOptions())
+    }
+
+    func selection(for id: ClusterID) -> NamespaceSelection { registry.namespaceSelection(for: id) }
+
+    /// Several namespaces: every per-namespace store must be running (then they are concatenated), else a running all-namespaces store
+    /// filtered to the set, else nothing. The two sources are never mixed.
+    func runningItems(for id: ClusterID, kind: ResourceKind, selection: NamespaceSelection) -> (items: [Unstructured], updated: Date?)? {
+        let names = kind.namespaced ? selection.names : []
+        guard names.count > 1 else { return runningItems(for: id, kind: kind, namespace: selection.single) }
+        guard let session = registry.session(for: id) else { return nil }
+        func running(_ ns: String?) -> ResourceStore<Unstructured>? {
+            session.existingUnstructuredStore(kind: kind, namespace: ns).flatMap { $0.consumerCount > 0 && $0.phase == .loaded ? $0 : nil }
+        }
+        let each = names.compactMap { running($0) }
+        if each.count == names.count { return (each.flatMap(\.items), each.compactMap(\.lastUpdated).min()) }
+        if let all = running(nil) { return (all.items.filter { $0.metadata.namespace.map(names.contains) ?? false }, all.lastUpdated) }
+        return nil
     }
 
     func runningItems(for id: ClusterID, kind: ResourceKind, namespace: String?) -> (items: [Unstructured], updated: Date?)? {

@@ -195,7 +195,9 @@ struct PaneHeader: View {
                     Circle().fill(color(cluster.environment)).frame(width: 7, height: 7)
                     Text(cluster.name).lineLimit(1)
                     if cluster.environment == .production { Image(systemName: "shield.fill").imageScale(.small).foregroundStyle(Palette.envProduction) }
-                    if let ns = env.registry.namespace(for: cluster.id) { Text("· \(ns)").foregroundStyle(.secondary).lineLimit(1) }
+                    // fix-NS: the same label as the namespace picker
+                    let selection = env.registry.namespaceSelection(for: cluster.id)
+                    if !selection.isAll { Text("· \(selection.label)").foregroundStyle(.secondary).lineLimit(1).help(selection.detail) }
                 } else {
                     Text("No cluster").foregroundStyle(.secondary)
                 }
