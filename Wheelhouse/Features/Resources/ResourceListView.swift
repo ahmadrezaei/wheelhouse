@@ -16,7 +16,8 @@ struct ResourceListView: View {
     var body: some View {
         // Keyed on the cluster's config revision + session identity: a settings change rebuilds the screen and its ActionHost.
         if let id = resolvedID, let key = registry.screenKey(for: id), let session = registry.session(for: id) {
-            ListScreen(session: session, baseKind: kind, initialNamespace: namespace ?? registry.namespace(for: session.id))
+            ListScreen(session: session, baseKind: kind,
+                       initialSelection: namespace != nil ? NamespaceSelection(namespace) : registry.namespaceSelection(for: session.id))
                 .id(key)
         } else {
             EmptyState(.empty(title: "No Cluster", systemImage: "server.rack"))
@@ -32,7 +33,8 @@ struct ListScreen: View {
     @Environment(\.routeColumn) var column
 
     @State var kind: ResourceKind
-    @State var namespace: String?
+    /// The namespaces shown (empty/All = every namespace). A kind that is not namespaced ignores it.
+    @State var selection: NamespaceSelection
     @State var search = ""
     @State var sort: ListSort = .status
     /// Mac table headers: a second click on the active column reverses the order (iOS never sets it).
@@ -46,29 +48,39 @@ struct ListScreen: View {
     @State var host: ActionHost
     @State var secretStores = SecretStoreCache()
 
-    init(session: ClusterSession, baseKind: ResourceKind, initialNamespace: String?) {
+    init(session: ClusterSession, baseKind: ResourceKind, initialSelection: NamespaceSelection) {
         self.session = session
         self.baseKind = baseKind
         _kind = State(initialValue: baseKind)
-        _namespace = State(initialValue: initialNamespace)
+        _selection = State(initialValue: initialSelection)
         _host = State(initialValue: ActionHost(session: session))
     }
 
-    var effectiveNamespace: String? { kind.namespaced ? namespace : nil }
+    var effectiveSelection: NamespaceSelection { kind.namespaced ? selection : .all }
+    /// The single selected namespace, nil for All and for several (Create from YAML and the empty states use it).
+    var effectiveNamespace: String? { effectiveSelection.single }
+    /// What the context line shows: nil reads "All namespaces".
+    var contextNamespace: String? { effectiveSelection.isAll ? nil : effectiveSelection.label }
     var selector: String? { labelSelector.isEmpty ? nil : labelSelector }
-    var store: ResourceStore<Unstructured> {
+    var store: NamespaceStoreGroup {
         // Secret lists never hold values in memory (they are blanked on ingest); detail fetches the full object on demand.
-        if kind == .secret { return secretStores.store(session: session, namespace: effectiveNamespace, labelSelector: selector) }
-        return session.unstructuredStore(kind: kind, namespace: effectiveNamespace, labelSelector: selector)
+        if kind == .secret { return secretStores.group(session: session, selection: effectiveSelection, labelSelector: selector) }
+        return session.unstructuredStores(kind: kind, selection: effectiveSelection, labelSelector: selector)
     }
     /// Actions stay hidden on read-only clusters and while the cluster is unreachable (cached data only).
-    var canMutate: Bool { host.canMutate && store.error == nil }
-    var storeKey: String { "\(kind.id)|\(effectiveNamespace ?? "*")|\(labelSelector)" }
+    /// With several namespaces the list stays actionable while at least one of them loaded; rows still check their own namespace.
+    var canMutate: Bool { host.canMutate && store.stores.contains { $0.error == nil } }
+    /// Row actions hide when the namespace the row lives in is unreachable or forbidden.
+    func canMutate(_ row: ListRowModel) -> Bool {
+        let group = store
+        return host.canMutate && group.stores.contains { $0.error == nil } && group.error(forNamespace: row.object.metadata.namespace) == nil
+    }
+    var storeKey: String { "\(kind.id)|\(effectiveSelection.encoded)|\(labelSelector)" }
     var siblings: [ResourceKind] { baseKind.section == .custom ? [] : ResourceKind.builtIn(in: baseKind.section) }
     var hasFilters: Bool { !search.isEmpty || !labelSelector.isEmpty }
 
-    private struct Token: Hashable { var key: String; var updated: Date?; var search: String; var sort: ListSort; var reversed: Bool; var usageCount: Int; var columns: Int }
-    private var token: Token { Token(key: storeKey, updated: store.lastUpdated, search: search, sort: sort, reversed: sortReversed, usageCount: usage.count, columns: columns.count) }
+    private struct Token: Hashable { var key: String; var updated: [Date?]; var search: String; var sort: ListSort; var reversed: Bool; var usageCount: Int; var columns: Int }
+    private var token: Token { Token(key: storeKey, updated: store.updateStamps, search: search, sort: sort, reversed: sortReversed, usageCount: usage.count, columns: columns.count) }
 
     var body: some View {
         let store = store
@@ -93,7 +105,7 @@ struct ListScreen: View {
 
     // MARK: Content
 
-    @ViewBuilder func platformList(_ store: ResourceStore<Unstructured>) -> some View {
+    @ViewBuilder func platformList(_ store: NamespaceStoreGroup) -> some View {
         #if os(macOS)
         macList(store)
         #else
@@ -101,11 +113,11 @@ struct ListScreen: View {
         #endif
     }
 
-    func list(_ store: ResourceStore<Unstructured>) -> some View {
+    func list(_ store: NamespaceStoreGroup) -> some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    ContextLine(cluster: session.config, namespace: effectiveNamespace, kind: kind.displayName, showsNamespace: kind.namespaced)
+                    ContextLine(cluster: session.config, namespace: contextNamespace, kind: kind.displayName, showsNamespace: kind.namespaced)
                     Text(summaryLine(store)).font(.footnote).foregroundStyle(.secondary)
                     if siblings.count > 1 { kindChips }
                     if !labelSelector.isEmpty { filterChip }
@@ -143,7 +155,7 @@ struct ListScreen: View {
     func errorState(_ error: KubeError) -> some View {
         EmptyState(EmptyStateKind(error: error, clusterName: session.config.name)) {
             VStack {
-                if case .forbidden = error, namespace != nil, kind.namespaced {
+                if case .forbidden = error, !effectiveSelection.isAll {
                     Button("Show All Namespaces") { setNamespace(nil) }.buttonStyle(.bordered)
                 }
                 Button("Retry") { Task { await store.refresh() } }.buttonStyle(.borderedProminent)
@@ -152,10 +164,10 @@ struct ListScreen: View {
     }
 
     var emptyState: some View {
-        EmptyState(.empty(title: "No \(kind.displayName)\(effectiveNamespace.map { " in \($0)" } ?? "")", systemImage: kind.symbol,
+        EmptyState(.empty(title: "No \(kind.displayName)\(effectiveSelection.isAll ? "" : " in \(effectiveSelection.label)")", systemImage: kind.symbol,
                           hint: labelSelector.isEmpty ? "Nothing to show here yet." : "No objects match \(labelSelector).")) {
             VStack {
-                if effectiveNamespace != nil { Button("Show All Namespaces") { setNamespace(nil) }.buttonStyle(.bordered) }
+                if !effectiveSelection.isAll { Button("Show All Namespaces") { setNamespace(nil) }.buttonStyle(.bordered) }
                 if !labelSelector.isEmpty { Button("Clear Label Filter") { labelSelector = "" }.buttonStyle(.bordered) }
                 if canMutate { Button("Create from YAML") { router.push(.createYAML(session.id, namespace: effectiveNamespace)) }.buttonStyle(.bordered) }
             }
@@ -169,7 +181,7 @@ struct ListScreen: View {
         .background(Palette.groupedBackground)
     }
 
-    func summaryLine(_ store: ResourceStore<Unstructured>) -> String {
+    func summaryLine(_ store: NamespaceStoreGroup) -> String {
         let count = rows.count == store.items.count ? "\(rows.count)" : "\(rows.count) of \(store.items.count)"
         return "\(count) \(kind.displayName.lowercased()) · sorted by \(sort.rawValue.lowercased())\(store.isRefreshing ? " · Updating…" : "")"
     }
@@ -204,10 +216,19 @@ struct ListScreen: View {
 
     // MARK: Toolbar
 
+    /// iOS keeps the single-select menu; the Mac has the multi-select popover.
+    @ViewBuilder var namespacePicker: some View {
+        #if os(macOS)
+        NamespacePickerButton(session: session, selection: $selection)
+        #else
+        NamespaceMenu(session: session, namespace: Binding(get: { selection.single }, set: { selection = NamespaceSelection($0) }))
+        #endif
+    }
+
     @ToolbarContentBuilder var toolbar: some ToolbarContent {
         if kind.namespaced {
             ToolbarItem(placement: .whTrailing) {
-                NamespaceMenu(session: session, namespace: $namespace)
+                namespacePicker
             }
         }
         ToolbarItem(placement: .whTrailing) {
@@ -233,7 +254,7 @@ struct ListScreen: View {
     func target(_ row: ListRowModel) -> ResourceTarget { ResourceTarget(kind: kind, object: row.object) }
 
     @ViewBuilder func trailingSwipe(_ row: ListRowModel) -> some View {
-        if canMutate {
+        if canMutate(row) {
             let t = target(row)
             Button(role: .destructive) { host.delete(t) } label: { Label("Delete", systemImage: "trash") }
             switch kind.kind {
@@ -252,7 +273,7 @@ struct ListScreen: View {
     }
 
     @ViewBuilder func leadingSwipe(_ row: ListRowModel) -> some View {
-        if canMutate {
+        if canMutate(row) {
             let t = target(row)
             switch kind.kind {
             case "Node":
@@ -275,7 +296,7 @@ struct ListScreen: View {
         if kind == .pod {
             Button { router.push(.logs(ref, container: nil, previous: false), from: column) } label: { Label("Logs", systemImage: "text.alignleft") }
         }
-        if canMutate {
+        if canMutate(row) {
             Divider()
             switch kind.kind {
             case "Deployment", "StatefulSet", "DaemonSet":
@@ -297,7 +318,7 @@ struct ListScreen: View {
     }
 
     func setNamespace(_ ns: String?) {
-        namespace = ns
+        selection = NamespaceSelection(ns)
     }
 
     // MARK: Data
@@ -343,7 +364,7 @@ struct ListScreen: View {
         }
     }
 
-    func labelSuggestions(_ store: ResourceStore<Unstructured>) -> [String] {
+    func labelSuggestions(_ store: NamespaceStoreGroup) -> [String] {
         var counts: [String: Int] = [:]
         for o in store.items { for (k, v) in o.metadata.labels where !k.hasPrefix("pod-template-hash") { counts["\(k)=\(v)", default: 0] += 1 } }
         return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(8).map(\.key)
@@ -352,7 +373,7 @@ struct ListScreen: View {
     /// metrics-server usage, refreshed every 30 s while the list is on screen.
     func pollUsage() async {
         guard kind == .pod || kind == .node else { usage = [:]; return }
-        let client = session.client, kind = kind, ns = effectiveNamespace
+        let client = session.client, kind = kind, namespaces = effectiveSelection.names
         var failures = 0
         while !Task.isCancelled {
             // Low Power Mode / hot device: keep what we have, stop sampling.
@@ -363,7 +384,7 @@ struct ListScreen: View {
             do {
                 var map: [String: PodUsageSample] = [:]
                 if kind == .pod {
-                    for m in try await client.podMetrics(namespace: ns) { map["\(m.metadata.namespace ?? "")/\(m.metadata.name)"] = PodUsageSample(cpuCores: m.cpuCores, memoryBytes: m.memoryBytes) }
+                    for m in try await client.podMetrics(namespaces: namespaces) { map["\(m.metadata.namespace ?? "")/\(m.metadata.name)"] = PodUsageSample(cpuCores: m.cpuCores, memoryBytes: m.memoryBytes) }
                 } else {
                     for m in try await client.nodeMetrics() { map[m.metadata.name] = PodUsageSample(cpuCores: m.cpuCores, memoryBytes: m.memoryBytes) }
                 }

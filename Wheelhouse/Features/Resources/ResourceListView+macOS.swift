@@ -6,7 +6,7 @@ import WheelhouseUI
 /// The Mac body of the resource list: the same `ListScreen` state, data and actions as iOS, hosted in a `KubeTable`
 /// (ARCHITECTURE-MAC section 1.6 row 10) instead of a SwiftUI `List`.
 extension ListScreen {
-    @ViewBuilder func macList(_ store: ResourceStore<Unstructured>) -> some View {
+    @ViewBuilder func macList(_ store: NamespaceStoreGroup) -> some View {
         let showNamespace = effectiveNamespace == nil && kind.namespaced
         let extraNames = columns.prefix(3).map(\.name)
         let layout = KubeColumn.columns(for: kind, showNamespace: showNamespace, extra: extraNames)
@@ -52,9 +52,9 @@ extension ListScreen {
 
     // MARK: Header
 
-    private func macHeader(_ store: ResourceStore<Unstructured>) -> some View {
+    private func macHeader(_ store: NamespaceStoreGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ContextLine(cluster: session.config, namespace: effectiveNamespace, kind: kind.displayName, showsNamespace: kind.namespaced)
+            ContextLine(cluster: session.config, namespace: contextNamespace, kind: kind.displayName, showsNamespace: kind.namespaced)
             Text(summaryLine(store)).font(.footnote).foregroundStyle(.secondary)
             if siblings.count > 1 { kindChips }
             if !labelSelector.isEmpty { filterChip }
@@ -161,7 +161,7 @@ extension ListScreen {
             out.append(KubeRowAction(title: "Logs", symbol: "text.alignleft") { router.push(.logs(ref, container: nil, previous: false), from: column) })
         }
         out += portForwardActions(for: row, ref: ref)   // fix-P: before the canMutate guard (read-only clusters may allow forwarding)
-        guard canMutate else { return out }
+        guard canMutate(row) else { return out }
         out.append(.separator)
         switch kind.kind {
         case "Deployment", "StatefulSet", "DaemonSet":
