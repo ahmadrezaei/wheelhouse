@@ -10,6 +10,7 @@ extension WorkspaceWindowModel {
         switch placement {
         case .here:
             let pane = focusedPaneID
+            guard mayReplaceStack(of: pane) else { return }
             mutate { $0.setRoot(destination, in: pane) }
             focusedPaneChanged()
         case .newTab:

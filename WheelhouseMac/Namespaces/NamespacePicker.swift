@@ -42,12 +42,18 @@ struct NamespacePickerButton: View {
     let session: ClusterSession
     @Binding var selection: NamespaceSelection
     @State private var isOpen = false
+    /// When the popover last closed: a click on the button while it is open first closes it (a click outside a transient popover),
+    /// and the button's action must not open it again right away.
+    @State private var closedAt = Date.distantPast
     @State private var query = ""
     @FocusState private var searchFocused: Bool
 
     var body: some View {
         let store = session.store(for: Namespace.self)
-        Button { query = ""; isOpen = true } label: {
+        Button {
+            guard Date.now.timeIntervalSince(closedAt) > 0.3 else { return }
+            query = ""; isOpen = true
+        } label: {
             Label(selection.label, systemImage: "folder")
         }
         .help(selection.detail)
@@ -112,7 +118,9 @@ struct NamespacePickerButton: View {
             }
         }
         .frame(width: 280)
-        .onAppear { searchFocused = true }
+        // Focus once the popover's window exists: set during `onAppear` it is often dropped.
+        .onAppear { DispatchQueue.main.async { searchFocused = true } }
+        .onDisappear { closedAt = .now }
     }
 
     private func singleMatch(_ shown: NamespacePickerModel) -> String? {

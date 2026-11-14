@@ -149,4 +149,75 @@ struct PaneNavigationTests {
         #expect(asked == 2)
         withExtendedLifetime(editor) {}
     }
+
+    @Test func aSidebarClickAsksBeforeDiscardingADraftAndKeepsItWhenDeclined() throws {
+        let env = MacAppEnvironment.live()
+        env.registry.enterDemoMode(persist: false)
+        defer { env.registry.exitDemoMode() }
+        let cluster = try #require(env.registry.clusters.first?.id)
+        let ref = ResourceRef(clusterID: cluster, kind: .configMap, namespace: "payments", name: "settings")
+        let id = env.workspace.store.createWindow(WorkspaceWindowState(tabs: [TabState(showing: .route(.resourceList(cluster, .configMap, namespace: nil)))]))
+        let model = env.workspace.model(for: id)
+        let pane = model.focusedPaneID
+        model.push(.yaml(ref), from: pane)
+        let editor = NSObject()
+        model.editorReported(editor, dirty: true, in: pane)
+        var asked = 0
+        env.workspace.confirmsDiscardingEdits = { _, reason in asked += 1; #expect(reason == .leave); return false }
+        model.selectSidebar(.kind(cluster, .pod))
+        model.show(.route(.fleet), placement: .here)
+        #expect(asked == 2)
+        #expect(model.pane(pane)?.stack.count == 2)
+        // ⌘-click opens a new tab: the draft stays where it is, nothing to ask.
+        model.selectSidebar(.kind(cluster, .pod), newTab: true)
+        #expect(asked == 2)
+        env.workspace.confirmsDiscardingEdits = { _, _ in asked += 1; return true }
+        model.focus(pane: pane)
+        model.selectSidebar(.kind(cluster, .pod))
+        #expect(asked == 3)
+        #expect(model.pane(pane)?.stack == [.route(.resourceList(cluster, .pod, namespace: nil))])
+        withExtendedLifetime(editor) {}
+    }
+
+    /// A list under a detail puts nothing in the window toolbar: the toolbar is the detail's alone (one filter field at most).
+    @Test func aHiddenListLeavesTheToolbarToTheScreenOnTop() async throws {
+        let f = try workspaceWindow()
+        defer { close(f) }
+        func items() async throws -> [String] {
+            var last: [String] = []
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                let now = (f.window.toolbar?.items ?? []).map(\.itemIdentifier.rawValue)
+                if now == last, !now.isEmpty { break }
+                last = now
+            }
+            return last
+        }
+        try await waitUntil { shows(f.window, "KubeNSTable") }
+        _ = try await items()
+        f.router.push(.resourceDetail(f.ref))
+        try await waitUntil { !shows(f.window, "KubeNSTable") }
+        let overDetail = try await items()
+        f.model.selectSidebar(.kind(f.cluster, .deployment))
+        f.model.mutate { $0.setRoot(.route(.resourceDetail(f.ref)), in: f.pane) }
+        try await waitUntil { !shows(f.window, "KubeNSTable") }
+        let detailAlone = try await items()
+        #expect(overDetail.count == detailAlone.count)
+    }
+
+    /// A list under a pushed screen stops watching (its store loses its consumer) and watches again when Back shows it.
+    @Test func aListUnderAPushedScreenStopsWatchingUntilItShowsAgain() async throws {
+        let f = try workspaceWindow()
+        defer { close(f) }
+        let session = try #require(f.env.registry.session(for: f.cluster))
+        func consumers() -> Int { session.existingUnstructuredStore(kind: .deployment, namespace: f.env.registry.namespace(for: f.cluster))?.consumerCount ?? 0 }
+        try await waitUntil { consumers() > 0 }
+        #expect(consumers() > 0)
+        f.router.push(.resourceDetail(f.ref))
+        try await waitUntil { consumers() == 0 }
+        #expect(consumers() == 0)
+        #expect(f.model.goBack(in: f.pane))
+        try await waitUntil { consumers() > 0 }
+        #expect(consumers() > 0)
+    }
 }

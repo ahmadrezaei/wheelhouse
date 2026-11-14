@@ -61,7 +61,8 @@ extension ListScreen {
             if let error = store.error, case .unreachable = error {
                 StateBanner(.cached(age: Format.age(from: store.lastUpdated)))
             } else if let error = store.error, case .forbidden = error {
-                StateBanner(.partiallyForbidden(detail: error.summary))
+                let failed = store.failedNamespaces
+                StateBanner(.partiallyForbidden(detail: store.stores.count > 1 && !failed.isEmpty ? "No access to \(failed.joined(separator: ", "))." : error.summary))
             }
         }
         .padding(.horizontal, Spacing.l).padding(.vertical, 8)

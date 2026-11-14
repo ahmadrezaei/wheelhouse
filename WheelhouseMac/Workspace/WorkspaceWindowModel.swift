@@ -217,7 +217,7 @@ final class WorkspaceController {
     }
 
     /// What would lose an unapplied edit.
-    enum DiscardReason { case move, close, quit }
+    enum DiscardReason { case move, close, leave, quit }
 
     /// Moving panes with unapplied edits to another window, closing them, or quitting discards those edits: the person confirms
     /// first (tests replace this).
@@ -233,6 +233,10 @@ final class WorkspaceController {
             alert.messageText = one ? "Close the pane and discard its unapplied changes?" : "Close and discard the unapplied changes of \(panes) panes?"
             alert.informativeText = "An edit that was not applied is lost when its pane closes. To keep it, apply or copy it first."
             alert.addButton(withTitle: "Close and Discard")
+        case .leave:
+            alert.messageText = "Leave the editor and discard its unapplied changes?"
+            alert.informativeText = "An edit that was not applied is lost when you leave its editor. To keep it, apply or copy it first."
+            alert.addButton(withTitle: "Discard Changes")
         case .quit:
             alert.messageText = one ? "Quit and discard an unapplied change?" : "Quit and discard the unapplied changes of \(panes) panes?"
             alert.informativeText = "Edits that were not applied are not saved. To keep them, apply or copy them first."
@@ -518,23 +522,23 @@ final class WorkspaceWindowModel {
     @discardableResult
     func goBack(in pane: PaneID) -> Bool {
         guard let top = state.pane(pane)?.stack.last, canGoBack(in: pane) else { return false }
-        if Self.holdsDraft(top), hasUnsavedEdits(pane), !controller.confirmsDiscardingEdits(1, .close) { return false }
+        if Self.holdsDraft(top), hasUnsavedEdits(pane), !controller.confirmsDiscardingEdits(1, .leave) { return false }
         mutate { $0.pop(in: pane) }
         return true
     }
 
-    /// The screens that report drafts (`paneEditsReporter`): the manifest editors.
+    /// Replacing a pane's whole stack (a sidebar click, the Rail or Compass "here") loses an unapplied draft in it: ask first.
+    func mayReplaceStack(of pane: PaneID) -> Bool {
+        !hasUnsavedEdits(pane) || controller.confirmsDiscardingEdits(1, .leave)
+    }
+
+    /// The screens that report drafts (`paneEditsReporter`): the manifest editor (Create from YAML is a sheet, never on a stack).
     static func holdsDraft(_ destination: WorkspaceDestination) -> Bool {
         guard case .route(let route) = destination else { return false }
         switch route {
-        case .yaml, .createYAML: return true
+        case .yaml: return true
         default: return false
         }
-    }
-
-    func setPushed(_ pushed: [WorkspaceDestination], in pane: PaneID) {
-        guard state.pane(pane)?.stack.dropFirst().elementsEqual(pushed) == false else { return }
-        mutate { $0.setPushed(pushed, in: pane) }
     }
 
     func openInNewTab(_ destination: WorkspaceDestination, stack: [WorkspaceDestination] = []) {
@@ -568,6 +572,7 @@ final class WorkspaceWindowModel {
         if let id = destination.clusterID { registry.select(id) }
         if newTab { openInNewTab(target); return }
         let pane = focusedPaneID
+        guard mayReplaceStack(of: pane) else { return }
         mutate { $0.setRoot(target, in: pane) }
         focusedPaneChanged()
     }

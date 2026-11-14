@@ -70,8 +70,8 @@ extension EnvironmentValues {
     @Entry var paneEditsReporter: PaneEditsReporter? = nil
 }
 
-/// One pane: a 28 pt header (context chip, title, link toggle, ⋯ menu, close) and its content, a navigation stack over the pane's
-/// destinations. It reads its own state from the store, so the hosting view's root never changes.
+/// One pane: a 28 pt header (Back, context chip, title, link toggle, ⋯ menu, close) and its content, the stack of the pane's
+/// screens (`PaneStack`). It reads its own state from the store, so the hosting view's root never changes.
 struct PaneHost: View {
     let env: MacAppEnvironment
     let model: WorkspaceWindowModel
@@ -303,9 +303,11 @@ struct PaneStack: View {
                     .frame(minWidth: isTop ? nil : 0, maxWidth: .infinity, minHeight: isTop ? nil : 0, maxHeight: .infinity)
                     .background(HiddenTabResponderGuard(isSelected: isTop))
                     .environment(\.paneIsVisible, paneIsVisible && isTop)
+                    .environment(\.paneScreenIsCovered, !isTop)
                     .environment(\.paneContributesToolbar, contributesToolbar && isTop)
                     .opacity(isTop ? 1 : 0)
                     .allowsHitTesting(isTop)
+                    .disabled(!isTop)      // a hidden screen's keyboard shortcuts (a shell's ⌘W) must not fire
                     .accessibilityHidden(!isTop)
             }
         }

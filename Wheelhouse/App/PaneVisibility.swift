@@ -13,6 +13,18 @@ extension EnvironmentValues {
     }
 }
 
+private struct PaneScreenIsCoveredKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True for a screen of a Mac pane that another screen of the same pane was pushed over: it is kept alive for Back but cannot be
+    /// seen. Unlike ``paneIsVisible`` (false also while the whole window is hidden, where a grace period keeps watches running), a
+    /// covered screen stays covered until Back, so a list stops watching at once. Nothing sets it on iOS.
+    var paneScreenIsCovered: Bool {
+        get { self[PaneScreenIsCoveredKey.self] }
+        set { self[PaneScreenIsCoveredKey.self] = newValue }
+    }
+}
+
 private struct PaneContributesToolbarKey: EnvironmentKey { static let defaultValue = true }
 
 extension EnvironmentValues {

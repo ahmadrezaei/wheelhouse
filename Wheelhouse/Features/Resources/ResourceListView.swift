@@ -31,6 +31,8 @@ struct ListScreen: View {
     @Environment(AppRouter.self) var router
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @Environment(\.routeColumn) var column
+    /// True under a pushed screen in a Mac pane: the list stops watching, polling and rebuilding, and catches up on Back. Never on iOS.
+    @Environment(\.paneScreenIsCovered) var isCovered
 
     @State var kind: ResourceKind
     /// The namespaces shown (empty/All = every namespace). A kind that is not namespaced ignores it.
@@ -86,7 +88,9 @@ struct ListScreen: View {
         let store = store
         Group {
             if store.isLoading { loading }
-            else if let error = store.error, store.items.isEmpty { errorState(error) }
+            // With several namespaces the error screen is for when none of them loaded; otherwise the list (or its empty state) shows
+            // what did load, under a banner naming the namespaces that failed.
+            else if let error = store.error, store.items.isEmpty, store.stores.allSatisfy({ $0.error != nil }) { errorState(error) }
             else { platformList(store) }
         }
         .navigationTitle(kind.displayName)
@@ -94,10 +98,11 @@ struct ListScreen: View {
         .paneSearchable(text: $search, prompt: "Search name, label, image", drawer: true)
         .paneToolbar { toolbar }
         .refreshable { await store.refresh() }
-        .task(id: storeKey) { await store.run() }
-        .task(id: storeKey) { await pollUsage() }
+        .task(id: "\(storeKey)|\(isCovered)") { if !isCovered { await store.run() } }
+        .task(id: "\(storeKey)|\(isCovered)") { if !isCovered { await pollUsage() } }
         .task(id: kind.id) { await loadColumns() }
-        .onChange(of: token, initial: true) { rebuild() }
+        .onChange(of: token, initial: true) { if !isCovered { rebuild() } }
+        .onChange(of: isCovered) { _, covered in if !covered { rebuild() } }
         .onChange(of: kind) { _, new in if !ListSort.available(for: new).contains(sort) { sort = .status } }
         .sheet(isPresented: $showLabelSheet) { LabelFilterSheet(applied: $labelSelector, suggestions: labelSuggestions(store)) }
         .actionHost(host)
