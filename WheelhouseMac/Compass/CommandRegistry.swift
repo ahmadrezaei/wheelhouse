@@ -16,8 +16,8 @@ struct CompassCommand: Identifiable {
 }
 
 /// Every menu command with its shortcut (ARCHITECTURE-MAC section 12.4). The menus in `MacCommands` are SwiftUI and stay the source of
-/// the key bindings; this list mirrors them one to one for Compass, and `CommandRegistryTests` keep ids and shortcuts unique so a
-/// copy that drifts into a collision fails the build. Commands act on the active window; while App Lock is on none is enabled.
+/// the key bindings; this list mirrors them one to one for Compass, and `CompassModelTests` checks the shortcuts it shows, so a
+/// copy that drifts into a collision is caught. Commands act on the active window; while App Lock is on none is enabled.
 @MainActor
 struct CommandRegistry {
     let commands: [CompassCommand]
@@ -56,6 +56,11 @@ struct CommandRegistry {
             onWindow("go.firstMate", "First Mate", "Go", "⌘J", "sparkles") { m in
                 m.isInspectorOpen = true
                 m.mutate { $0.inspector.segment = .firstMate }
+            },
+            // Resource ▸ Port Forward…: on when the focused pane shows a service or pod and the cluster allows port forwarding.
+            make("resource.portForward", "Port Forward…", "Resource", "⌥⌘P", "arrow.left.arrow.right",
+                 enabled: { workspace.activeModel?.portForwardCommandTarget(registry: env.registry) != nil }) {
+                workspace.activeModel?.performPortForwardCommand(registry: env.registry)
             },
             onWindow("window.nextTab", "Next Tab", "Window", "⇧⌘]", "arrow.right.square") { $0.selectTab(offset: 1) },
             onWindow("window.previousTab", "Previous Tab", "Window", "⇧⌘[", "arrow.left.square") { $0.selectTab(offset: -1) },

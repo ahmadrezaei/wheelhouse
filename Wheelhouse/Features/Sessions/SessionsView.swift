@@ -10,6 +10,10 @@ struct SessionsView: View {
     @State private var browserFor: PortForwardInfo?
     @State private var showingNew = false
     @State private var copiedID: UUID?
+    #if os(macOS)
+    /// A target chosen in the picker: forwarded once the picker sheet is gone, so the advanced form never competes with it.
+    @State private var pendingForward = SessionsForward.Pending()
+    #endif
     private let hub = SessionsHub.shared
 
     var body: some View {
@@ -29,7 +33,7 @@ struct SessionsView: View {
                 Section {
                     EmptyState(.empty(title: "No Active Sessions", systemImage: "apple.terminal.on.rectangle",
                                       hint: "Port-forwards, shells and live logs you start show up here so you can return to them.")) {
-                        Button("New Port Forward") { showingNew = true }.buttonStyle(.glassProminent)
+                        Button("New Port Forward") { openPicker() }.buttonStyle(.glassProminent)
                     }
                     .frame(minHeight: 280)
                     .listRowBackground(Color.clear)
@@ -63,10 +67,16 @@ struct SessionsView: View {
         .navigationTitle("Sessions")
         .paneToolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showingNew = true } label: { Image(systemName: "plus") }.accessibilityLabel("New port forward")
+                Button { openPicker() } label: { Image(systemName: "plus") }.accessibilityLabel("New port forward")
             }
         }
+        #if os(macOS)
+        .sheet(isPresented: $showingNew, onDismiss: runPendingForward) {
+            NewPortForwardPicker { pendingForward.choose($0) }
+        }
+        #else
         .sheet(isPresented: $showingNew) { NewPortForwardPicker() }
+        #endif
         .sheet(item: $browserFor) { PortForwardBrowserView(forward: $0) }
     }
 
@@ -175,8 +185,26 @@ struct SessionsView: View {
         }
     }
 
+    private func openPicker() {
+        #if os(macOS)
+        pendingForward.reset()
+        #endif
+        showingNew = true
+    }
+
+    #if os(macOS)
+    private func runPendingForward() {
+        guard let choice = pendingForward.take() else { return }
+        SessionsForward.start(choice, router: router)
+    }
+    #endif
+
     private func recentRow(_ r: RecentSession) -> some View {
         Button {
+            #if os(macOS)
+            // A recent port forward starts again with one click (Option-click opens the advanced form), like a resource's action.
+            if let ref = SessionsForward.target(of: r) { SessionsForward.start(.init(ref: ref, configure: optionKeyIsDown(), port: r.remotePort), router: router); return }
+            #endif
             if let route = r.route { router.push(route, from: column) }
         } label: {
             ResourceRow(title: r.title, subtitle: r.subtitle,
@@ -184,6 +212,14 @@ struct SessionsView: View {
                         trailing: Format.age(from: r.endedAt), monospacedTitle: true)
         }
         .buttonStyle(.plain)
+        #if os(macOS)
+        .contextMenu {
+            if let ref = SessionsForward.target(of: r) {
+                Button("Port Forward", systemImage: "arrow.left.arrow.right") { SessionsForward.start(.init(ref: ref, configure: false, port: r.remotePort), router: router) }
+                Button("Port Forward…", systemImage: "arrow.left.arrow.right") { SessionsForward.start(.init(ref: ref, configure: true), router: router) }
+            }
+        }
+        #endif
     }
 }
 
@@ -195,6 +231,12 @@ struct NewPortForwardPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var mode = Mode.services
     @State private var search = ""
+    /// The Mac picker does not open a form: choosing a row hands the target back, and the caller starts the forward.
+    #if os(macOS)
+    let onChoose: PickerChoose
+    #else
+    var onChoose: PickerChoose = { _ in }
+    #endif
     enum Mode: String, CaseIterable, Identifiable { case services = "Services", pods = "Pods"; var id: String { rawValue } }
 
     private static let wellKnown: [String: Int] = ["grafana": 3000, "prometheus": 9090, "argocd-server": 443, "kiali": 20001]
@@ -221,62 +263,59 @@ struct NewPortForwardPicker: View {
 
     @ViewBuilder
     private func list(_ session: ClusterSession) -> some View {
-        let ns = registry.namespace(for: session.id)
+        let selection = registry.namespaceSelection(for: session.id)
         VStack(spacing: 0) {
-            ContextLine(cluster: session.config, namespace: ns).padding(.horizontal, Spacing.l).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+            ContextLine(cluster: session.config, namespace: selection.isAll ? nil : selection.label).padding(.horizontal, Spacing.l).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             Picker("Kind", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).padding(.horizontal, Spacing.l).padding(.bottom, 6)
-            if mode == .services { ServiceList(session: session, namespace: ns, search: search, dismiss: { dismiss() }) }
-            else { PodList(session: session, namespace: ns, search: search, dismiss: { dismiss() }) }
+            if mode == .services { ServiceList(session: session, selection: selection, search: search, onChoose: onChoose, dismiss: { dismiss() }) }
+            else { PodList(session: session, selection: selection, search: search, onChoose: onChoose, dismiss: { dismiss() }) }
         }
         .searchable(text: $search, prompt: "Filter by name")
     }
 
     private struct ServiceList: View {
-        let session: ClusterSession; let namespace: String?; let search: String; let dismiss: () -> Void
+        let session: ClusterSession; let selection: NamespaceSelection; let search: String
+        let onChoose: PickerChoose; let dismiss: () -> Void
         var body: some View {
-            let store = session.store(for: Service.self, namespace: namespace)
+            let store = NamespaceTypedStores<Service>(session: session, selection: selection)
             let items = store.items.filter { search.isEmpty || $0.metadata.name.localizedCaseInsensitiveContains(search) }
-                .sorted { ($0.metadata.name) < ($1.metadata.name) }
+                .sorted { ($0.metadata.namespace ?? "", $0.metadata.name) < ($1.metadata.namespace ?? "", $1.metadata.name) }
             let suggested = items.filter { NewPortForwardPicker.wellKnown[$0.metadata.name] != nil }
             List {
                 if !suggested.isEmpty {
-                    Section("Suggested") { ForEach(suggested, id: \.metadata.name) { row($0) } }
+                    Section("Suggested") { ForEach(suggested, id: \.id) { row($0) } }
                 }
-                Section(suggested.isEmpty ? "" : "All Services") { ForEach(items, id: \.metadata.name) { row($0) } }
+                Section(suggested.isEmpty ? "" : "All Services") { ForEach(items, id: \.id) { row($0) } }
             }
-            .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Services", systemImage: "network", hint: "Nothing to forward to in this namespace.")) } }
-            .task { await store.run() }
+            .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Services", systemImage: "network", hint: selection.names.count > 1 ? "Nothing to forward to in these namespaces." : "Nothing to forward to in this namespace.")) } }
+            .task(id: "\(session.id)|\(selection.encoded)") { await store.run() }
         }
 
         private func row(_ svc: Service) -> some View {
             let ref = ResourceRef(clusterID: session.id, kind: .service, namespace: svc.metadata.namespace, name: svc.metadata.name)
-            return NavigationLink {
-                PortForwardSetupView(target: ref, onDone: dismiss)
-            } label: {
-                ResourceRow(title: svc.metadata.name, subtitle: "\(svc.metadata.namespace ?? "") · " + svc.spec.ports.map { String($0.port) }.joined(separator: ", "),
-                            lead: .symbol("network", .info), monospacedTitle: true, showsChevron: false)
-            }
+            let label = ResourceRow(title: svc.metadata.name, subtitle: "\(svc.metadata.namespace ?? "") · " + svc.spec.ports.map { String($0.port) }.joined(separator: ", "),
+                                    lead: .symbol("network", .info), monospacedTitle: true, showsChevron: false)
+            return PortForwardPickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) { label }
         }
     }
 
     private struct PodList: View {
-        let session: ClusterSession; let namespace: String?; let search: String; let dismiss: () -> Void
+        let session: ClusterSession; let selection: NamespaceSelection; let search: String
+        let onChoose: PickerChoose; let dismiss: () -> Void
         var body: some View {
-            let store = session.store(for: Pod.self, namespace: namespace)
+            let store = NamespaceTypedStores<Pod>(session: session, selection: selection)
             let items = store.items.filter { $0.status?.phase == "Running" && (search.isEmpty || $0.metadata.name.localizedCaseInsensitiveContains(search)) }
-                .sorted { $0.metadata.name < $1.metadata.name }
-            List(items, id: \.metadata.name) { pod in
+                .sorted { ($0.metadata.namespace ?? "", $0.metadata.name) < ($1.metadata.namespace ?? "", $1.metadata.name) }
+            List(items, id: \.id) { pod in
                 let ref = ResourceRef(clusterID: session.id, kind: .pod, namespace: pod.metadata.namespace, name: pod.metadata.name)
-                NavigationLink {
-                    PortForwardSetupView(target: ref, onDone: dismiss)
-                } label: {
+                PortForwardPickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) {
                     ResourceRow(title: pod.metadata.name, subtitle: "\(pod.metadata.namespace ?? "") · " + (pod.spec.containers.flatMap(\.ports).map { String($0.containerPort) }.joined(separator: ", ").nonEmpty ?? "no declared ports"),
                                 lead: .symbol("cube", .healthy), monospacedTitle: true, showsChevron: false)
                 }
             }
             .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Running Pods", systemImage: "cube", hint: "Only running pods can be forwarded to.")) } }
-            .task { await store.run() }
+            .task(id: "\(session.id)|\(selection.encoded)") { await store.run() }
         }
     }
 }

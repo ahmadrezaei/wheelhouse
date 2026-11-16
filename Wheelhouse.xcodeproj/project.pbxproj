@@ -23,6 +23,7 @@
 		0AB82A74B704A68B7C1DBED0 /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F0D60A4D1E2D62C255BA75 /* ShareView.swift */; };
 		0BC5AC12C7BF2D8D205A82A3 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5059A2198553AB06D391E97A /* ShellModel.swift */; };
 		0CBF516306640C4851D95297 /* ChartRoomModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 276A7204DA8468B2DE3B5419 /* ChartRoomModels.swift */; };
+		0DAE38FE0067579EEE46F425 /* SessionsForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38082BEA36A2D5BC1DD1182A /* SessionsForward.swift */; };
 		0DEBDB7FE5E358EE2A94298B /* WorkspaceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F251193AB09B1498C5CCC4F4 /* WorkspaceModels.swift */; };
 		0E8B44253A6E523A8791F5FB /* LogsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6588A384B938BCFED31E6199 /* LogsModel.swift */; };
 		0E9798E99F52A6E0D977B820 /* PortForwardBrowserView+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */; };
@@ -123,6 +124,7 @@
 		4D7D27D788B34344CBC604F0 /* ImportPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC71757B70D408D7F45D7FBC /* ImportPolicyTests.swift */; };
 		4E23CBE5765D6407C79315D7 /* FleetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E84D8194B6C8616AA8C1C161 /* FleetModel.swift */; };
 		4E3ED1102A7D761005C8CE73 /* MenuBarAndRailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2F80798318F457B006E6C0 /* MenuBarAndRailTests.swift */; };
+		4EBEA89D016D4E1F8449B11E /* PortForwardEntryPointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DF7244D4128C5AEBBABAA7 /* PortForwardEntryPointTests.swift */; };
 		501A43A387F59EB74A88A185 /* ChartRoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */; };
 		50C2FDBFC0B28E75CAB2F09A /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B66C59008AFD229769E23F /* DashboardComponents.swift */; };
 		5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */; };
@@ -155,6 +157,7 @@
 		66BB4F2DA7F03D923881FBFF /* KubeTable+Diff.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35820EAECD2EB8458D5E8F2 /* KubeTable+Diff.swift */; };
 		66DFE8C1A4AC5CB0691DE8AF /* RiggingFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC05C15A1E8ED6D6E42BBBCB /* RiggingFeature.swift */; };
 		675DD5F778241E7280582012 /* ChartRoomFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0356E73792E2DDB03D07128E /* ChartRoomFeature.swift */; };
+		677E2414B401FDEAD7F18971 /* SessionsForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38082BEA36A2D5BC1DD1182A /* SessionsForward.swift */; };
 		68FC2886AC9743F94ED02A04 /* WheelhouseKit in Frameworks */ = {isa = PBXBuildFile; productRef = 79443015C3A4FC1709380662 /* WheelhouseKit */; };
 		690699A0F44A978E153C4CF7 /* ObjectRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F495E201E0610A974851C166 /* ObjectRow.swift */; };
 		6A9A9143062FA7872AB0F629 /* AdvancedPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEB9A8F06EBB72B0B3ADD38 /* AdvancedPane.swift */; };
@@ -345,6 +348,7 @@
 		F34ADDABAD6081F5CC481776 /* HelmToolbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAA91CE1040352CF0A7AE1D /* HelmToolbox.swift */; };
 		F34B2E5215C3323CF049BEBB /* AddClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15F2210A620D0A4F4D81294 /* AddClusterView.swift */; };
 		F34F6FE5289CDB77BEE6D383 /* TidesVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2102449582D5D268C8A8D09 /* TidesVisibility.swift */; };
+		F3CB7298981B1A145F938E46 /* PortForwardCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F2BAC65467A71C0E8A95EF /* PortForwardCommand.swift */; };
 		F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BD4897653F124947C8290 /* NotificationsPane.swift */; };
 		F59DE1671C8961150DB3ADF2 /* WheelhouseShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEE7C5F2FC25097D61E73CCB /* WheelhouseShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F96F1D0916E75340CC0120B7 /* MacAlertMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DEEE4ED47CF35BF707FD990 /* MacAlertMonitor.swift */; };
@@ -518,6 +522,7 @@
 		35FE4E56673CE2A2CC2FACE9 /* CompassPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassPanel.swift; sourceTree = "<group>"; };
 		3720896A00597F1D024CEC76 /* KubeconfigFileInliner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KubeconfigFileInliner.swift; sourceTree = "<group>"; };
 		376DBE56B10CEC0380A4224F /* ClusterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterIntent.swift; sourceTree = "<group>"; };
+		38082BEA36A2D5BC1DD1182A /* SessionsForward.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsForward.swift; sourceTree = "<group>"; };
 		3A46A647721E3C56CE978924 /* MooringsFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsFeature.swift; sourceTree = "<group>"; };
 		3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		3AD102426EA9E7E598EAE10C /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
@@ -544,6 +549,7 @@
 		503DCB56B930BD14CB376A75 /* RouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteDestinationView.swift; sourceTree = "<group>"; };
 		5055EC3B62276A5C29AF4357 /* RailActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailActivation.swift; sourceTree = "<group>"; };
 		5059A2198553AB06D391E97A /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
+		51DF7244D4128C5AEBBABAA7 /* PortForwardEntryPointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardEntryPointTests.swift; sourceTree = "<group>"; };
 		521678ECBDFD2713442D0807 /* LandfallModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallModel.swift; sourceTree = "<group>"; };
 		53995759C6782852A5AF1FCC /* LockScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenView.swift; sourceTree = "<group>"; };
 		555250EC97224ADB83551896 /* PlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderView.swift; sourceTree = "<group>"; };
@@ -630,6 +636,7 @@
 		A23F934D607C6736AA7850A4 /* WorkspaceDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDestination.swift; sourceTree = "<group>"; };
 		A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionTestCard.swift; sourceTree = "<group>"; };
 		A3A8B15BD1430061595E91E9 /* LogsTableView+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LogsTableView+Shared.swift"; sourceTree = "<group>"; };
+		A4F2BAC65467A71C0E8A95EF /* PortForwardCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardCommand.swift; sourceTree = "<group>"; };
 		A66EF0971862B01DAA029E53 /* CompassFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassFeature.swift; sourceTree = "<group>"; };
 		A6CEC1A9E849601555FD30A9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A6F224967D394995F42BD584 /* LogsTableView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LogsTableView+iOS.swift"; sourceTree = "<group>"; };
@@ -847,6 +854,7 @@
 				EDCE68441C6599560C589581 /* NavigationFixTests.swift */,
 				B1E50281A64525DC54AE1BB4 /* PaneDragTests.swift */,
 				30138EF258DF64D9E1194FF8 /* PaneNavigationTests.swift */,
+				51DF7244D4128C5AEBBABAA7 /* PortForwardEntryPointTests.swift */,
 				4BDFB91B5B1A5D2BBF5D8613 /* PortForwardLauncherTests.swift */,
 				6168AC1DEF8FEB4592FEDA38 /* ScanCoordinatorTests.swift */,
 				5B1530C85FB9D9E046A89FF8 /* ScanReviewTests.swift */,
@@ -1086,6 +1094,7 @@
 			isa = PBXGroup;
 			children = (
 				D464A53678083F853141E5EC /* ExecTerminalView.swift */,
+				38082BEA36A2D5BC1DD1182A /* SessionsForward.swift */,
 				309FD722690ACE35D393E993 /* SessionsHub.swift */,
 				880B90623F4A1A1A37B3D59F /* SessionsView.swift */,
 				0CDD65D095535DEEFB1EB725 /* Logs */,
@@ -1349,6 +1358,7 @@
 				72C5ED73FE745445D246E837 /* PaneDragDrop.swift */,
 				827B4EB31C8D12A1EBDEE0B6 /* PaneTreeLayout.swift */,
 				22E78640B4DF385289E5CF0B /* PaneViews.swift */,
+				A4F2BAC65467A71C0E8A95EF /* PortForwardCommand.swift */,
 				77B264C3ADE981E8B31BBD82 /* StationViews.swift */,
 				037D513B0603A54D4D070127 /* WindowTitleSync.swift */,
 				67344DB1EFC111C8CECE7132 /* WorkspaceChrome.swift */,
@@ -2027,6 +2037,7 @@
 				A876BA1C2EF7010826E22BDB /* PerfScenario.swift in Sources */,
 				64E837E129ACC2C84D34341F /* PlaceholderView.swift in Sources */,
 				7884D6414D9DFDF5EAA71BA5 /* PortForwardBrowserView+macOS.swift in Sources */,
+				F3CB7298981B1A145F938E46 /* PortForwardCommand.swift in Sources */,
 				2945C15BC4258E9A577E9686 /* PortForwardLauncher+macOS.swift in Sources */,
 				B208D920A96AFBE9F2B6CE44 /* PortForwardSetupView.swift in Sources */,
 				4AECF5A0C2D239723A832F17 /* PortForwardViews+macOS.swift in Sources */,
@@ -2052,6 +2063,7 @@
 				63DE521FDA5FF1D6CC0A0EB1 /* ScanSettingsSection.swift in Sources */,
 				5856C8B19119AF6D50BDF01B /* ScreenKey.swift in Sources */,
 				359760C380DF57A340370A9B /* SearchView.swift in Sources */,
+				677E2414B401FDEAD7F18971 /* SessionsForward.swift in Sources */,
 				21E8463FE6F0EFA33EFD4BAB /* SessionsHub.swift in Sources */,
 				4ADCA5BF28F17CDCB05FF7CA /* SessionsView.swift in Sources */,
 				BF0C4F7720784FA550BADA75 /* SettingsPane.swift in Sources */,
@@ -2182,6 +2194,7 @@
 				B83D3FA93F9AAC9A3622142C /* RouteDestinationView.swift in Sources */,
 				0F948012B847D1953EE639DC /* ScreenKey.swift in Sources */,
 				1C401E5DF9EB73F1DDBAF6E9 /* SearchView.swift in Sources */,
+				0DAE38FE0067579EEE46F425 /* SessionsForward.swift in Sources */,
 				02FFED5D30E66EF238D02E44 /* SessionsHub.swift in Sources */,
 				843946699357D494F9F59BEE /* SessionsView.swift in Sources */,
 				2D43CB8B7329A9A41FE69233 /* SettingsView.swift in Sources */,
@@ -2244,6 +2257,7 @@
 				020022FD9886A2BA463ED651 /* NavigationFixTests.swift in Sources */,
 				91A539CFEDF0E62EAC0DBFF4 /* PaneDragTests.swift in Sources */,
 				63C5157E96799A89DD8F0399 /* PaneNavigationTests.swift in Sources */,
+				4EBEA89D016D4E1F8449B11E /* PortForwardEntryPointTests.swift in Sources */,
 				B750C0FD3F0E67200E26CEC2 /* PortForwardLauncherTests.swift in Sources */,
 				5174F0736B041E1B36579625 /* ScanCoordinatorTests.swift in Sources */,
 				B9AADF6A86E6EE9D581003CD /* ScanReviewTests.swift in Sources */,

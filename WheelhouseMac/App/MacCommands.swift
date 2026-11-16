@@ -126,6 +126,13 @@ struct MacCommands: Commands {
             .disabled(locked)
         }
 
+        // Resource: acts on what the focused pane shows (the other items arrive with their features)
+        CommandMenu("Resource") {
+            Button("Port Forward…") { model?.performPortForwardCommand(registry: registry) }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(locked || model?.portForwardCommandTarget(registry: registry) == nil)
+        }
+
         // Window: tabs, panes, Stations and Activity
         CommandGroup(after: .windowArrangement) {
             Group {
