@@ -167,7 +167,7 @@ struct WorkspaceWindowContent: View {
         // A window with an unapplied editor draft cannot be closed with its close button or ⌘W (it would lose the draft); the pane
         // and window menus ask instead.
         .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
-        .navigationTitle(model.focusedPane?.title(registry: registry) ?? "Wheelhouse")
+        .background(WindowTitleSync(title: locked ? "Wheelhouse" : model.focusedPane?.title(registry: registry) ?? "Wheelhouse").frame(width: 0, height: 0))
         .task { env.workspace.announceMovedAsideFileOnce() }
     }
 
@@ -262,7 +262,7 @@ struct DetachedPaneWindow: View {
         // With only detached pane windows open, no workspace window is there to react to the lock.
         .onChange(of: env.lock.isLocked) { _, locked in if locked { WorkspaceWindowContent.lockEngaged(env: env) } }
         .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
-        .navigationTitle(model.pane(paneID)?.title(registry: env.registry) ?? "Pane")
+        .background(WindowTitleSync(title: env.lock.isLocked ? "Wheelhouse" : model.pane(paneID)?.title(registry: env.registry) ?? "Pane").frame(width: 0, height: 0))
         .focusedSceneValue(\.workspaceModel, model)
     }
 }

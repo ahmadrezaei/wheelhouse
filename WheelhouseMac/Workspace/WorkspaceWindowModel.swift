@@ -372,6 +372,12 @@ final class WorkspaceWindowModel {
             follow: { [weak self] route in self?.followSelection(route, from: pane) ?? false },
             hasFollowers: { [weak self] in self.map { !$0.state.visibleFollowers(of: pane).isEmpty } ?? false },
             pushPlain: { [weak self] route in self?.push(route, from: pane, commandHeld: false) })
+        router.paneDismiss = { [weak self] in
+            guard let self else { return }
+            if canGoBack(in: pane) { goBack(in: pane) }
+            else if case .detached = scope { closeWindow() }
+            else { closePane(pane) }
+        }
         // fix-P: one-click port-forward. The launcher lives with the router; the advanced form is a sheet on this pane's router.
         let launcher = PortForwardLauncher.live(registry: registry, isLocked: { [weak self] in self?.controller.isLocked() ?? false }) { [weak router] ref in router?.sheet = PresentedRoute(route: .portForward(ref)) }
         router.portForwardHost = launcher

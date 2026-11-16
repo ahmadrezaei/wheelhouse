@@ -66,6 +66,7 @@
 		26A47996E364AF2F2BEE04F0 /* HelmFlowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9231D724E591F24888BABCB3 /* HelmFlowModel.swift */; };
 		26EA2D7D7680FDC32D54BB1F /* LogsTableView+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B29E96E8F50A280EC46BDCEF /* LogsTableView+macOS.swift */; };
 		27CC93247310EDAD59ADCE1C /* WheelhouseMacWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A9511A09D09C905B4F324992 /* WheelhouseMacWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2899301DEC58401DFF5CB3C5 /* WindowTitleSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 037D513B0603A54D4D070127 /* WindowTitleSync.swift */; };
 		28D9C061E9D0C5868BE49330 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9472C9C58189F8CA757F3C4C /* PrivacyInfo.xcprivacy */; };
 		290C9E131B63ED487B8F0A96 /* WorkspaceCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */; };
 		2945C15BC4258E9A577E9686 /* PortForwardLauncher+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC09008B6EBAFB1E50464039 /* PortForwardLauncher+macOS.swift */; };
@@ -178,6 +179,7 @@
 		7CB733528B975A3D8C9AC45B /* PaneVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55C1006AAD374553466EE7AD /* PaneVisibility.swift */; };
 		7CCCFB7058902092FAE82C14 /* LockScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53995759C6782852A5AF1FCC /* LockScreenView.swift */; };
 		7D48ED3A62AF71F7BAC5DA20 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A6CEC1A9E849601555FD30A9 /* PrivacyInfo.xcprivacy */; };
+		7E3733C8FE31AC45CBCDC889 /* WindowTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF22604996F214FD913FC6E1 /* WindowTitleTests.swift */; };
 		7E831B8B9C812367E2906BF1 /* PhoneShell+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D925B2E5A03C6F3CEEBC3C /* PhoneShell+iOS.swift */; };
 		7E88C1C55170843F47F41ED0 /* ReviewChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D1FE4CCBC939EE48C1B4A0 /* ReviewChangesView.swift */; };
 		7E985685F4D97FD1D73F10EC /* RailBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A656939B630B83A2CDEAC90 /* RailBar.swift */; };
@@ -455,6 +457,7 @@
 		02B743D0D72AD943255CEFC6 /* WheelhouseMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WheelhouseMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		02CF693E530E9AF63AAE8ED2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0356E73792E2DDB03D07128E /* ChartRoomFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomFeature.swift; sourceTree = "<group>"; };
+		037D513B0603A54D4D070127 /* WindowTitleSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleSync.swift; sourceTree = "<group>"; };
 		037E833D19A53AA8CA2A6C0A /* DeckTerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTerminalTests.swift; sourceTree = "<group>"; };
 		040BD4897653F124947C8290 /* NotificationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPane.swift; sourceTree = "<group>"; };
 		04AC2DD8945C0CABBA449B0A /* WheelhouseMacWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacWidgets.swift; sourceTree = "<group>"; };
@@ -657,6 +660,7 @@
 		BD98A5EB3D67DD352D33CBB9 /* ActionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionHost.swift; sourceTree = "<group>"; };
 		BE451CC1841E47909DC4768F /* GeneralPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralPane.swift; sourceTree = "<group>"; };
 		BE6B3291FEF6F8D11DF43494 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		BF22604996F214FD913FC6E1 /* WindowTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleTests.swift; sourceTree = "<group>"; };
 		C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesRenderSmokeTests.swift; sourceTree = "<group>"; };
 		C14EF51971AAA1713E5FE851 /* SafetySecurityPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetySecurityPane.swift; sourceTree = "<group>"; };
 		C16CA4C663A22BF42C0BA099 /* wheelhouse-mcp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "wheelhouse-mcp.entitlements"; sourceTree = "<group>"; };
@@ -852,6 +856,7 @@
 				C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */,
 				60529108D22876F77D9BC34D /* TidesTests.swift */,
 				448E27387E9FE683013FB7E8 /* WidgetSnapshotWriterTests.swift */,
+				BF22604996F214FD913FC6E1 /* WindowTitleTests.swift */,
 				9BD6F2F4308A0F0A4254978E /* WorkspaceCloseOutTests.swift */,
 				C373B5CE26FC8F9E11A136EA /* WorkspaceCodingTests.swift */,
 				9C66A04D633FC07752038E35 /* WorkspaceRuntimeTests.swift */,
@@ -1345,6 +1350,7 @@
 				827B4EB31C8D12A1EBDEE0B6 /* PaneTreeLayout.swift */,
 				22E78640B4DF385289E5CF0B /* PaneViews.swift */,
 				77B264C3ADE981E8B31BBD82 /* StationViews.swift */,
+				037D513B0603A54D4D070127 /* WindowTitleSync.swift */,
 				67344DB1EFC111C8CECE7132 /* WorkspaceChrome.swift */,
 				ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */,
 				A23F934D607C6736AA7850A4 /* WorkspaceDestination.swift */,
@@ -2083,6 +2089,7 @@
 				14A6FD08FFC4EEB32271D3FA /* WelcomeView.swift in Sources */,
 				A961AE41022F2895C65D5012 /* WhatWasSentView.swift in Sources */,
 				1738F7D4BBEEC1F2C6B65DCB /* WheelhouseMacApp.swift in Sources */,
+				2899301DEC58401DFF5CB3C5 /* WindowTitleSync.swift in Sources */,
 				659F973563C3D171DDAEAED5 /* WorkspaceChrome.swift in Sources */,
 				290C9E131B63ED487B8F0A96 /* WorkspaceCommand.swift in Sources */,
 				4B4BB3BD97E6B22BE89DE53A /* WorkspaceDestination+Clusters.swift in Sources */,
@@ -2246,6 +2253,7 @@
 				31B747FDCD700E985490094C /* TidesRenderSmokeTests.swift in Sources */,
 				E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */,
 				2B70DBCB6BE5021D3B54422E /* WidgetSnapshotWriterTests.swift in Sources */,
+				7E3733C8FE31AC45CBCDC889 /* WindowTitleTests.swift in Sources */,
 				6E9342E55ACB0D6ED3283414 /* WorkspaceCloseOutTests.swift in Sources */,
 				5D259A4E0D40A6DDCE965476 /* WorkspaceCodingTests.swift in Sources */,
 				04443B4BBDFAA43D66EB5842 /* WorkspaceRuntimeTests.swift in Sources */,
