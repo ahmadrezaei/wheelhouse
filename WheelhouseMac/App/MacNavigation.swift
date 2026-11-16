@@ -25,4 +25,13 @@ enum MacNavigation {
         parts += ["--context", context]
         return parts.joined(separator: " ")
     }
+
+    /// The same for a namespace selection: one `-n` command per selected namespace, joined with `&&` (a kind that is not namespaced,
+    /// or All namespaces, is one command).
+    static func kubectlCommand(kind: ResourceKind, selection: NamespaceSelection, context: String) -> String {
+        guard kind.namespaced, !selection.names.isEmpty else {
+            return kubectlCommand(kind: kind, namespace: selection.single, context: context)
+        }
+        return selection.names.map { kubectlCommand(kind: kind, namespace: $0, context: context) }.joined(separator: " && ")
+    }
 }

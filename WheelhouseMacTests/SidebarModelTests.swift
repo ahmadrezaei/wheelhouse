@@ -12,6 +12,9 @@ final class FakeSidebarProvider: SidebarSessionProviding {
     var namespaces: [ClusterID: String] = [:]
     var discoveryByCluster: [ClusterID: DiscoveryInfo?] = [:]
     var reviewByCluster: [ClusterID: JSONValue?] = [:]
+    /// A review for one namespace ("<cluster>|<namespace>"); wins over `reviewByCluster`.
+    var reviewByScope: [String: JSONValue?] = [:]
+    var selections: [ClusterID: NamespaceSelection] = [:]
     var running: [String: [Unstructured]] = [:]       // "<cluster>|<kind id>"
     var healthByCluster: [ClusterID: ClusterHealth] = [:]
     private(set) var discoveryReads = 0
@@ -22,7 +25,13 @@ final class FakeSidebarProvider: SidebarSessionProviding {
 
     func namespace(for id: ClusterID) -> String? { namespaces[id] }
     func loadDiscovery(for id: ClusterID) async -> DiscoveryInfo? { discoveryReads += 1; return discoveryByCluster[id] ?? nil }
-    func rulesReview(for id: ClusterID, namespace: String?) async -> JSONValue? { reviewPosts.append("\(id)|\(namespace ?? "*")"); return reviewByCluster[id] ?? nil }
+    func rulesReview(for id: ClusterID, namespace: String?) async -> JSONValue? {
+        let scope = "\(id)|\(namespace ?? "*")"
+        reviewPosts.append(scope)
+        if let scoped = reviewByScope[scope] { return scoped }
+        return reviewByCluster[id] ?? nil
+    }
+    func selection(for id: ClusterID) -> NamespaceSelection { selections[id] ?? NamespaceSelection(namespace(for: id)) }
     func runningItems(for id: ClusterID, kind: ResourceKind, namespace: String?) -> (items: [Unstructured], updated: Date?)? {
         runningLookups += 1
         return running["\(id)|\(kind.id)"].map { ($0, nil) }
@@ -452,5 +461,67 @@ struct SidebarModelTests {
         let nodes = group(cluster(m, "alpha"), .nodes)!
         #expect(m.badges[nodes.id] == SidebarBadge(count: 2, severity: .critical))
         #expect(m.badges["agg.cluster.alpha"]?.severity == .critical)
+    }
+}
+
+@MainActor @Suite struct SidebarMultiNamespaceTests {
+    @Test func aKindShowsWhenAnySelectedNamespaceAllowsItWithOneReviewEach() async {
+        let p = FakeSidebarProvider(clusters: [cfg("alpha")])
+        p.discoveryByCluster["alpha"] = discovery(coreServed)
+        p.selections["alpha"] = NamespaceSelection(names: ["b", "a"])
+        p.reviewByScope["alpha|a"] = reviewJSON([["verbs": ["list"], "apiGroups": [""], "resources": ["pods"]]])
+        p.reviewByScope["alpha|b"] = reviewJSON([["verbs": ["list"], "apiGroups": ["apps"], "resources": ["deployments"]]])
+        let m = model(p)
+        m.expand(cluster: "alpha")
+        await settle(m) { m.rules["alpha"] != nil }
+        #expect(p.reviewPosts == ["alpha|a", "alpha|b"])
+        let rules = m.rules["alpha"]
+        #expect(rules?.allowsList(.pod) == true && rules?.allowsList(.deployment) == true && rules?.allowsList(.secret) == false)
+        // The same selection inside the TTL reuses the pooled review.
+        m.namespaceChanged(cluster: "alpha")
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(p.reviewPosts.count == 2)
+    }
+
+    @Test func switchingBackToASelectionInsideTheTTLRestoresItsOwnRules() async {
+        let p = FakeSidebarProvider(clusters: [cfg("alpha")])
+        p.discoveryByCluster["alpha"] = discovery(coreServed)
+        p.reviewByScope["alpha|a"] = reviewJSON([["verbs": ["list"], "apiGroups": [""], "resources": ["pods"]]])
+        p.reviewByScope["alpha|b"] = reviewJSON([["verbs": ["list"], "apiGroups": ["apps"], "resources": ["deployments"]]])
+        let m = model(p)
+        p.selections["alpha"] = NamespaceSelection(names: ["a", "b"])
+        m.expand(cluster: "alpha")
+        await settle(m) { m.rules["alpha"] != nil }
+        p.selections["alpha"] = NamespaceSelection("a")
+        m.namespaceChanged(cluster: "alpha")
+        await settle(m) { m.rules["alpha"]?.allowsList(.deployment) == false }
+        #expect(m.rules["alpha"]?.allowsList(.deployment) == false)
+        p.selections["alpha"] = NamespaceSelection(names: ["a", "b"])
+        let posts = p.reviewPosts.count
+        m.namespaceChanged(cluster: "alpha")
+        await settle(m) { m.rules["alpha"]?.allowsList(.deployment) == true }
+        #expect(m.rules["alpha"]?.allowsList(.deployment) == true)
+        #expect(p.reviewPosts.count == posts)                      // restored from the cache, no new reviews
+    }
+
+    @Test func oneUnreadableReviewHidesNothing() async {
+        let p = FakeSidebarProvider(clusters: [cfg("alpha")])
+        p.discoveryByCluster["alpha"] = discovery(coreServed)
+        p.selections["alpha"] = NamespaceSelection(names: ["a", "b"])
+        p.reviewByScope["alpha|a"] = reviewJSON([["verbs": ["list"], "apiGroups": [""], "resources": ["pods"]]])
+        p.reviewByScope["alpha|b"] = .some(nil)
+        let m = model(p)
+        m.expand(cluster: "alpha")
+        await settle(m) { p.reviewPosts.count == 2 }
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(m.rules["alpha"] == nil)
+    }
+
+    @Test func copyKubectlEmitsOneCommandPerNamespace() {
+        let several = MacNavigation.kubectlCommand(kind: .pod, selection: NamespaceSelection(names: ["b", "a"]), context: "ctx")
+        #expect(several == "kubectl get pods -n a --context ctx && kubectl get pods -n b --context ctx")
+        #expect(MacNavigation.kubectlCommand(kind: .pod, selection: NamespaceSelection("a"), context: "ctx") == "kubectl get pods -n a --context ctx")
+        #expect(MacNavigation.kubectlCommand(kind: .pod, selection: .all, context: "ctx") == "kubectl get pods --all-namespaces --context ctx")
+        #expect(MacNavigation.kubectlCommand(kind: .node, selection: NamespaceSelection(names: ["a", "b"]), context: "ctx") == "kubectl get nodes --context ctx")
     }
 }

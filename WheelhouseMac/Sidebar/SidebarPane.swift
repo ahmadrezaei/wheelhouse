@@ -48,6 +48,12 @@ struct SidebarPane: View {
         .accessibilityLabel("Sidebar")
         .background(Color.clear)
         .focusedSceneValue(\.sidebarFilterFocus, FocusAction { filterFocused = true })
+        // A namespace selection changed: the RBAC filter follows it (the model re-reviews the expanded clusters).
+        .onChange(of: registry.clusters.map { "\($0.id)=\(registry.namespaceSelection(for: $0.id).encoded)" }) { old, new in
+            for (before, after) in zip(old, new) where before != after {
+                if let id = registry.clusters.first(where: { after.hasPrefix("\($0.id)=") })?.id { model.namespaceChanged(cluster: id) }
+            }
+        }
     }
 
     // MARK: Footer
@@ -128,7 +134,7 @@ struct SidebarPane: View {
             guard let kind = row.kind else { return [] }
             var items: [SidebarMenuItem] = [
                 SidebarMenuItem(title: "Copy kubectl Command", symbol: "terminal") {
-                    Pasteboard.copy(MacNavigation.kubectlCommand(kind: kind, namespace: registry.namespace(for: id), context: cluster.name))
+                    Pasteboard.copy(MacNavigation.kubectlCommand(kind: kind, selection: registry.namespaceSelection(for: id), context: cluster.name))
                 },
             ]
             if !cluster.readOnly, !row.isForbidden {
