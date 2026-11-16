@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Keeps a window's title what the workspace says it is: the focused pane's title (a detached pane window: its pane's).
+/// Keeps a window's title what the workspace says it is: the focused pane's title (a detached pane window: its pane's), and plain
+/// "Wheelhouse" while the app is locked (a cluster or resource name must not show on a locked app).
 ///
 /// SwiftUI bridges the title from `.navigationTitle`, and the screens inside a pane set their own (shared iOS code), which win over
 /// the window's own: the first pane's screen named the window whichever pane had focus. The bridge writes `NSWindow.title` only when
@@ -23,8 +24,12 @@ struct WindowTitleSync: NSViewRepresentable {
             apply()
         }
 
+        private var isApplying = false
+
         private func apply() {
-            guard let window, window.title != title else { return }
+            guard !isApplying, let window, window.title != title else { return }
+            isApplying = true
+            defer { isApplying = false }
             window.title = title
         }
     }

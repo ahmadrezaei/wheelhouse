@@ -70,7 +70,20 @@ extension EnvironmentValues {
     @Entry var paneEditsReporter: PaneEditsReporter? = nil
     /// Pushes a feature destination onto the pane's own stack (Back returns). Set on every pane's content; nil outside a workspace pane.
     /// Screens use it instead of a nested `NavigationStack`, which the workspace's split view takes over (see `PaneStack`).
-    @Entry var paneDestinationPusher: (@MainActor (WorkspaceDestination) -> Void)? = nil
+    @Entry var paneDestinationPusher: PaneDestinationPusher? = nil
+}
+
+/// Pushes a feature destination onto one pane's stack. Equatable on the pane and its window's model, so setting it in the environment
+/// again on every update of the pane does not re-render the screens that read it.
+struct PaneDestinationPusher: Equatable {
+    private let model: WorkspaceWindowModel
+    let paneID: PaneID
+
+    init(model: WorkspaceWindowModel, paneID: PaneID) { self.model = model; self.paneID = paneID }
+
+    @MainActor func push(_ destination: WorkspaceDestination) { model.push(destination, from: paneID) }
+
+    static func == (a: PaneDestinationPusher, b: PaneDestinationPusher) -> Bool { a.paneID == b.paneID && a.model === b.model }
 }
 
 /// One pane: a 28 pt header (Back, context chip, title, link toggle, ⋯ menu, close) and its content, the stack of the pane's
@@ -119,7 +132,7 @@ struct PaneHost: View {
             .environment(\.paneContributesToolbar, PaneHost.contributesToolbar(isFocused: isFocused, isZoomed: zoomedHere, tabIsSelected: tabIsSelected,
                                                                                 locked: env.lock.isLocked))
             .environment(\.paneEditsReporter, PaneEditsReporter { [model, paneID] editor, dirty in model.editorReported(editor, dirty: dirty, in: paneID) })
-            .environment(\.paneDestinationPusher, { [model, paneID] destination in model.push(destination, from: paneID) })
+            .environment(\.paneDestinationPusher, PaneDestinationPusher(model: model, paneID: paneID))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Pane: \(pane.title(registry: env.registry))")
             .accessibilityIdentifier("pane")

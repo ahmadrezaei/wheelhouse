@@ -110,8 +110,8 @@ struct TidesRootView: View {
         // as a screen of the pane's own stack, and the pane's Back returns here.
         content
             .navigationTitle(scope.clusterID.flatMap { registry.config(for: $0)?.name }.map { "Tides: \($0)" } ?? "Tides")
-        .whileVisible(id: watchID) { await run() }
-        .accessibilityIdentifier("tides-root")
+            .whileVisible(id: watchID) { await run() }
+            .accessibilityIdentifier("tides-root")
     }
 
     /// What opening a row shows: the app, as its own screen of the pane.
@@ -119,7 +119,7 @@ struct TidesRootView: View {
         .gitopsApp(ResourceRef(clusterID: row.cluster, kind: row.app.kind, namespace: row.app.namespace, name: row.app.name))
     }
 
-    private func open(_ row: TidesRow) { pushDestination?(Self.destination(for: row)) }
+    private func open(_ row: TidesRow) { pushDestination?.push(Self.destination(for: row)) }
 
     private func run() async {
         let list = models

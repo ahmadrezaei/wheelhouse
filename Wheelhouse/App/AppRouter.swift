@@ -56,8 +56,9 @@ final class AppRouter {
     }
     @ObservationIgnored var paneNavigation: PaneNavigation?
 
-    /// The Mac's Back for this pane (its top screen goes). Always nil on iOS and for the window-level router, whose back is the paths above.
-    @ObservationIgnored var paneBack: (@MainActor () -> Void)?
+    /// The Mac's way out of this pane's top screen: Back, or the pane closes when the screen is its only one. Always nil on iOS and for
+    /// the window-level router, whose back is the paths above.
+    @ObservationIgnored var paneDismiss: (@MainActor () -> Void)?
 
     // fix-P: the Mac starts a port-forward without a sheet. The workspace sets this on every pane router; it is always nil on iOS and
     // for the window-level router, so there `forward` is the old sheet.

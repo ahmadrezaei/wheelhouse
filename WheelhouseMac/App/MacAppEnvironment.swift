@@ -124,9 +124,11 @@ final class MacAppEnvironment {
 
     /// Builds the environment. This runs in `App.init` on the main thread: it does NO file read of the test kubeconfig and NO Security
     /// call (the code-signature check and the kubeconfig read happen in `start(reader:)` on a utility queue after launch).
-    /// `reader` is a test seam that records where the read happens.
+    /// `reader` is a test seam that records where the read happens; `registryClientFactory` is one that lets a test give the registry's
+    /// clusters (Demo included) a fixture client. Nothing but tests passes it.
     static func live(reader: @escaping @Sendable (URL) throws -> String = { try String(contentsOf: $0, encoding: .utf8) },
-                     testKubeconfig explicitTestFile: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig()) -> MacAppEnvironment {
+                     testKubeconfig explicitTestFile: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
+                     registryClientFactory: ClusterRegistry.ClientFactory? = nil) -> MacAppEnvironment {
         let gateActive = DevSafety.isActive
         // While the gate is on (Debug, Profile, local Release) the app group and both keychain groups are forced to the Debug
         // ones, whatever Info.plist says: a local Release build then cannot open the production group container or name the shared
@@ -161,7 +163,7 @@ final class MacAppEnvironment {
         let moorings = MooringsController(paths: paths, explicitTestKubeconfig: testFile, keychainMetadata: keychainMetadata,
                                           keychainCredentials: KeychainCredentialStore(), shell: shell, activity: activity)
         let registry = ClusterRegistry(credentials: moorings.credentials, metadata: moorings.metadata, defaults: defaults,
-                                       clientFactory: moorings.clientFactory)
+                                       clientFactory: registryClientFactory ?? moorings.clientFactory)   // the override is a test seam (fixture clients)
         moorings.registry = registry
         MooringsController.shared = moorings
         // `-WHResetState` (development builds only): start from an empty cluster list, as UI tests need.
