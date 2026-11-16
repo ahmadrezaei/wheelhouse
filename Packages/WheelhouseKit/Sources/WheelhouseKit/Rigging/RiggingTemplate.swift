@@ -35,6 +35,11 @@ public struct RiggingTemplate: Hashable, Sendable {
     }
 
     public init(_ text: String, mode: Mode, allowed: Set<String>) throws {
+        try self.init(text, mode: mode, allowed: allowed, programs: Self.allowedPrograms)
+    }
+
+    /// `programs` is only varied by tests that need a harmless program to run through a real shell.
+    init(_ text: String, mode: Mode, allowed: Set<String>, programs: Set<String>) throws {
         guard text.utf8.count <= Self.maxLength else { throw TemplateError(message: "A template may be at most \(Self.maxLength) bytes.") }
         var parts: [Part] = []
         var literal = ""
@@ -60,6 +65,7 @@ public struct RiggingTemplate: Hashable, Sendable {
         }
         self.source = text
         self.mode = mode
+        if mode == .shell { try Self.checkCommands(parts, programs: programs) }
         self.parts = mode == .shell ? try Self.checkShell(parts) : parts
     }
 
@@ -160,6 +166,92 @@ public struct RiggingTemplate: Hashable, Sendable {
         }
         guard state == .plain else { throw TemplateError(message: "The template has an unclosed quote.") }
         return out
+    }
+
+    // MARK: Command allow-list
+
+    /// The only programs a terminal template may start (in every `|` segment). Nothing here runs code from its arguments.
+    static let allowedPrograms: Set<String> = ["kubectl", "cmctl", "istioctl", "velero"]
+    /// What `kubectl` may do from a pack: read-only subcommands and the one plugin the built-in packs use. An unknown name would run a
+    /// `kubectl-<name>` found on PATH, and `config`, `cp`, `proxy`, `create`, `apply` and `krew` reach credentials, local files or the network.
+    static let allowedKubectl: Set<String> = ["get", "describe", "logs", "top", "events", "explain", "api-resources", "api-versions", "rollout", "cnpg"]
+    static let allowedRollout: Set<String> = ["status", "history"]
+    /// Flags that choose another identity, cluster, server, credentials or local file. Matched as a prefix, so `--as-uid` and `--kube-token` are caught.
+    private static let deniedFlagPrefixes = ["--as", "--context", "--cluster", "--user", "--kube", "--server", "--token", "--insecure", "--certificate", "--client-", "--tls-",
+                                              "--cache-dir", "--profile", "--password", "--address", "--raw", "--from-file", "--filename", "--local"]
+    private static let marker: Character = "\u{1}"
+
+    private struct Word { var text = ""; var quoted = false }
+
+    /// A terminal template may only start allow-listed programs, and may not select another cluster, identity or credentials,
+    /// whether or not it has a variable. Quoted and assembled words (`--kube{{x}}`, `-s{{x}}`, `'sh' -c`) are refused.
+    private static func checkCommands(_ parts: [Part], programs: Set<String>) throws {
+        var text = ""
+        for part in parts {
+            switch part {
+            case .literal(let l): text += l
+            case .variable: text.append(marker)
+            }
+        }
+        var segments: [[Word]] = [[]]
+        var current: Word?
+        var quote: Character?
+        func finish() { if let word = current { segments[segments.count - 1].append(word); current = nil } }
+        for ch in text {
+            if let q = quote {
+                if ch == q { quote = nil } else { current?.text.append(ch) }
+                continue
+            }
+            switch ch {
+            case "'", "\"":
+                quote = ch
+                if current == nil { current = Word() }
+                current?.quoted = true
+            case " ": finish()
+            case "|": finish(); segments.append([])
+            default:
+                if current == nil { current = Word() }
+                current?.text.append(ch)
+            }
+        }
+        finish()
+        for words in segments { try checkSegment(words, programs: programs) }
+    }
+
+    private static func checkSegment(_ words: [Word], programs: Set<String>) throws {
+        guard let first = words.first else { throw TemplateError(message: "A terminal template has an empty command (check the “|”).") }
+        guard !first.quoted, programs.contains(first.text) else {
+            throw TemplateError(message: "A terminal template may only start kubectl, cmctl, istioctl or velero (not “\(first.text.replacingOccurrences(of: String(marker), with: "{{…}}"))”).")
+        }
+        if first.text == "kubectl" {
+            guard words.count > 1, !words[1].quoted, allowedKubectl.contains(words[1].text) else {
+                throw TemplateError(message: "kubectl in a terminal template may only use get, describe, logs, top, events, explain, api-resources, api-versions, rollout status|history or the cnpg plugin.")
+            }
+            if words[1].text == "rollout", !(words.count > 2 && allowedRollout.contains(words[2].text)) {
+                throw TemplateError(message: "kubectl rollout in a terminal template may only be “status” or “history”.")
+            }
+        }
+        for word in words.dropFirst() {
+            let w = word.text
+            if w.hasPrefix("--") {
+                let name = w.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? w
+                if name.contains(marker) { throw TemplateError(message: "A variable cannot be part of a flag name.") }
+                if deniedFlagPrefixes.contains(where: { name.hasPrefix($0) }) {
+                    throw TemplateError(message: "“\(name)” selects another cluster, identity, server or local file and is not allowed in a terminal template.")
+                }
+            } else if w.hasPrefix("-"), w != "-" {
+                if w.contains(marker), !w.contains("=") { throw TemplateError(message: "A variable cannot be glued to a flag; put a space before it.") }
+                let body = w.dropFirst()
+                let isShort = body.count == 1 && (body.first?.isLetter ?? false)
+                let isOutput = body.hasPrefix("o") && body.dropFirst().allSatisfy { $0.isLetter || $0 == "=" || $0 == "-" || $0 == "." || $0 == marker }
+                guard isShort || isOutput else {
+                    throw TemplateError(message: "The flag “\(w)” is not allowed in a terminal template; write each short flag on its own (such as -n or -A).")
+                }
+                if body == "s" || (body == "c" && first.text == "istioctl") {
+                    throw TemplateError(message: "“\(w)” selects a server or kubeconfig and is not allowed in a terminal template.")
+                }
+            }
+        }
     }
 
     // MARK: Rendering

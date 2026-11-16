@@ -25,7 +25,7 @@ views:
 commands:
   - title: "Renew"
     for: { group: example.io, kind: Widget }
-    terminal: "widgetctl renew {{name}} -n {{namespace}} --owner={{owner}}"
+    terminal: "kubectl describe widget {{name}} -n {{namespace}} -l my.owner={{owner}}"
   - title: "Open Grafana"
     portForward: { service: grafana, namespace: monitoring, port: 3000, open: "http://127.0.0.1:{{localPort}}/" }
   - title: "Forward widget"
@@ -43,7 +43,7 @@ struct RiggingCommandTests {
         let cluster = ClusterConfig(name: "prod-eu", server: URL(string: "https://127.0.0.1:6443")!)
         let plan = try RiggingCommandPlanner.plan(pack.allCommands[0], in: pack, subject: widget, cluster: cluster.name)
         guard case .insert(let text) = plan else { Issue.record("expected an insert"); return }
-        #expect(text == "widgetctl renew 'w-1' -n 'prod' --owner='team-a'")
+        #expect(text == "kubectl describe widget 'w-1' -n 'prod' -l my.owner='team-a'")
         let terminal = FakeTerminal(cluster: cluster)
         #expect(TerminalInserter.insert(text, forCluster: cluster, into: terminal) == .inserted(removed: 0))
         let bytes = [UInt8](terminal.written)

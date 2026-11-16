@@ -25,6 +25,59 @@ public enum RiggingPackParser {
     public static let maxDepth = 64
     private static func kindTag(_ node: Yams.Node) -> String { if case .mapping = node { "m" } else if case .sequence = node { "q" } else { "s" } }
 
+    /// A quote only opens a quoted scalar at the start of a value; inside a plain scalar (`a'b`) it is an ordinary character.
+    private static func opensScalar(_ s: [Unicode.Scalar], _ k: Int, start: Int) -> Bool {
+        k == start || [" ", "[", "{", ",", ":"].contains(s[k - 1])
+    }
+
+    /// A linear scan of the raw text, run before Yams sees it (libyaml's own nesting limit is 1000 levels and the code after it recurses, so a
+    /// file nested that deep could still overflow the stack). Counts the deepest of flow nesting (`[` and `{` outside quotes), block indentation levels and `- - -` runs.
+    static func preScan(_ text: String) throws {
+        var indents: [Int] = []
+        var flow = 0
+        var deepest = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let scalars = Array(line.unicodeScalars)
+            var i = 0
+            while i < scalars.count, scalars[i] == " " { i += 1 }
+            if flow == 0 {
+                while let last = indents.last, last > i { indents.removeLast() }
+                if indents.last != i { indents.append(i) }
+            }
+            var dashes = 0
+            var j = i
+            while j + 1 < scalars.count, scalars[j] == "-" || scalars[j] == "?", scalars[j + 1] == " " {
+                dashes += 1
+                j += 2
+                while j < scalars.count, scalars[j] == " " { j += 1 }
+            }
+            var single = false, double = false
+            var k = j
+            while k < scalars.count {
+                let c = scalars[k]
+                if double {
+                    if c == "\\" { k += 1 } else if c == "\"" { double = false }
+                } else if single {
+                    if c == "'" { single = false }
+                } else if c == "\"", opensScalar(scalars, k, start: j) {
+                    double = true
+                } else if c == "'", opensScalar(scalars, k, start: j) {
+                    single = true
+                } else if c == "#", k == 0 || scalars[k - 1] == " " {
+                    break
+                } else if c == "[" || c == "{" {
+                    flow += 1
+                    deepest = max(deepest, indents.count + dashes + flow)
+                } else if c == "]" || c == "}", flow > 0 {
+                    flow -= 1
+                }
+                k += 1
+            }
+            deepest = max(deepest, indents.count + dashes + flow)
+            if deepest > maxDepth { throw RiggingPackError("rigging.yaml is nested too deeply.") }
+        }
+    }
+
     /// Composes the YAML once, before anything copies or expands it, and refuses aliases and merge keys (which could multiply
     /// a small file into a huge tree), too many nodes and too deep nesting. The walk is iterative and linear.
     static func guardStructure(_ text: String) throws {
@@ -56,6 +109,10 @@ public enum RiggingPackParser {
 
     public static func parse(_ text: String, schema override: JSONValue? = nil) throws -> RiggingPack {
         guard text.utf8.count <= maxBytes else { throw RiggingPackError("rigging.yaml is larger than \(maxBytes / 1024) KB.") }
+        if let bad = text.unicodeScalars.first(where: { $0 != "\n" && $0 != "\r" && $0 != "\t" && RiggingTemplate.isUnsafe($0) }) {
+            throw RiggingPackError("rigging.yaml contains a control, hidden or bidirectional character (U+\(String(bad.value, radix: 16, uppercase: true))).")
+        }
+        try preScan(text)
         try guardStructure(text)
         let documents = YAMLNodeMap.documents(in: text)
         guard documents.count == 1, let document = documents.first else { throw RiggingPackError("rigging.yaml must hold exactly one document.") }

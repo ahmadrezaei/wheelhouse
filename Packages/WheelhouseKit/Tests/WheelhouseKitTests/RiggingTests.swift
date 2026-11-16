@@ -130,11 +130,11 @@ struct RiggingPackTests {
 
     @Test func fieldsAreAllowedInTemplatesOnlyWhenTheViewDeclaresThem() throws {
         let with = Self.minimal.replacingOccurrences(of: "columns: [", with: "fields: [ { name: owner, path: \".spec.owner\" } ]\n    columns: [")
-            .replacingOccurrences(of: "-n {{namespace}}", with: "--as={{owner}}")
+            .replacingOccurrences(of: "-n {{namespace}}", with: "-l my.owner={{owner}}")
         let pack = try RiggingPackParser.parse(with)
         #expect(pack.fields(for: .init(group: "example.io", kind: "Widget")).map(\.name) == ["owner"])
         #expect(throws: RiggingPackError.self) {
-            try RiggingPackParser.parse(Self.minimal.replacingOccurrences(of: "-n {{namespace}}", with: "--as={{owner}}"))
+            try RiggingPackParser.parse(Self.minimal.replacingOccurrences(of: "-n {{namespace}}", with: "-l my.owner={{owner}}"))
         }
     }
 
@@ -214,7 +214,7 @@ struct RiggingTemplateTests {
         let t = try RiggingTemplate("cmctl renew {{name}} -n {{namespace}}", mode: .shell, allowed: ["name", "namespace"])
         #expect(try t.render(["name": "web", "namespace": "prod"]) == "cmctl renew 'web' -n 'prod'")
         #expect(RiggingTemplate.shellQuote("it's") == "'it'\\''s'")
-        let q = try RiggingTemplate("echo {{name}}", mode: .shell, allowed: ["name"])
+        let q = try RiggingTemplate("kubectl get {{name}}", mode: .shell, allowed: ["name"])
         #expect(throws: RiggingTemplate.TemplateError.self) { try q.render(["name": "it's"]) }
         #expect(throws: RiggingTemplate.TemplateError.self) { try q.render(["name": ""]) }
         #expect(throws: RiggingTemplate.TemplateError.self) { try q.render(["name": "a b"]) }
@@ -222,16 +222,16 @@ struct RiggingTemplateTests {
     }
 
     @Test func refusesTemplatesThatPutAVariableWhereQuotingCannotHelp() {
-        for text in ["echo '{{name}}'", "echo \"{{name}}\"", "echo \\{{name}}", "echo $(x) {{name}}", "echo `x` {{name}}", "echo 'unclosed {{name}}", "echo {{name}} \\",
-                    "echo {{ other }}", "echo {{name", "echo name}}", "echo {{}}", "echo {{na me}}", "echo \u{202E}{{name}}", "echo\n{{name}}", "echo {{name}}\u{E000}",
-                    "echo ${{name}}", "echo ''{{name}}", "echo \"\"{{name}}", "echo {{name}}{{name}}", "echo {,{{name}}}", "echo > {{name}}", "{{name}} x", "FOO={{name}} cmd", "echo ={{name}}",
-                    "echo ~{{name}}", "echo <(x) {{name}}", "echo !!", "echo a | {{name}}", "echo {{name}}'x'", "echo a; {{name}}", "echo é {{name}}", "echo x{{name}}y;", "echo \"$x\" {{name}}"] {
+        for text in ["kubectl get '{{name}}'", "kubectl get \"{{name}}\"", "kubectl get \\{{name}}", "kubectl get $(x) {{name}}", "kubectl get `x` {{name}}", "kubectl get 'unclosed {{name}}", "kubectl get {{name}} \\",
+                    "kubectl get {{ other }}", "kubectl get {{name", "kubectl get name}}", "kubectl get {{}}", "kubectl get {{na me}}", "kubectl get \u{202E}{{name}}", "kubectl get\n{{name}}", "kubectl get {{name}}\u{E000}",
+                    "kubectl get ${{name}}", "kubectl get ''{{name}}", "kubectl get \"\"{{name}}", "kubectl get {{name}}{{name}}", "kubectl get {,{{name}}}", "kubectl get > {{name}}", "{{name}} x", "FOO={{name}} cmd", "kubectl get ={{name}}",
+                    "kubectl get ~{{name}}", "kubectl get <(x) {{name}}", "kubectl get !!", "kubectl get a | {{name}}", "kubectl get {{name}}'x'", "kubectl get a; {{name}}", "kubectl get é {{name}}", "kubectl get x{{name}}y;", "kubectl get \"$x\" {{name}}"] {
             #expect(throws: RiggingTemplate.TemplateError.self, "\(text)") { try RiggingTemplate(text, mode: .shell, allowed: ["name"]) }
         }
     }
 
     @Test func refusesUnsafeValuesInsteadOfCleaningThem() throws {
-        let t = try RiggingTemplate("echo {{name}}", mode: .shell, allowed: ["name"])
+        let t = try RiggingTemplate("kubectl get {{name}}", mode: .shell, allowed: ["name"])
         for value in ["a\nb", "a\rb", "a\tb", "a\u{202E}b", "a\u{200B}b", "a\u{0}b", "a\u{85}b", "a\u{2028}b", String(repeating: "x", count: 2000)] {
             #expect(throws: RiggingTemplate.TemplateError.self) { try t.render(["name": value]) }
         }
@@ -239,10 +239,10 @@ struct RiggingTemplateTests {
     }
 
     @Test func aValueThatStartsWithADashIsNotAnOption() throws {
-        let t = try RiggingTemplate("kubectl get {{name}} --as={{name}}", mode: .shell, allowed: ["name"])
+        let t = try RiggingTemplate("kubectl get {{name}} -l a.b={{name}}", mode: .shell, allowed: ["name"])
         #expect(throws: RiggingTemplate.TemplateError.self) { try t.render(["name": "--all"]) }
-        let mid = try RiggingTemplate("kubectl get --as={{name}}", mode: .shell, allowed: ["name"])
-        #expect(try mid.render(["name": "-x"]) == "kubectl get --as='-x'")
+        let mid = try RiggingTemplate("kubectl get -l a.b={{name}}", mode: .shell, allowed: ["name"])
+        #expect(try mid.render(["name": "-x"]) == "kubectl get -l a.b='-x'")
     }
 
     @Test func namesAreCheckedAgainstKubeNames() {
@@ -259,7 +259,7 @@ struct RiggingTemplateTests {
                                   "é", "日本", "🙂", "$(id)", "`id`", "'; touch /tmp/x; '", "\"; id; \"", "${IFS}"]
         let unsafe: [String] = ["\n", "\r", "\t", "\u{202E}", "\u{2066}", "\u{200E}", "\u{061C}", "\u{FEFF}", "\u{0}", "\u{85}"]
         var rng = SystemRandomNumberGenerator()
-        let template = try RiggingTemplate("tool run {{name}} --ns={{namespace}} --x {{field}} tail", mode: .shell, allowed: ["name", "namespace", "field"])
+        let template = try RiggingTemplate("kubectl get {{name}} --ns={{namespace}} --x {{field}} tail", mode: .shell, allowed: ["name", "namespace", "field"])
         var accepted = 0, refused = 0
         for _ in 0..<5000 {
             func plain() -> String { String((0..<Int.random(in: 1...12, using: &rng)).map { _ in "abXY09._:/@=+,%-".randomElement(using: &rng)! }) }
@@ -269,7 +269,7 @@ struct RiggingTemplateTests {
             do {
                 let line = try template.render(values)
                 let words = try ShellWords.split(line)
-                #expect(words == ["tool", "run", values["name"]!, "--ns=" + values["namespace"]!, "--x", values["field"]!, "tail"], "\(line)")
+                #expect(words == ["kubectl", "get", values["name"]!, "--ns=" + values["namespace"]!, "--x", values["field"]!, "tail"], "\(line)")
                 accepted += 1
             } catch is RiggingTemplate.TemplateError {
                 refused += 1
@@ -291,7 +291,7 @@ struct RiggingRealShellTests {
     /// The rendered words go through a real shell's `printf` (it prints, never runs, what it is given) and must come back unchanged.
     @Test(arguments: ["/bin/bash", "/bin/zsh"])
     func renderedTextSplitsIntoTheExpectedWords(shell: String) throws {
-        let template = try RiggingTemplate("printf '%s\\n' run {{name}} --ns={{namespace}} x{{field}}y -- {{field}}", mode: .shell, allowed: ["name", "namespace", "field"])
+        let template = try RiggingTemplate("printf '%s\\n' run {{name}} --ns={{namespace}} x{{field}}y -- {{field}}", mode: .shell, allowed: ["name", "namespace", "field"], programs: ["printf"])
         let samples = ["a", "web-1.v2", "-", "x=y", "a,b:c/d@e+f%g", "..", "A_b", "0"]
         let canary = FileManager.default.temporaryDirectory.appending(path: "wh-canary-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: canary) }

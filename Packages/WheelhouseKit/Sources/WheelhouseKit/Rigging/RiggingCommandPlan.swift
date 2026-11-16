@@ -94,7 +94,7 @@ public enum RiggingDeclaration {
         if !pack.allHealthRules.isEmpty {
             out.append(Section(title: "Adds health rules to Alerts", lines: pack.allHealthRules.map { "reads \(kind($0.for)) (a list, about every five minutes): \($0.message) (\($0.tone.rawValue))" }))
         }
-        out.append(Section(title: "Cannot", lines: ["Run code, make network calls, read files, or change anything in a cluster."]))
+        out.append(Section(title: "Note", lines: ["Terminal commands are shell text inserted into a terminal for you to review and run yourself. They are limited to kubectl, cmctl, istioctl and velero, but what they do once you press Return can change a cluster. Port forwards ask you first."]))
         return out
     }
 }

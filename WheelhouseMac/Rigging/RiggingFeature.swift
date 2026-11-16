@@ -1,4 +1,5 @@
 import SwiftUI
+import WheelhouseDesktop
 import WheelhouseKit
 
 /// Rigging: declarative packs that add views, commands and health rules for custom resources (ARCHITECTURE-MAC section 11, DESIGN-MAC 6.14).
@@ -8,6 +9,9 @@ import WheelhouseKit
 /// applied by the sidebar through `RiggingSidebarHook`, because the Custom Resources group is built from discovery rather than from nodes.
 enum RiggingFeature: WheelhouseFeature {
     static var id: FeatureID { .rigging }
+    /// Whether this build runs Rigging at all. A Distribution build with `.rigging` out of `releaseEnabled` starts nothing: no pack is
+    /// loaded, no CRD is listed, no health rule runs and no menu, Rail, Compass or sidebar entry is added.
+    static func isEnabled(gateActive: Bool = DevSafety.isActive) -> Bool { FeatureRegistry.isEnabled(.rigging, gateActive: gateActive) }
     static var title: String { "Rigging" }
     static func handles(_ destination: WorkspaceDestination) -> Bool {
         if case .riggingView = destination { return true }

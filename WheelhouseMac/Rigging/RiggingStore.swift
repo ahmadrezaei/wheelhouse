@@ -36,6 +36,33 @@ final class RiggingStore {
         var loaded: LoadedRiggingPack
         /// True when this replaces an installed pack of the same name (an update).
         var replaces: Bool
+        /// Where the pack it replaces came from, and the `rigging.yaml` that was approved (nil when nothing is replaced).
+        var replacedSource: RiggingPackSource?
+        var previousText: String?
+        /// A sentence for the approval sheet when an installed pack of the same name is replaced by one from somewhere else.
+        var replacementNotice: String? {
+            guard replaces, let old = replacedSource else { return nil }
+            let name = loaded.pack.metadata.name
+            if old == source || (old.kind == source.kind && old.location == source.location) {
+                return previousText == nil ? "Updates “\(name)”. Read the declaration again: the approved file is no longer on record, so no changes are listed."
+                                           : "Updates “\(name)”: the lines that changed since the version you approved are listed below."
+            }
+            return "Replaces the installed pack “\(name)” from \(old.summary). Remove the old pack first if you did not expect this."
+        }
+        /// The lines that differ from the approved file (`+` added, `-` removed), at most 200.
+        var changes: [String] {
+            guard let previousText else { return [] }
+            let before = previousText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            let after = loaded.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            var out: [String] = []
+            for change in after.difference(from: before) {
+                switch change {
+                case .insert(_, let line, _): out.append("+ \(line)")
+                case .remove(_, let line, _): out.append("- \(line)")
+                }
+            }
+            return Array(out.prefix(200))
+        }
         var sections: [RiggingDeclaration.Section] { RiggingDeclaration.sections(for: loaded.pack) }
     }
 
@@ -115,9 +142,9 @@ final class RiggingStore {
 
     private func load() {
         var stored = (try? JSONDecoder().decode([Entry].self, from: Data(contentsOf: file))) ?? []
-        // Every built-in pack is listed (on by default); a stored entry only carries the person's choice.
+        // Every built-in pack is listed (off until the person turns it on); a stored entry only carries the person's choice.
         for built in builtIns where !stored.contains(where: { $0.name == built.pack.metadata.name }) {
-            stored.append(Entry(name: built.pack.metadata.name, source: .builtIn, enabled: true))
+            stored.append(Entry(name: built.pack.metadata.name, source: .builtIn, enabled: false))
         }
         stored.removeAll { e in e.source.kind == .builtIn && !builtIns.contains { $0.pack.metadata.name == e.name } }
         entries = stored
@@ -133,15 +160,12 @@ final class RiggingStore {
                 case .builtIn:
                     item.loaded = builtIns.first { $0.pack.metadata.name == entry.name }
                 case .folder:
-                    item.loaded = try RiggingPackFolder.load(URL(fileURLWithPath: entry.source.location ?? "/nonexistent", isDirectory: true))
+                    try loadApproved(URL(fileURLWithPath: entry.source.location ?? "/nonexistent", isDirectory: true), into: &item)
                 case .git:
                     guard let commit = entry.source.commit else { throw RiggingPackError("The pinned commit is missing.") }
-                    item.loaded = try RiggingPackFolder.load(root.appending(path: "\(entry.name)@\(commit)", directoryHint: .isDirectory))
+                    try loadApproved(root.appending(path: "\(entry.name)@\(commit)", directoryHint: .isDirectory), into: &item)
                 }
-                if let loaded = item.loaded {
-                    if loaded.pack.metadata.name != entry.name { item.loaded = nil; item.problem = "The pack's name no longer matches." }
-                    else if entry.source.kind != .builtIn, loaded.digest != entry.approvedDigest { item.changedSinceApproval = true }
-                }
+                if let loaded = item.loaded, loaded.pack.metadata.name != entry.name { item.loaded = nil; item.problem = "The pack's name no longer matches." }
             } catch {
                 item.problem = error.localizedDescription
             }
@@ -149,6 +173,26 @@ final class RiggingStore {
         }
         revision += 1
         onChange()
+    }
+
+    /// Reads a pack's folder and parses it only when the file is the one that was approved. A changed file is never parsed at launch
+    /// (parsing untrusted text is what the approval is there to avoid); the pack just shows as changed.
+    private func loadApproved(_ folder: URL, into item: inout Installed) throws {
+        let raw = try RiggingPackFolder.read(folder)
+        guard raw.digest == item.entry.approvedDigest else { item.changedSinceApproval = true; return }
+        item.loaded = try Self.checked(RiggingPackFolder.parse(raw))
+    }
+
+    /// A second look at every terminal command with the terminal's own guard-bypass detector (`--kubeconfig`, `KUBECONFIG=`, `--server`,
+    /// `--token`, …), on top of the template rules. A pack that fails is not loaded.
+    static func checked(_ loaded: LoadedRiggingPack) throws -> LoadedRiggingPack {
+        let problems = loaded.pack.allCommands.compactMap { command -> String? in
+            guard let text = command.terminal else { return nil }
+            let probe = text.replacing(/\{\{[^}]*\}\}/, with: "x")
+            return UnguardedDetector.bypassReason(in: probe).map { "“\(command.title)” \($0), which would skip the terminal guard." }
+        }
+        guard problems.isEmpty else { throw RiggingPackError(problems) }
+        return loaded
     }
 
     private func save() {
@@ -169,10 +213,27 @@ final class RiggingStore {
 
     /// Reads a folder and returns what it would add. Nothing is stored until ``approve(_:)``.
     func candidate(folder: URL) throws -> Candidate {
-        let loaded = try RiggingPackFolder.load(folder)
+        let loaded = try Self.checked(RiggingPackFolder.load(folder))
         let name = loaded.pack.metadata.name
         if builtIns.contains(where: { $0.pack.metadata.name == name }) { throw StoreError.reserved(name) }
-        return Candidate(source: RiggingPackSource(kind: .folder, location: folder.standardizedFileURL.path), loaded: loaded, replaces: entries.contains { $0.name == name })
+        return Candidate(source: RiggingPackSource(kind: .folder, location: folder.standardizedFileURL.path), loaded: loaded, replaces: entries.contains { $0.name == name },
+                         replacedSource: entries.first { $0.name == name }?.source, previousText: installedPack(named: name)?.loaded?.text)
+    }
+
+    /// Reads a pack whose file changed since it was approved, so the person can read it again and approve it. This is the only place a changed
+    /// file is parsed, and only because the person asked to review it.
+    func candidateForReview(_ name: String) throws -> Candidate {
+        guard let item = installedPack(named: name), item.entry.source.kind != .builtIn else { throw RiggingPackError("That pack cannot be reviewed.") }
+        let folder: URL
+        if item.entry.source.kind == .git {
+            guard let commit = item.entry.source.commit else { throw RiggingPackError("The pinned commit is missing.") }
+            folder = root.appending(path: "\(name)@\(commit)", directoryHint: .isDirectory)
+        } else {
+            folder = URL(fileURLWithPath: item.entry.source.location ?? "/nonexistent", isDirectory: true)
+        }
+        let loaded = try Self.checked(RiggingPackFolder.load(folder))
+        guard loaded.pack.metadata.name == name else { throw RiggingPackError("The pack's name no longer matches.") }
+        return Candidate(source: item.entry.source, loaded: loaded, replaces: true, replacedSource: item.entry.source, previousText: item.loaded?.text)
     }
 
     /// Fetches a git pack into the app's folder (data only; no hook runs) and returns what it would add.
@@ -180,13 +241,15 @@ final class RiggingStore {
         guard let git = gitLocator() else { throw StoreError.git("git was not found on this Mac. Install the Xcode command line tools, or use a folder.") }
         let fetcher = GitPackFetcher(git: git, root: root, allowLocal: allowLocalGit, networkEnvironment: networkEnvironment)
         let fetched = try await fetcher.fetch(url: gitURL, ref: ref)
+        _ = try Self.checked(fetched.loaded)
         let name = fetched.loaded.pack.metadata.name
         if builtIns.contains(where: { $0.pack.metadata.name == name }) {
             fetcher.prune(name: name, keep: entries.first { $0.name == name }.flatMap { $0.source.commit.map { "\(name)@\($0)" } })
             throw StoreError.reserved(name)
         }
         let source = RiggingPackSource(kind: .git, location: gitURL.trimmingCharacters(in: .whitespacesAndNewlines), commit: fetched.commit, ref: ref)
-        return Candidate(source: source, loaded: fetched.loaded, replaces: entries.contains { $0.name == name })
+        return Candidate(source: source, loaded: fetched.loaded, replaces: entries.contains { $0.name == name },
+                         replacedSource: entries.first { $0.name == name }?.source, previousText: installedPack(named: name)?.loaded?.text)
     }
 
     /// The person approved the declaration: store the pack, enabled, pinned to the digest that was shown.

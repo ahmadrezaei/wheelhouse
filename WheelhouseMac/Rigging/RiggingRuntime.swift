@@ -29,11 +29,28 @@ final class RiggingTerminals {
 }
 
 /// Holds the confirmation a pack's port-forward is waiting on. The sheet itself is the app's ConfirmSheet with the `.rigging` origin.
+/// Only one pack view presents a request: the first to claim it. Every other visible view leaves it alone.
 @MainActor @Observable
 final class RiggingConfirmCenter {
-    var pending: ConfirmRequest?
+    var pending: ConfirmRequest? {
+        didSet { if pending == nil { claimant = nil } }
+    }
     /// How many pack views are on screen to show the sheet.
     @ObservationIgnored var hosts = 0
+    /// The host that presents `pending`.
+    @ObservationIgnored private(set) var claimant: UUID?
+
+    /// True when `host` is the one that shows the pending request (it claims it when none has).
+    func claim(_ host: UUID) -> Bool {
+        guard pending != nil else { return false }
+        if claimant == nil { claimant = host }
+        return claimant == host
+    }
+
+    /// A host that goes away gives up its claim, so another visible view can take over.
+    func release(_ host: UUID) {
+        if claimant == host { claimant = nil }
+    }
 }
 
 /// A command a pack offers for a kind, with the pack it came from.
@@ -64,6 +81,16 @@ final class RiggingRuntime {
     }
 
     @ObservationIgnored var isLocked: @MainActor () -> Bool = { false }
+    /// Whether this build runs Rigging. Replaced by tests.
+    @ObservationIgnored var isFeatureEnabled: () -> Bool = { RiggingFeature.isEnabled() }
+    /// The most items one rule, and one pack, may put into Alerts; the rest are summarised in one item.
+    static let itemsPerRule = 20
+    static let itemsPerPack = 20
+    /// One plain list of a kind across all namespaces (nothing is watched). Replaced by tests.
+    @ObservationIgnored var listObjects: (ClusterSession, ResourceKind) async throws -> [JSONValue] = { session, kind in
+        try await session.client.listRaw(kind, namespace: nil, options: ListOptions(limit: 500))["items"]?.arrayValue ?? []
+    }
+    @ObservationIgnored private var failedKinds: [ClusterID: [String: Date]] = [:]
 
     init(store: RiggingStore, registry: ClusterRegistry, workspace: WorkspaceController, activity: any ActivityLogging) {
         self.store = store
@@ -76,6 +103,7 @@ final class RiggingRuntime {
 
     /// Called once at start: health rules on every session, the sidebar layout, and a sidebar rebuild when packs change.
     func start() {
+        guard isFeatureEnabled() else { return }
         store.sweep()
         registry.sessionHook = { [weak self] session in
             session.healthAugmenter = { [weak self] session in await self?.healthItems(for: session) ?? [] }
@@ -116,6 +144,7 @@ final class RiggingRuntime {
 
     /// Runs a command from a menu, the Rail or Compass. Terminal text is only inserted; a port-forward only shows its confirmation.
     func perform(_ item: RiggingCommandItem, subject: RiggingValues.Subject?, cluster: ClusterConfig) {
+        guard isFeatureEnabled(), !isLocked() else { return }
         let plan: RiggingCommandPlan
         do { plan = try RiggingCommandPlanner.plan(item.command, in: item.pack, subject: subject, cluster: cluster.name) } catch {
             record(item, cluster: cluster, subject: subject, verb: "refused", result: "refused: \(error.localizedDescription)")
@@ -158,11 +187,22 @@ final class RiggingRuntime {
         }
         switch TerminalInserter.insert(text, forCluster: cluster, into: target) {
         case .inserted(let removed):
+            revealTerminal(for: cluster.id)
             record(item, cluster: cluster, subject: subject, verb: "insert", result: removed == 0 ? "ok" : "ok (removed \(removed) hidden characters)", commandLine: text)
         case .refused(let why):
             record(item, cluster: cluster, subject: subject, verb: "insert", result: "refused: \(why)")
             notify("The command was not inserted", why)
         }
+    }
+
+    /// Brings the terminal pane the text went into to the front, so the person sees it and can review it before pressing Return.
+    private func revealTerminal(for cluster: ClusterID) {
+        guard let model = workspace.activeModel else { return }
+        let pane = model.state.allPanes.first { pane in
+            if case .deckTerminal(let spec)? = pane.top { return spec.clusterID == cluster }
+            return false
+        }
+        if let pane { model.focus(pane: pane.id) }
     }
 
     // MARK: Port-forward
@@ -191,7 +231,7 @@ final class RiggingRuntime {
 
     /// The pack commands for a resource row, as context-menu entries.
     func menuActions(for ref: ResourceRef, raw: JSONValue) -> [KubeRowAction] {
-        guard let cluster = registry.config(for: ref.clusterID) else { return [] }
+        guard isFeatureEnabled(), let cluster = registry.config(for: ref.clusterID) else { return [] }
         let items = commands(for: Self.match(for: ref.kind))
         guard !items.isEmpty else { return [] }
         let subject = RiggingValues.Subject(name: ref.name, namespace: ref.namespace, kind: ref.kind.kind, raw: raw)
@@ -206,7 +246,7 @@ final class RiggingRuntime {
 
     /// Pack commands for a pinned Rail item: those for the pinned object's kind, or the commands that need no object for a cluster.
     func railActions(for item: RailItem) -> [RailAction] {
-        guard let clusterID = item.clusterID, let cluster = registry.config(for: clusterID) else { return [] }
+        guard isFeatureEnabled(), let clusterID = item.clusterID, let cluster = registry.config(for: clusterID) else { return [] }
         var out: [RailAction] = []
         func add(_ command: RiggingCommandItem, subject: RiggingValues.Subject?) {
             out.append(RailAction(id: command.id, title: command.command.title + (command.command.terminal != nil ? " (insert in terminal)" : "…")) { [weak self] in
@@ -227,6 +267,7 @@ final class RiggingRuntime {
 
     /// Pack commands for the object the focused pane shows (Compass), plus the commands that need no object.
     func compassCommands() -> [CompassCommand] {
+        guard isFeatureEnabled() else { return [] }
         let model = workspace.activeModel
         var destination: ResourceRef?
         if case .route(.resourceDetail(let ref))? = model?.focusedPane?.top { destination = ref }
@@ -260,24 +301,42 @@ final class RiggingRuntime {
         var items: [AttentionItem] = []
         let revision = store.revision
         var complete = true
+        let now = Date()
+        // A kind that failed (a 403, a missing CRD) is not listed again until the cache window passes.
+        failedKinds[session.id] = failedKinds[session.id]?.filter { now.timeIntervalSince($0.value) < Self.healthCacheSeconds }
         for pack in packs {
+            // A pack that is not built in cannot make an item critical; its failure is a warning at most.
+            let builtIn = store.installedPack(named: pack.metadata.name)?.entry.source.kind == .builtIn
+            var packItems = 0
+            var dropped = 0
             for rule in pack.allHealthRules {
                 guard let kind = resourceKind(rule.for, in: discovery) else { continue }
                 if lists[kind.id] == nil {
-                    do {
-                        let raw = try await session.client.listRaw(kind, namespace: nil, options: ListOptions(limit: 500))
-                        lists[kind.id] = raw["items"]?.arrayValue ?? []
-                    } catch {
-                        complete = false
+                    if failedKinds[session.id]?[kind.id] != nil {
                         lists[kind.id] = []
+                    } else {
+                        do {
+                            lists[kind.id] = try await listObjects(session, kind)
+                        } catch {
+                            failedKinds[session.id, default: [:]][kind.id] = now
+                            lists[kind.id] = []
+                        }
                     }
                 }
+                var forRule = 0
                 for f in RiggingEngine.findings(of: rule, pack: pack, objects: lists[kind.id] ?? [], cluster: session.config.name) {
+                    guard forRule < Self.itemsPerRule, packItems < Self.itemsPerPack else { dropped += 1; continue }
+                    forRule += 1
+                    packItems += 1
                     items.append(AttentionItem(id: "rigging/\(pack.metadata.name)/\(session.id)/\(kind.id)/\(f.namespace ?? "-")/\(f.name)/\(rule.id)", clusterID: session.id,
-                                               severity: f.tone == .critical ? .critical : .warning, kind: .riggingRule, title: f.message,
+                                               severity: f.tone == .critical && builtIn ? .critical : .warning, kind: .riggingRule, title: "\(pack.metadata.name): \(f.message)",
                                                detail: "\(pack.metadata.name) pack · \(f.kind) \(f.namespace.map { "\($0)/" } ?? "")\(f.name)",
                                                resource: ResourceRef(clusterID: session.id, kind: kind, namespace: f.namespace, name: f.name), since: f.since))
                 }
+            }
+            if dropped > 0 {
+                items.append(AttentionItem(id: "rigging/\(pack.metadata.name)/\(session.id)/more", clusterID: session.id, severity: .warning, kind: .riggingRule,
+                                           title: "\(pack.metadata.name): and \(dropped) more", detail: "\(pack.metadata.name) pack · the first \(Self.itemsPerPack) are listed", resource: nil, since: nil))
             }
         }
         if complete, !Task.isCancelled, revision == store.revision { healthCache[session.id] = (Date(), revision, items) }

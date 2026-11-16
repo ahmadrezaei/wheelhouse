@@ -21,6 +21,7 @@ struct RiggingViewScreen: View {
     @Environment(MacAppEnvironment.self) private var env
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppRouter.self) private var router: AppRouter?
+    @State private var hostID = UUID()
     @State private var selection: String?
     @State private var search = ""
     @State private var kind: ResourceKind?
@@ -52,10 +53,12 @@ struct RiggingViewScreen: View {
                 ContentUnavailableView("Choose a cluster", systemImage: "server.rack")
             }
         }
-        .confirmSheet(Binding(get: { rigging.confirm.pending }, set: { rigging.confirm.pending = $0 }))
+        // Only one visible pack view presents the pending request (the first to claim it); the others show nothing.
+        .confirmSheet(Binding(get: { rigging.confirm.claim(hostID) ? rigging.confirm.pending : nil }, set: { if rigging.confirm.claim(hostID) { rigging.confirm.pending = $0 } }))
         .onAppear { rigging.confirm.hosts += 1 }
         .onDisappear {
             rigging.confirm.hosts -= 1
+            rigging.confirm.release(hostID)
             if rigging.confirm.hosts <= 0 { rigging.confirm.pending = nil }
         }
         .onChange(of: env.lock.isLocked) { _, locked in if locked { rigging.confirm.pending = nil } }

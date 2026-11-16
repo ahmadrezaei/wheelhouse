@@ -17,12 +17,26 @@ public enum RiggingPackFolder {
     public static let maxTotalBytes = 5 * 1024 * 1024
     public static let fileName = "rigging.yaml"
 
+    /// The bytes of a folder's `rigging.yaml` after the folder was audited, not yet parsed.
+    public struct RawPack: Sendable {
+        public var text: String
+        public var digest: String
+    }
+
     public static func load(_ folder: URL) throws -> LoadedRiggingPack {
+        try parse(read(folder))
+    }
+
+    /// Audits the folder and reads `rigging.yaml` without parsing it, so a caller can compare the digest with the approved one first.
+    public static func read(_ folder: URL) throws -> RawPack {
         try audit(folder)
         let data = try readRegularFile(folder.appending(path: fileName).path, limit: RiggingPackParser.maxBytes)
         guard let text = String(data: data, encoding: .utf8) else { throw RiggingPackError("rigging.yaml is not UTF-8 text.") }
-        let pack = try RiggingPackParser.parse(text)
-        return LoadedRiggingPack(pack: pack, digest: digest(of: data), text: text)
+        return RawPack(text: text, digest: digest(of: data))
+    }
+
+    public static func parse(_ raw: RawPack) throws -> LoadedRiggingPack {
+        LoadedRiggingPack(pack: try RiggingPackParser.parse(raw.text), digest: raw.digest, text: raw.text)
     }
 
     public static func digest(of data: Data) -> String {

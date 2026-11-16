@@ -24,7 +24,7 @@ struct RiggingPane: View {
             } header: {
                 Text("Packs")
             } footer: {
-                Text("A pack is data only: it adds views, commands and health rules for custom resources. It cannot run code, make network calls or read files. Commands are inserted into a guarded terminal and never run; port forwards always ask you first.")
+                Text("A pack is data only: it adds views, commands and health rules for custom resources. Its commands are shell text inserted into a guarded terminal for you to review and run yourself; they are limited to kubectl, cmctl, istioctl and velero, but they can change clusters once you run them. Port forwards always ask you first.")
             }
             Section {
                 HStack {
@@ -89,8 +89,11 @@ struct RiggingPane: View {
     }
 
     private func review(_ item: RiggingStore.Installed) {
-        guard let loaded = item.loaded else { return }
-        candidate = RiggingStore.Candidate(source: item.entry.source, loaded: loaded, replaces: true)
+        if let loaded = item.loaded {
+            candidate = RiggingStore.Candidate(source: item.entry.source, loaded: loaded, replaces: true)
+        } else {
+            do { candidate = try store.candidateForReview(item.entry.name); problem = nil } catch { problem = error.localizedDescription }
+        }
     }
 
     private func chooseFolder() {
@@ -154,6 +157,7 @@ struct RiggingDeclarationSheet: View {
                 }
             }
             if let d = pack.metadata.description { Text(d) }
+            if let notice = candidate.replacementNotice { Label(notice, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange) }
             Text("Read this before turning it on. This is everything the pack adds.").font(.callout).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.m) {
@@ -161,6 +165,12 @@ struct RiggingDeclarationSheet: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(section.title).font(.subheadline.weight(.semibold))
                             ForEach(section.lines, id: \.self) { Text($0).font(.callout.monospaced()).textSelection(.enabled) }
+                        }
+                    }
+                    if !candidate.changes.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Changes since the version you approved").font(.subheadline.weight(.semibold))
+                            ForEach(Array(candidate.changes.enumerated()), id: \.offset) { Text($0.element).font(.caption.monospaced()).textSelection(.enabled) }
                         }
                     }
                     DisclosureGroup("Full rigging.yaml") {

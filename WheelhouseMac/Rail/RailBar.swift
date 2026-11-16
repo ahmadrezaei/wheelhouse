@@ -59,7 +59,7 @@ struct RailBar: View {
         Button("Open in New Tab") { rail.activate(item, in: model, placement: .newTab, controller: env.workspace) }
         Button("Open in Split") { rail.activate(item, in: model, placement: .split, controller: env.workspace) }
         // M13: commands the enabled packs offer for a pinned object (or for the cluster); inserted into a terminal, never run.
-        let packActions = env.rigging.railActions(for: item)
+        let packActions = RiggingFeature.isEnabled() ? env.rigging.railActions(for: item) : []
         if !packActions.isEmpty {
             Divider()
             ForEach(packActions, id: \.id) { action in Button(action.title) { action.perform() } }

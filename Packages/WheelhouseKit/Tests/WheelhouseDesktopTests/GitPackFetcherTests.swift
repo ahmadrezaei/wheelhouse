@@ -115,6 +115,54 @@ struct GitPackFetcherTests {
         #expect(checkout.arguments.contains("--detach"))
     }
 
+    @Test func theCloneIsShallowAndNeverFollowsRedirects() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        _ = try await f.makeRepo(commits: [["rigging.yaml": Fixture.pack]])
+        let seen = Mutex<[ProcessSpec]>([])
+        _ = try await f.fetcher(run: { spec in
+            seen.withLock { $0.append(spec) }
+            return try await Subprocess.run(spec)
+        }).fetch(url: f.bare.path, ref: nil)
+        let specs = seen.withLock { $0 }
+        for spec in specs { #expect(spec.arguments.contains("http.followRedirects=false"), "\(spec.arguments)") }
+        let clone = try #require(specs.first { $0.arguments.contains("clone") })
+        #expect(clone.arguments.contains("--depth=1") && clone.arguments.contains("--single-branch"))
+    }
+
+    @Test func aRepositoryThatGrowsPastTheCapIsStopped() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        _ = try await f.makeRepo(commits: [["rigging.yaml": Fixture.pack]])
+        var fetcher = f.fetcher(run: { spec in
+            let staging = try #require(spec.environment["HOME"]).split(separator: "/").dropLast().joined(separator: "/")
+            try Data(count: GitPackFetcher.maxStagingBytes + 1024).write(to: URL(fileURLWithPath: "/" + staging + "/big"))
+            try await Task.sleep(for: .seconds(20))
+            return try await Subprocess.run(spec)
+        })
+        fetcher.stagingPoll = .milliseconds(20)
+        await #expect(throws: GitPackFetcher.FetchError.self) { try await fetcher.fetch(url: f.bare.path, ref: nil) }
+    }
+
+    @Test func tooManyFilesTooManyBytesAndGitmodulesAreRefused() async throws {
+        let many = try Fixture()
+        defer { many.cleanup() }
+        var files: [String: String] = ["rigging.yaml": Fixture.pack]
+        for i in 0...GitPackFetcher.maxEntries { files["f\(i).txt"] = "x" }
+        _ = try await many.makeRepo(commits: [files])
+        await #expect(throws: GitPackFetcher.FetchError.self) { try await many.fetcher().fetch(url: many.bare.path, ref: nil) }
+
+        let big = try Fixture()
+        defer { big.cleanup() }
+        _ = try await big.makeRepo(commits: [["rigging.yaml": Fixture.pack, "big.txt": String(repeating: "x", count: GitPackFetcher.maxBytes + 10)]])
+        await #expect(throws: GitPackFetcher.FetchError.self) { try await big.fetcher().fetch(url: big.bare.path, ref: nil) }
+
+        let modules = try Fixture()
+        defer { modules.cleanup() }
+        _ = try await modules.makeRepo(commits: [["rigging.yaml": Fixture.pack, ".gitmodules": "[submodule \"x\"]\n"]])
+        await #expect(throws: GitPackFetcher.FetchError.self) { try await modules.fetcher().fetch(url: modules.bare.path, ref: nil) }
+    }
+
     @Test func aSymbolicLinkInTheTreeRefusesThePackBeforeAnythingIsWritten() async throws {
         let f = try Fixture()
         defer { f.cleanup() }
@@ -178,11 +226,12 @@ struct GitPackFetcherTests {
         let fetcher = GitPackFetcher(git: Fixture.git, root: URL(fileURLWithPath: "/tmp/x"))
         for good in ["https://github.com/example/rigging-pack.git", "https://example.org/a/b"] { #expect(try fetcher.validate(url: good) == good) }
         for bad in ["http://example.org/a", "git@github.com:a/b.git", "ssh://git@example.org/a", "ext::sh -c id", "-oProxyCommand=id", "--upload-pack=id", "file:///tmp/x", "/tmp/x",
-                    "https://user:secret@example.org/a", "https://example.org/a?x=1", "https://example.org/a\nb", "", "https://", "https://example.org/a b"] {
+                    "https://user:secret@example.org/a", "https://example.org/a?x=1", "https://example.org/a\nb", "", "https://", "https://example.org/a b", "https://ex\u{0430}mple.org/a", "https://例え.jp/a"] {
             #expect(throws: GitPackFetcher.FetchError.self, "\(bad)") { try fetcher.validate(url: bad) }
         }
         #expect(try GitPackFetcher.validate(ref: " v1.2.3 ") == "v1.2.3")
         #expect(try GitPackFetcher.validate(ref: nil) == nil)
+        #expect(throws: GitPackFetcher.FetchError.self) { try GitPackFetcher.validate(ref: "abc1234") }
         for bad in ["--exec=id", "-x", "a..b", "a b", "a;b", "a$(id)", "x.lock", "a/", String(repeating: "a", count: 300)] {
             #expect(throws: GitPackFetcher.FetchError.self, "\(bad)") { try GitPackFetcher.validate(ref: bad) }
         }

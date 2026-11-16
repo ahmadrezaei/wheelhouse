@@ -29,7 +29,7 @@ struct CommandRegistry {
     func command(_ id: String) -> CompassCommand? { commands.first { $0.id == id } }
 
     init(env: MacAppEnvironment, openSettings: @escaping @MainActor () -> Void = {}, openActivity: @escaping @MainActor () -> Void = {}) {
-        extra = { env.rigging.compassCommands() }
+        extra = { RiggingFeature.isEnabled() ? env.rigging.compassCommands() : [] }
         let workspace = env.workspace
         let locked: @MainActor () -> Bool = { env.lock.isLocked }
         let hasWindow: @MainActor () -> Bool = { if let m = workspace.activeModel, case .window = m.scope { true } else { false } }

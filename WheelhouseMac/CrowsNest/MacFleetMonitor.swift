@@ -12,7 +12,8 @@ struct FleetSummary: Equatable, Sendable {
 
     /// Unreachable clusters alone turn the glyph red only when they are Production (the health evaluator already ranks them so).
     static func make(attention: [AttentionItem], clusterCount: Int) -> FleetSummary {
-        let worst = attention.map(\.severity).max { $0.rank < $1.rank }
+        // A Rigging health rule can turn the glyph yellow but never red: a pack is not part of the cluster's own health.
+        let worst = attention.map { $0.kind == .riggingRule && $0.severity == .critical ? HealthStatus.warning : $0.severity }.max { $0.rank < $1.rank }
         let level: Level = switch worst {
         case .critical: .critical
         case .warning: .warning
