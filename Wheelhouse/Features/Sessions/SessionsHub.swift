@@ -184,11 +184,25 @@ final class SessionsHub {
             await manager.stop(id)
             await manager.remove(id)
         }
-        recents.insert(RecentSession(kind: .forward, title: info.target.title, subtitle: "localhost:\(info.localPort) · \(info.clusterName) · ↓\(Self.bytes(info.bytesDown)) ↑\(Self.bytes(info.bytesUp))",
-                                     endedAt: Date(), route: .portForward(ResourceRef(clusterID: info.clusterID, kind: info.target.kind == .service ? .service : .pod,
-                                                                                      namespace: info.target.namespace, name: info.target.name)), remotePort: info.target.remotePort), at: 0)
+        recordRecent(of: info)
         forwards.removeAll { $0.id == id }
         trimRecents()
+    }
+
+    /// Remembers a stopped forward under Recent: its object and remote port, so the Mac can start it again.
+    func recordRecent(of info: PortForwardInfo) {
+        recents.insert(RecentSession(kind: .forward, title: info.target.title, subtitle: Self.recentSubtitle(info),
+                                     endedAt: Date(), route: .portForward(ResourceRef(clusterID: info.clusterID, kind: info.target.kind == .service ? .service : .pod,
+                                                                                      namespace: info.target.namespace, name: info.target.name)), remotePort: info.target.remotePort), at: 0)
+    }
+
+    /// The line under a stopped forward in Recent. The Mac starts it again on a free port, so it does not promise the old one.
+    static func recentSubtitle(_ info: PortForwardInfo) -> String {
+        #if os(macOS)
+        return "\(info.clusterName) · ↓\(Self.bytes(info.bytesDown)) ↑\(Self.bytes(info.bytesUp))"
+        #else
+        return "localhost:\(info.localPort) · \(info.clusterName) · ↓\(Self.bytes(info.bytesDown)) ↑\(Self.bytes(info.bytesUp))"
+        #endif
     }
 
     func forward(id: UUID) -> PortForwardInfo? { forwards.first { $0.id == id } }

@@ -16,8 +16,8 @@ struct CompassCommand: Identifiable {
 }
 
 /// Every menu command with its shortcut (ARCHITECTURE-MAC section 12.4). The menus in `MacCommands` are SwiftUI and stay the source of
-/// the key bindings; this list mirrors them one to one for Compass, and `CommandRegistryTests` keep ids and shortcuts unique so a
-/// copy that drifts into a collision fails the build. Commands act on the active window; while App Lock is on none is enabled.
+/// the key bindings; this list mirrors them one to one for Compass, and `CompassModelTests` checks the shortcuts it shows, so a
+/// copy that drifts into a collision is caught. Commands act on the active window; while App Lock is on none is enabled.
 @MainActor
 struct CommandRegistry {
     let commands: [CompassCommand]

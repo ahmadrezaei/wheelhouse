@@ -12,7 +12,7 @@ struct SessionsView: View {
     @State private var copiedID: UUID?
     #if os(macOS)
     /// A target chosen in the picker: forwarded once the picker sheet is gone, so the advanced form never competes with it.
-    @State private var pendingForward: SessionsForward.Choice?
+    @State private var pendingForward = SessionsForward.Pending()
     #endif
     private let hub = SessionsHub.shared
 
@@ -33,7 +33,7 @@ struct SessionsView: View {
                 Section {
                     EmptyState(.empty(title: "No Active Sessions", systemImage: "apple.terminal.on.rectangle",
                                       hint: "Port-forwards, shells and live logs you start show up here so you can return to them.")) {
-                        Button("New Port Forward") { showingNew = true }.buttonStyle(.glassProminent)
+                        Button("New Port Forward") { openPicker() }.buttonStyle(.glassProminent)
                     }
                     .frame(minHeight: 280)
                     .listRowBackground(Color.clear)
@@ -67,12 +67,12 @@ struct SessionsView: View {
         .navigationTitle("Sessions")
         .paneToolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showingNew = true } label: { Image(systemName: "plus") }.accessibilityLabel("New port forward")
+                Button { openPicker() } label: { Image(systemName: "plus") }.accessibilityLabel("New port forward")
             }
         }
         #if os(macOS)
         .sheet(isPresented: $showingNew, onDismiss: runPendingForward) {
-            NewPortForwardPicker { pendingForward = $0 }
+            NewPortForwardPicker { pendingForward.choose($0) }
         }
         #else
         .sheet(isPresented: $showingNew) { NewPortForwardPicker() }
@@ -185,10 +185,16 @@ struct SessionsView: View {
         }
     }
 
+    private func openPicker() {
+        #if os(macOS)
+        pendingForward.reset()
+        #endif
+        showingNew = true
+    }
+
     #if os(macOS)
     private func runPendingForward() {
-        guard let choice = pendingForward else { return }
-        pendingForward = nil
+        guard let choice = pendingForward.take() else { return }
         SessionsForward.start(choice, router: router)
     }
     #endif
@@ -226,7 +232,11 @@ struct NewPortForwardPicker: View {
     @State private var mode = Mode.services
     @State private var search = ""
     /// The Mac picker does not open a form: choosing a row hands the target back, and the caller starts the forward.
-    var onChoose: (@MainActor (SessionsForward.Choice) -> Void)?
+    #if os(macOS)
+    let onChoose: PickerChoose
+    #else
+    var onChoose: PickerChoose = { _ in }
+    #endif
     enum Mode: String, CaseIterable, Identifiable { case services = "Services", pods = "Pods"; var id: String { rawValue } }
 
     private static let wellKnown: [String: Int] = ["grafana": 3000, "prometheus": 9090, "argocd-server": 443, "kiali": 20001]
@@ -266,7 +276,7 @@ struct NewPortForwardPicker: View {
 
     private struct ServiceList: View {
         let session: ClusterSession; let selection: NamespaceSelection; let search: String
-        let onChoose: (@MainActor (SessionsForward.Choice) -> Void)?; let dismiss: () -> Void
+        let onChoose: PickerChoose; let dismiss: () -> Void
         var body: some View {
             let store = NamespaceTypedStores<Service>(session: session, selection: selection)
             let items = store.items.filter { search.isEmpty || $0.metadata.name.localizedCaseInsensitiveContains(search) }
@@ -278,34 +288,34 @@ struct NewPortForwardPicker: View {
                 }
                 Section(suggested.isEmpty ? "" : "All Services") { ForEach(items, id: \.id) { row($0) } }
             }
-            .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Services", systemImage: "network", hint: "Nothing to forward to in this namespace.")) } }
-            .task(id: selection) { await store.run() }
+            .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Services", systemImage: "network", hint: selection.names.count > 1 ? "Nothing to forward to in these namespaces." : "Nothing to forward to in this namespace.")) } }
+            .task(id: "\(session.id)|\(selection.encoded)") { await store.run() }
         }
 
         private func row(_ svc: Service) -> some View {
             let ref = ResourceRef(clusterID: session.id, kind: .service, namespace: svc.metadata.namespace, name: svc.metadata.name)
             let label = ResourceRow(title: svc.metadata.name, subtitle: "\(svc.metadata.namespace ?? "") · " + svc.spec.ports.map { String($0.port) }.joined(separator: ", "),
                                     lead: .symbol("network", .info), monospacedTitle: true, showsChevron: false)
-            return PickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) { label }
+            return PortForwardPickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) { label }
         }
     }
 
     private struct PodList: View {
         let session: ClusterSession; let selection: NamespaceSelection; let search: String
-        let onChoose: (@MainActor (SessionsForward.Choice) -> Void)?; let dismiss: () -> Void
+        let onChoose: PickerChoose; let dismiss: () -> Void
         var body: some View {
             let store = NamespaceTypedStores<Pod>(session: session, selection: selection)
             let items = store.items.filter { $0.status?.phase == "Running" && (search.isEmpty || $0.metadata.name.localizedCaseInsensitiveContains(search)) }
                 .sorted { ($0.metadata.namespace ?? "", $0.metadata.name) < ($1.metadata.namespace ?? "", $1.metadata.name) }
             List(items, id: \.id) { pod in
                 let ref = ResourceRef(clusterID: session.id, kind: .pod, namespace: pod.metadata.namespace, name: pod.metadata.name)
-                PickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) {
+                PortForwardPickerRow(ref: ref, onChoose: onChoose, dismiss: dismiss) {
                     ResourceRow(title: pod.metadata.name, subtitle: "\(pod.metadata.namespace ?? "") · " + (pod.spec.containers.flatMap(\.ports).map { String($0.containerPort) }.joined(separator: ", ").nonEmpty ?? "no declared ports"),
                                 lead: .symbol("cube", .healthy), monospacedTitle: true, showsChevron: false)
                 }
             }
             .overlay { if store.isLoading && store.items.isEmpty { EmptyState(.loading) } else if let e = store.error, store.items.isEmpty { EmptyState(EmptyStateKind(error: e)) } else if items.isEmpty { EmptyState(.empty(title: "No Running Pods", systemImage: "cube", hint: "Only running pods can be forwarded to.")) } }
-            .task(id: selection) { await store.run() }
+            .task(id: "\(session.id)|\(selection.encoded)") { await store.run() }
         }
     }
 }

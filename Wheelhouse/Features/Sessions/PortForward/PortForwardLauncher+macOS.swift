@@ -76,15 +76,12 @@ final class PortForwardLauncher {
     /// One click. `port` nil asks the object for its ports: exactly one starts at once, otherwise the advanced form chooses.
     @discardableResult
     func forward(_ ref: ResourceRef, port: Int?, configure: Bool) async -> Outcome {
-        guard ref.kind == .service || ref.kind == .pod, let namespace = ref.namespace, let session = seams.session(ref.clusterID) else {
-            return fail("This object can’t be forwarded.")
-        }
+        // Locked: no banner, no gate message and no request to the cluster.
+        guard !seams.isLocked() else { return .busy }
+        guard ref.kind == .service || ref.kind == .pod, let namespace = ref.namespace else { return fail("This object can’t be forwarded.") }
+        guard let session = seams.session(ref.clusterID) else { return fail("This cluster was removed.") }
         if case .refused(let reason) = PortForwardGate.decide(session.config) { return fail(reason, refused: true) }
-        if configure {
-            guard !seams.isLocked() else { return .busy }
-            seams.presentAdvanced(ref)
-            return .advanced
-        }
+        if configure { seams.presentAdvanced(ref); return .advanced }
         var remote = port
         if remote == nil {
             let ports = await seams.fetchPorts(session, ref) ?? []

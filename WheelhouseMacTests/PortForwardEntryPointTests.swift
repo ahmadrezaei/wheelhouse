@@ -126,12 +126,41 @@ struct PortForwardEntryPointTests {
         let f = fixture()
         let session = try #require(f.registry.session(for: f.staging.id))
         let group = NamespaceTypedStores<Service>(session: session, selection: NamespaceSelection(names: ["a", "b"]))
+        func waitUntil(_ condition: () -> Bool) async {
+            for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+        }
         let task = Task { await group.run() }
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { group.stores.allSatisfy { $0.consumerCount == 1 } }
         #expect(group.stores.allSatisfy { $0.consumerCount == 1 })
         task.cancel()
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { group.stores.allSatisfy { $0.consumerCount == 0 } }
         #expect(group.stores.allSatisfy { $0.consumerCount == 0 })
+    }
+
+    @Test func stoppingAForwardRecordsItsRemotePortForTheRecentEntry() {
+        let hub = SessionsHub.shared
+        hub.clearRecents()
+        defer { hub.clearRecents() }
+        let target = PortForwardTarget(kind: .service, namespace: "db", name: "mariadb", remotePort: 3306)
+        let info = PortForwardInfo(id: UUID(), clusterID: "c1", clusterName: "c1", target: target, localPort: 4406, state: .active,
+                                   startedAt: Date(), bytesDown: 0, bytesUp: 0, openConnections: 0, totalConnections: 0)
+        hub.recordRecent(of: info)
+        let recent = hub.recents.first
+        #expect(recent?.remotePort == 3306)
+        #expect(recent.flatMap(SessionsForward.target(of:)) == ResourceRef(clusterID: "c1", kind: .service, namespace: "db", name: "mariadb"))
+        #expect(recent?.subtitle.contains("4406") == false)   // the Mac starts it again on a free port
+    }
+
+    @Test func aPickerChoiceStartsOnceAndACancelStartsNothing() {
+        var pending = SessionsForward.Pending()
+        let choice = SessionsForward.Choice(ref: pod("c"), configure: false)
+        #expect(pending.take() == nil)               // Cancel with nothing chosen
+        pending.choose(choice)
+        #expect(pending.take() == choice)            // the sheet is gone: it starts
+        #expect(pending.take() == nil)               // and never again
+        pending.choose(choice)
+        pending.reset()                              // the picker opens again
+        #expect(pending.take() == nil)               // a later Cancel replays nothing
     }
 
     @Test func thePickerListsTheNamespacesOfTheSelection() throws {

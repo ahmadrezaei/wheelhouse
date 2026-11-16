@@ -25,6 +25,21 @@ enum SessionsForward {
         return ref
     }
 
+    /// The choice made in the picker, held until its sheet is gone. Opening the picker clears it, so a Cancel after an earlier
+    /// choice can never start that one again, and a choice starts exactly once.
+    struct Pending: Equatable {
+        private(set) var choice: Choice?
+
+        /// The picker opens: nothing from before may replay.
+        mutating func reset() { choice = nil }
+        mutating func choose(_ choice: Choice) { self.choice = choice }
+        /// The picker's sheet is gone: the choice to start, if one was made, and nothing afterwards.
+        mutating func take() -> Choice? {
+            defer { choice = nil }
+            return choice
+        }
+    }
+
     /// Hands the target to the pane's launcher. A router without one opens the form as before.
     @MainActor static func start(_ choice: Choice, router: AppRouter) {
         router.forward(choice.ref, port: choice.port, configure: choice.configure)
@@ -54,25 +69,27 @@ struct NamespaceTypedStores<T: KubeObject> {
     }
 }
 
+/// What a picker row does when chosen.
+typealias PickerChoose = @MainActor (SessionsForward.Choice) -> Void
+
 /// One row of the picker: a navigation link to the form on iOS; on the Mac a button that starts the forward (Option-click and
 /// the "Port Forward…" menu item open the advanced form).
-struct PickerRow<Label: View>: View {
+struct PortForwardPickerRow<Label: View>: View {
     let ref: ResourceRef
-    let onChoose: (@MainActor (SessionsForward.Choice) -> Void)?
+    let onChoose: PickerChoose
     let dismiss: () -> Void
     @ViewBuilder var label: () -> Label
 
     var body: some View {
         #if os(macOS)
         Button {
-            guard let onChoose else { return }
             onChoose(.init(ref: ref, configure: optionKeyIsDown()))
             dismiss()
         } label: { label().contentShape(Rectangle()) }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Port Forward", systemImage: "arrow.left.arrow.right") { onChoose?(.init(ref: ref, configure: false)); if onChoose != nil { dismiss() } }
-            Button("Port Forward…", systemImage: "arrow.left.arrow.right") { onChoose?(.init(ref: ref, configure: true)); if onChoose != nil { dismiss() } }
+            Button("Port Forward", systemImage: "arrow.left.arrow.right") { onChoose(.init(ref: ref, configure: false)); dismiss() }
+            Button("Port Forward…", systemImage: "arrow.left.arrow.right") { onChoose(.init(ref: ref, configure: true)); dismiss() }
         }
         #else
         NavigationLink { PortForwardSetupView(target: ref, onDone: dismiss) } label: { label() }
