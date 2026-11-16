@@ -48,6 +48,11 @@ struct SidebarBuildInput {
     var anyExist: (ClusterID, ResourceKind) -> Bool = { _, _ in false }
     var features: [FeatureDescriptor] = []
     var isDemo = false
+    // M13 Rigging: packs may rename an API-group row under Custom Resources and order its kinds. Keyed by API group; empty by default.
+    var riggingLayouts: [String: (title: String?, order: [String])] = [:]
+    /// `"<group>/<Kind>"` to the pack view that shows it.
+    var riggingViews: [String: (pack: String, view: String)] = [:]
+    // end M13
 }
 
 struct SidebarBuildOutput {
@@ -181,6 +186,11 @@ enum SidebarTreeBuilder {
 
     // MARK: Custom Resources
 
+    /// M13 Rigging: a kind an enabled pack has a view for opens that view (its toolbar offers the plain list).
+    private static func packDestination(for kind: ResourceKind, cluster: ClusterID, input: SidebarBuildInput) -> SidebarDestination? {
+        input.riggingViews["\(kind.group)/\(kind.kind)"].map { .feature(.riggingView(RiggingViewRef(pack: $0.pack, view: $0.view, clusterID: cluster, namespace: nil))) }
+    }
+
     private static func customResources(for c: ClusterConfig, discovery: DiscoveryInfo?, input: SidebarBuildInput, filter q: String,
                                         visible: (ResourceKind) -> (show: Bool, forbidden: Bool), forced: inout Set<String>) -> SidebarRow? {
         var children: [SidebarRow] = []
@@ -194,16 +204,22 @@ enum SidebarTreeBuilder {
         let byGroup = Dictionary(grouping: customs, by: \.group)
         for apiGroup in byGroup.keys.sorted() {
             var kids: [SidebarRow] = []
-            for kind in (byGroup[apiGroup] ?? []).sorted(by: { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }) {
+            let layout = input.riggingLayouts[apiGroup]   // M13 Rigging
+            let ordered = (byGroup[apiGroup] ?? []).sorted(by: { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending })
+                .enumerated().sorted { a, b in
+                    let ia = layout?.order.firstIndex(of: a.element.kind) ?? Int.max, ib = layout?.order.firstIndex(of: b.element.kind) ?? Int.max
+                    return ia != ib ? ia < ib : a.offset < b.offset
+                }.map(\.element)
+            for kind in ordered {
                 let vk = visible(kind)
                 guard vk.show, q.isEmpty || kind.displayName.lowercased().contains(q) || kind.plural.contains(q) || apiGroup.lowercased().contains(q) else { continue }
                 kids.append(SidebarRow(id: "kind.\(c.id).\(kind.id)", role: .kind, level: 4, title: kind.displayName, symbol: "cube.transparent", clusterID: c.id,
-                                       kind: kind, destination: .kind(c.id, kind), isForbidden: vk.forbidden))
+                                       kind: kind, destination: packDestination(for: kind, cluster: c.id, input: input) ?? .kind(c.id, kind), isForbidden: vk.forbidden))
             }
             guard !kids.isEmpty else { continue }
             let id = "api.\(c.id).\(apiGroup)"
             if !q.isEmpty { forced.insert(id) }
-            children.append(SidebarRow(id: id, role: .apiGroup, level: 3, title: apiGroup, symbol: "", clusterID: c.id, isExpandable: true, children: kids))
+            children.append(SidebarRow(id: id, role: .apiGroup, level: 3, title: layout?.title ?? apiGroup, symbol: "", clusterID: c.id, isExpandable: true, children: kids))
         }
         guard !children.isEmpty else { return nil }
         let id = "group.\(c.id).customResources"

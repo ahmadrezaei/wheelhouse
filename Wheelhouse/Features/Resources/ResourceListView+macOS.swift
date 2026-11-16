@@ -162,6 +162,9 @@ extension ListScreen {
             out.append(KubeRowAction(title: "Logs", symbol: "text.alignleft") { router.push(.logs(ref, container: nil, previous: false), from: column) })
         }
         out += portForwardActions(for: row, ref: ref)   // fix-P: before the canMutate guard (read-only clusters may allow forwarding)
+        // M13 Rigging: commands the enabled packs offer for this kind (inserted into a terminal, never run).
+        out.append(contentsOf: ResourceRowExtensions.actions(for: ref, raw: row.object.raw))
+        // end M13
         guard canMutate(row) else { return out }
         out.append(.separator)
         switch kind.kind {

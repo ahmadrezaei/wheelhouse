@@ -1,0 +1,59 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: keda, version: 1.0.0, description: "Event-driven autoscaling: scaled objects, scaled jobs and authentication", author: Wheelhouse, homepage: "https://keda.sh" }
+sidebar:
+  - { apiGroup: keda.sh, title: "KEDA", kinds: [ScaledObject, ScaledJob, TriggerAuthentication, ClusterTriggerAuthentication] }
+views:
+  - id: scaledobjects
+    title: Scaled Objects
+    symbol: "arrow.up.and.down.circle"
+    match: { group: keda.sh, kind: ScaledObject }
+    fields:
+      - { name: target, path: ".spec.scaleTargetRef.name" }
+    columns:
+      - { name: Target, path: ".spec.scaleTargetRef.name" }
+      - { name: Min, path: ".spec.minReplicaCount", format: number }
+      - { name: Max, path: ".spec.maxReplicaCount", format: number }
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Active, path: ".status.conditions[?(@.type=='Active')].status" }
+      - { name: Fallback, path: ".status.conditions[?(@.type=='Fallback')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical, label: "Not ready" }
+      - { when: { condition: Fallback, status: "True" }, tone: warning, label: "Fallback" }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+    related:
+      - { kind: Deployment, group: apps, nameFrom: ".spec.scaleTargetRef.name", label: "Scale target" }
+      - { kind: HorizontalPodAutoscaler, group: autoscaling, nameFrom: ".status.hpaName", label: "HPA" }
+  - id: scaledjobs
+    title: Scaled Jobs
+    match: { group: keda.sh, kind: ScaledJob }
+    columns:
+      - { name: Max, path: ".spec.maxReplicaCount", format: number }
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Active, path: ".status.conditions[?(@.type=='Active')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+  - id: triggerauthentications
+    title: Trigger Authentications
+    match: { group: keda.sh, kind: TriggerAuthentication }
+    columns:
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+commands:
+  - title: "Show scaled object"
+    for: { group: keda.sh, kind: ScaledObject }
+    terminal: "kubectl describe scaledobject {{name}} -n {{namespace}}"
+  - title: "Show the scaled workload's autoscaler"
+    for: { group: keda.sh, kind: ScaledObject }
+    terminal: "kubectl get hpa keda-hpa-{{name}} -n {{namespace}} -o wide"
+healthRules:
+  - for: { group: keda.sh, kind: ScaledObject }
+    when: { condition: Ready, status: "False", for: 10m }
+    tone: warning
+    message: "ScaledObject {{name}} is not ready"
+  - for: { group: keda.sh, kind: ScaledObject }
+    when: { condition: Fallback, status: "True" }
+    tone: warning
+    message: "ScaledObject {{name}} is using its fallback replicas"

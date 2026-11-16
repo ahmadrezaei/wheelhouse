@@ -58,6 +58,13 @@ struct RailBar: View {
     @ViewBuilder private func menu(for item: RailItem, index: Int, count: Int) -> some View {
         Button("Open in New Tab") { rail.activate(item, in: model, placement: .newTab, controller: env.workspace) }
         Button("Open in Split") { rail.activate(item, in: model, placement: .split, controller: env.workspace) }
+        // M13: commands the enabled packs offer for a pinned object (or for the cluster); inserted into a terminal, never run.
+        let packActions = RiggingFeature.isEnabled() ? env.rigging.railActions(for: item) : []
+        if !packActions.isEmpty {
+            Divider()
+            ForEach(packActions, id: \.id) { action in Button(action.title) { action.perform() } }
+        }
+        // end M13
         Divider()
         Button("Rename…") { newName = rail.title(for: item); renaming = item }
         Button("Move Left") { if index > 0 { rail.move(item.id, before: rail.items[index - 1].id) } }.disabled(index == 0)
