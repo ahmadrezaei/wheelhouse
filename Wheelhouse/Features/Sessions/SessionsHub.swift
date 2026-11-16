@@ -11,6 +11,8 @@ struct RecentSession: Identifiable {
     var subtitle: String
     var endedAt: Date
     var route: Route?
+    /// The remote port of a forward, so a Recent can start it again without asking.
+    var remotePort: Int?
 }
 
 /// App-wide registry of live sessions: port-forwards, shells and followed log streams. Views of the Sessions feature read
@@ -184,7 +186,7 @@ final class SessionsHub {
         }
         recents.insert(RecentSession(kind: .forward, title: info.target.title, subtitle: "localhost:\(info.localPort) · \(info.clusterName) · ↓\(Self.bytes(info.bytesDown)) ↑\(Self.bytes(info.bytesUp))",
                                      endedAt: Date(), route: .portForward(ResourceRef(clusterID: info.clusterID, kind: info.target.kind == .service ? .service : .pod,
-                                                                                      namespace: info.target.namespace, name: info.target.name))), at: 0)
+                                                                                      namespace: info.target.namespace, name: info.target.name)), remotePort: info.target.remotePort), at: 0)
         forwards.removeAll { $0.id == id }
         trimRecents()
     }

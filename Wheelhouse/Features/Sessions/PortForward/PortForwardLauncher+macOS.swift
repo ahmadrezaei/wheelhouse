@@ -80,7 +80,11 @@ final class PortForwardLauncher {
             return fail("This object can’t be forwarded.")
         }
         if case .refused(let reason) = PortForwardGate.decide(session.config) { return fail(reason, refused: true) }
-        if configure { seams.presentAdvanced(ref); return .advanced }
+        if configure {
+            guard !seams.isLocked() else { return .busy }
+            seams.presentAdvanced(ref)
+            return .advanced
+        }
         var remote = port
         if remote == nil {
             let ports = await seams.fetchPorts(session, ref) ?? []

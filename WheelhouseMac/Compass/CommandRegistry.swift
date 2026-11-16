@@ -57,6 +57,11 @@ struct CommandRegistry {
                 m.isInspectorOpen = true
                 m.mutate { $0.inspector.segment = .firstMate }
             },
+            // Resource ▸ Port Forward…: on when the focused pane shows a service or pod and the cluster allows port forwarding.
+            make("resource.portForward", "Port Forward…", "Resource", "⌥⌘P", "arrow.left.arrow.right",
+                 enabled: { workspace.activeModel?.portForwardCommandTarget(registry: env.registry) != nil }) {
+                workspace.activeModel?.performPortForwardCommand(registry: env.registry)
+            },
             onWindow("window.nextTab", "Next Tab", "Window", "⇧⌘]", "arrow.right.square") { $0.selectTab(offset: 1) },
             onWindow("window.previousTab", "Previous Tab", "Window", "⇧⌘[", "arrow.left.square") { $0.selectTab(offset: -1) },
             onWindow("window.moveTab", "Move Tab to New Window", "Window", nil, "macwindow.badge.plus") { $0.moveTabToNewWindow() },
