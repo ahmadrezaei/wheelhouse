@@ -112,6 +112,12 @@ final class CompassModel {
         guard !isLocked() else { return }
         if let seed { query = seed }
         else if let closedAt, now().timeIntervalSince(closedAt) > Self.rememberQueryFor { query = "" }
+        if !isOpen {
+            let responder = NSApp.keyWindow?.firstResponder
+            // A text field being edited is represented by the window's shared field editor, which the panel's field takes over:
+            // remember the field itself.
+            if let text = responder as? NSTextView, text.isFieldEditor { previousResponder = text.delegate as? NSView } else { previousResponder = responder }
+        }
         isOpen = true
         selection = 0
         actions = []
@@ -120,12 +126,30 @@ final class CompassModel {
         Task { stats = await index.stats }
     }
 
+    /// What had the keyboard when the panel opened: Esc and a finished command give it back.
+    @ObservationIgnored private weak var previousResponder: NSResponder?
+
     func close() {
         guard isOpen else { return }
         isOpen = false
         closedAt = now()
+        restoreKeyboardFocus()
         searchTask?.cancel()
         frecency.flush()
+    }
+
+    /// After the panel is gone (next turn: its text field is still the first responder until SwiftUI removes it).
+    private func restoreKeyboardFocus() {
+        guard let responder = previousResponder as? NSView else { return }
+        previousResponder = nil
+        DispatchQueue.main.async { [weak responder] in
+            guard let responder, let window = responder.window, window.isKeyWindow else { return }
+            // A command the panel ran may have placed the keyboard itself (Filter Sidebar…): only an unplaced keyboard is restored.
+            let current = window.firstResponder
+            let unplaced = current == nil || current === window || (current as? NSView)?.window == nil
+            guard unplaced else { return }
+            window.makeFirstResponder(responder)
+        }
     }
 
     /// App Lock: the panel closes and forgets what was typed.
@@ -287,6 +311,17 @@ final class CompassModel {
     }
 
     var showsActionList: Bool { actionsFor != nil }
+
+    /// What VoiceOver hears when the arrows move the highlight (the text field keeps its focus).
+    var spokenSelection: String? {
+        if showsActionList { return actions.indices.contains(selection) ? actions[selection].title : nil }
+        guard let r = selected else { return nil }
+        return [r.title, r.subtitle, r.environment?.title, r.isProblem ? "failing" : nil].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    static func resultsSummary(_ count: Int) -> String {
+        count == 0 ? "No results" : count == 1 ? "1 result" : "\(count) results"
+    }
 
     /// The result under the selection.
     var selected: CompassResult? { results.indices.contains(selection) ? results[selection] : nil }

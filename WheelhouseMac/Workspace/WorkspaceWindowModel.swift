@@ -304,6 +304,8 @@ final class WorkspaceWindowModel {
         set { setInspector { $0.isOpen = newValue } }
     }
     @ObservationIgnored weak var window: NSWindow?
+    /// Where each pane sits in the window (set by the pane's anchor view); the focus sync maps responders to panes with it.
+    @ObservationIgnored var paneAnchors: [PaneID: WeakPaneAnchor] = [:]
     @ObservationIgnored private var routers: [PaneID: AppRouter] = [:]
     @ObservationIgnored private var graceTask: Task<Void, Never>?
     @ObservationIgnored var releaseGrace: TimeInterval = MacEnergyCoordinator.defaultReleaseGrace

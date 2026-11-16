@@ -39,8 +39,20 @@ struct CompassPanel: View {
             .padding(.top, 90)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Compass, \(compass.results.count) results")
+            .accessibilityAddTraits(.isModal)
         }
         .onAppear { focused = true }
+        .background(CompassMarker())
+        // The field keeps VoiceOver's focus while the arrows move the highlight: say which row it is on, and how many results a
+        // pause in typing left.
+        .onChange(of: compass.selection) { _, _ in
+            if let spoken = compass.spokenSelection { AccessibilityAnnouncer.announce(spoken) }
+        }
+        .task(id: "\(compass.query)|\(compass.results.count)") {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, !compass.showsActionList else { return }
+            AccessibilityAnnouncer.announce(CompassModel.resultsSummary(compass.results.count))
+        }
         .onKeyPress(.upArrow) { compass.move(-1); return .handled }
         .onKeyPress(.downArrow) { compass.move(1); return .handled }
         .onKeyPress(.escape) { if compass.showsActionList { compass.hideActions() } else { compass.close() }; return .handled }
@@ -64,6 +76,8 @@ struct CompassPanel: View {
                             .background(i == compass.selection ? Palette.tint.opacity(0.2) : .clear)
                             .contentShape(Rectangle())
                             .onTapGesture { compass.selection = i; compass.performSelected() }
+                            .accessibilityAddTraits(i == compass.selection ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityAction { compass.selection = i; compass.performSelected() }
                     }
                 }
             }
@@ -83,6 +97,8 @@ struct CompassPanel: View {
                             CompassRow(result: result, selected: i == compass.selection)
                                 .id(i)
                                 .onTapGesture { compass.selection = i; compass.performSelected() }
+                                .accessibilityAddTraits(i == compass.selection ? [.isButton, .isSelected] : .isButton)
+                                .accessibilityAction { compass.selection = i; compass.performSelected() }
                         }
                     }
                 }

@@ -122,6 +122,7 @@ struct PaneHost: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(PaneAnchor(model: model, paneID: paneID))
             .overlay { if PaneDragState.shared.isActive { PaneDropTarget(model: model, paneID: paneID) } }
             .simultaneousGesture(TapGesture().onEnded { model.focus(pane: paneID) })
             .overlay { if multiple && isFocused { Rectangle().strokeBorder(Palette.tint.opacity(0.55), lineWidth: 1.5).allowsHitTesting(false) } }
@@ -129,12 +130,15 @@ struct PaneHost: View {
             .paneEnvironment(env: env, model: model, router: router, visible: model.isVisible && tabIsSelected)
             // Only the focused (or zoomed) pane of the selected tab puts its items and its search field in the window toolbar, and
             // none does under the lock (the toolbar is above the lock screen).
+            .environment(\.paneIsInKeyLoop, tabIsSelected)
             .environment(\.paneContributesToolbar, PaneHost.contributesToolbar(isFocused: isFocused, isZoomed: zoomedHere, tabIsSelected: tabIsSelected,
                                                                                 locked: env.lock.isLocked))
             .environment(\.paneEditsReporter, PaneEditsReporter { [model, paneID] editor, dirty in model.editorReported(editor, dirty: dirty, in: paneID) })
             .environment(\.paneDestinationPusher, PaneDestinationPusher(model: model, paneID: paneID))
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Pane: \(pane.title(registry: env.registry))")
+            .accessibilityLabel(Self.accessibilityLabel(title: pane.title(registry: env.registry),
+                                                        cluster: pane.context.clusterID.flatMap { env.registry.config(for: $0) }))
+            .accessibilityAddTraits(isFocused && multiple ? .isSelected : [])
             .accessibilityIdentifier("pane")
             // The pane covers itself under the lock (a detached pane window has no workspace around it): outermost, so the pane
             // element itself leaves the accessibility tree, not just its content.
@@ -143,6 +147,16 @@ struct PaneHost: View {
         } else {
             Color.clear
         }
+    }
+
+    /// "Pane, title, cluster[, Production]": what a pane is and where it points, said before its content.
+    static func accessibilityLabel(title: String, cluster: ClusterConfig?) -> String {
+        var parts = ["Pane", title]
+        if let cluster {
+            parts.append(cluster.name)
+            if cluster.environment == .production { parts.append("Production") }
+        }
+        return parts.joined(separator: ", ")
     }
 
     static func contributesToolbar(isFocused: Bool, isZoomed: Bool, tabIsSelected: Bool, locked: Bool) -> Bool {
@@ -179,6 +193,7 @@ struct PaneHeader: View {
             if tab.panes.count > 1 && !isDetached {
                 Button { model.toggleLink(pane.id) } label: { Image(systemName: pane.link == nil ? "link" : "link.badge.plus") }
                     .buttonStyle(.plain).help(pane.link == nil ? "Follow another pane's selection" : "Stop following").accessibilityLabel("Link pane")
+                    .accessibilityValue(pane.link == nil ? "Off" : "On")
                     .accessibilityIdentifier("pane.link")
             }
             Menu {
@@ -226,7 +241,16 @@ struct PaneHeader: View {
             .font(.system(size: 11))
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .accessibilityLabel("Cluster of this pane").accessibilityIdentifier("pane.context")
+        .accessibilityLabel("Cluster of this pane").accessibilityValue(chipValue).accessibilityIdentifier("pane.context")
+    }
+
+    /// "cluster, environment[, namespaces]": the chip's picture (dot, shield, namespace) in words.
+    private var chipValue: String {
+        guard let cluster else { return "No cluster" }
+        var parts = [cluster.name, cluster.environment.title]
+        let selection = env.registry.namespaceSelection(for: cluster.id)
+        if !selection.isAll { parts.append(selection.label) }
+        return parts.joined(separator: ", ")
     }
 
     private func color(_ e: ClusterEnvironment) -> Color {
@@ -308,6 +332,7 @@ struct PaneStack: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.paneIsVisible) private var paneIsVisible
     @Environment(\.paneContributesToolbar) private var contributesToolbar
+    @Environment(\.paneIsInKeyLoop) private var paneIsInKeyLoop
 
     var body: some View {
         let top = pane.stack.count - 1
@@ -321,6 +346,7 @@ struct PaneStack: View {
                     .background(HiddenTabResponderGuard(isSelected: isTop))
                     .environment(\.paneIsVisible, paneIsVisible && isTop)
                     .environment(\.paneScreenIsCovered, !isTop)
+                    .environment(\.paneIsInKeyLoop, paneIsInKeyLoop && isTop)
                     .environment(\.paneContributesToolbar, contributesToolbar && isTop)
                     .opacity(isTop ? 1 : 0)
                     .allowsHitTesting(isTop)
