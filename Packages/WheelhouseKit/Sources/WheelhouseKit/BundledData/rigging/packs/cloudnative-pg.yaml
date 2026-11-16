@@ -1,0 +1,58 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: cloudnative-pg, version: 1.0.0, description: "PostgreSQL clusters, backups and schedules", author: Wheelhouse, homepage: "https://cloudnative-pg.io" }
+sidebar:
+  - { apiGroup: postgresql.cnpg.io, title: "CloudNativePG", kinds: [Cluster, Backup, ScheduledBackup, Pooler] }
+views:
+  - id: clusters
+    title: Postgres Clusters
+    symbol: "cylinder.split.1x2"
+    match: { group: postgresql.cnpg.io, kind: Cluster }
+    columns:
+      - { name: Instances, path: ".spec.instances", format: number }
+      - { name: Ready, path: ".status.readyInstances", format: number }
+      - { name: Phase, path: ".status.phase" }
+      - { name: Primary, path: ".status.currentPrimary" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical, label: "Not ready" }
+      - { when: { path: ".status.phase", in: ["Cluster in healthy state"] }, tone: healthy }
+      - { when: { path: ".status.phase", exists: true }, tone: warning }
+    related:
+      - { kind: Pod, nameFrom: ".status.currentPrimary", label: "Primary pod" }
+  - id: backups
+    title: Backups
+    symbol: "externaldrive"
+    match: { group: postgresql.cnpg.io, kind: Backup }
+    columns:
+      - { name: Cluster, path: ".spec.cluster.name" }
+      - { name: Phase, path: ".status.phase" }
+      - { name: Started, path: ".status.startedAt", format: age }
+      - { name: Method, path: ".spec.method" }
+    status:
+      - { when: { path: ".status.phase", equals: "failed" }, tone: critical }
+      - { when: { path: ".status.phase", equals: "completed" }, tone: healthy }
+      - { when: { path: ".status.phase", in: ["running", "started"] }, tone: warning, label: "Running" }
+  - id: scheduledbackups
+    title: Scheduled Backups
+    match: { group: postgresql.cnpg.io, kind: ScheduledBackup }
+    columns:
+      - { name: Cluster, path: ".spec.cluster.name" }
+      - { name: Schedule, path: ".spec.schedule" }
+      - { name: Last, path: ".status.lastScheduleTime", format: age }
+commands:
+  - title: "Show cluster status"
+    for: { group: postgresql.cnpg.io, kind: Cluster }
+    terminal: "kubectl cnpg status {{name}} -n {{namespace}}"
+  - title: "Show cluster"
+    for: { group: postgresql.cnpg.io, kind: Cluster }
+    terminal: "kubectl describe cluster.postgresql.cnpg.io {{name}} -n {{namespace}}"
+healthRules:
+  - for: { group: postgresql.cnpg.io, kind: Cluster }
+    when: { condition: Ready, status: "False", for: 10m }
+    tone: critical
+    message: "Postgres cluster {{name}} is not ready"
+  - for: { group: postgresql.cnpg.io, kind: Backup }
+    when: { path: ".status.phase", equals: "failed" }
+    tone: warning
+    message: "Backup {{name}} failed"

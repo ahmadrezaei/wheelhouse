@@ -190,6 +190,9 @@ struct SidebarModelTests {
     }
 
     @Test func customResourcesListOneSubGroupPerUncoveredAPIGroup() async {
+        // M13: this pins the layout without packs; an app environment started by another test may have installed the pack hooks.
+        RiggingSidebarHook.layouts = { [:] }
+        RiggingSidebarHook.views = { [:] }
         let p = FakeSidebarProvider(clusters: [cfg("alpha")])
         p.discoveryByCluster["alpha"] = discovery(coreServed + [
             resource("issuers", kind: "Issuer", group: "cert-manager.io", version: "v1"),

@@ -112,6 +112,7 @@ public struct DashboardAlert: Identifiable, Hashable, Sendable {
         case .jobFailed: category = .job
         case .pvcPending: category = .storage
         case .unreachable, .credentialsExpiring: category = .cluster
+        case .riggingRule: category = .workload
         }
         switch item.kind {
         case .crashLoop: symbol = "arrow.triangle.2.circlepath"
@@ -129,6 +130,7 @@ public struct DashboardAlert: Identifiable, Hashable, Sendable {
         case .pvcPending: symbol = "externaldrive.badge.exclamationmark"
         case .unreachable: symbol = "wifi.slash"
         case .credentialsExpiring: symbol = "key.horizontal"
+        case .riggingRule: symbol = "puzzlepiece.extension"
         }
     }
 

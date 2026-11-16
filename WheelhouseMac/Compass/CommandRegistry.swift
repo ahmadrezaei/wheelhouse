@@ -20,11 +20,16 @@ struct CompassCommand: Identifiable {
 /// copy that drifts into a collision is caught. Commands act on the active window; while App Lock is on none is enabled.
 @MainActor
 struct CommandRegistry {
-    let commands: [CompassCommand]
+    private let base: [CompassCommand]
+    // M13 Rigging: the commands of the enabled packs for what the focused pane shows, read each time Compass lists them.
+    private let extra: @MainActor () -> [CompassCommand]
+    var commands: [CompassCommand] { base + extra() }
+    // end M13
 
     func command(_ id: String) -> CompassCommand? { commands.first { $0.id == id } }
 
     init(env: MacAppEnvironment, openSettings: @escaping @MainActor () -> Void = {}, openActivity: @escaping @MainActor () -> Void = {}) {
+        extra = { RiggingFeature.isEnabled() ? env.rigging.compassCommands() : [] }
         let workspace = env.workspace
         let locked: @MainActor () -> Bool = { env.lock.isLocked }
         let hasWindow: @MainActor () -> Bool = { if let m = workspace.activeModel, case .window = m.scope { true } else { false } }
@@ -37,7 +42,7 @@ struct CommandRegistry {
                       _ perform: @escaping @MainActor (WorkspaceWindowModel) -> Void) -> CompassCommand {
             make(id, title, path, shortcut, symbol, enabled: hasWindow) { if let m = workspace.activeModel { perform(m) } }
         }
-        commands = [
+        base = [
             make("file.newWindow", "New Window", "File", "⌘N", "macwindow") { workspace.newWindowOrReopenLast() },
             onWindow("file.newTab", "New Tab", "File", "⌘T", "plus.square") { $0.newTab() },
             onWindow("file.closeTab", "Close Tab", "File", "⌥⌘W", "xmark.square") { $0.closeTab($0.selectedTab.id) },

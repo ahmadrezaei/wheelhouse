@@ -1,0 +1,72 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: cert-manager, version: 1.0.0, description: "Certificates, issuers and their readiness", author: Wheelhouse, homepage: "https://cert-manager.io" }
+sidebar:
+  - { apiGroup: cert-manager.io, title: "cert-manager", kinds: [Certificate, CertificateRequest, Issuer, ClusterIssuer] }
+views:
+  - id: certificates
+    title: Certificates
+    symbol: "checkmark.seal"
+    match: { group: cert-manager.io, kind: Certificate }
+    fields:
+      - { name: secretName, path: ".spec.secretName" }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Secret, path: ".spec.secretName" }
+      - { name: Issuer, path: ".spec.issuerRef.name" }
+      - { name: Expires, path: ".status.notAfter", format: age }
+      - { name: Renews, path: ".status.renewalTime", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical, label: "Not ready" }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+    related:
+      - { kind: Secret, nameFrom: ".spec.secretName", label: "TLS secret" }
+      - { kind: Issuer, group: cert-manager.io, nameFrom: ".spec.issuerRef.name", label: "Issuer" }
+  - id: issuers
+    title: Issuers
+    symbol: "building.columns"
+    match: { group: cert-manager.io, kind: Issuer }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+  - id: clusterissuers
+    title: ClusterIssuers
+    symbol: "building.columns.fill"
+    match: { group: cert-manager.io, kind: ClusterIssuer }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+  - id: certificaterequests
+    title: Certificate Requests
+    match: { group: cert-manager.io, kind: CertificateRequest }
+    columns:
+      - { name: Approved, path: ".status.conditions[?(@.type=='Approved')].status" }
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: warning }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+commands:
+  - title: "Renew certificate"
+    for: { group: cert-manager.io, kind: Certificate }
+    terminal: "cmctl renew {{name}} -n {{namespace}}"
+  - title: "Show certificate status"
+    for: { group: cert-manager.io, kind: Certificate }
+    terminal: "cmctl status certificate {{name}} -n {{namespace}}"
+  - title: "Check the cert-manager API"
+    terminal: "cmctl check api"
+healthRules:
+  - for: { group: cert-manager.io, kind: Certificate }
+    when: { condition: Ready, status: "False", for: 1h }
+    tone: warning
+    message: "Certificate {{name}} has not been ready for over an hour"
+  - for: { group: cert-manager.io, kind: ClusterIssuer }
+    when: { condition: Ready, status: "False", for: 15m }
+    tone: critical
+    message: "ClusterIssuer {{name}} is not ready"

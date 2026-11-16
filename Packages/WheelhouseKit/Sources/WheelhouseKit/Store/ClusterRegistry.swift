@@ -109,6 +109,9 @@ public final class ClusterRegistry {
 
     public func config(for id: ClusterID) -> ClusterConfig? { clusters.first { $0.id == id } }
 
+    /// Called once for every session this registry creates (the Mac app attaches its Rigging health rules). nil on iOS.
+    @ObservationIgnored public var sessionHook: (@MainActor (ClusterSession) -> Void)?
+
     public func session(for id: ClusterID) -> ClusterSession? {
         if let s = sessions[id] { return s }
         if let t = transientSessions[id] {
@@ -129,6 +132,7 @@ public final class ClusterRegistry {
         let s = ClusterSession(config: config, client: clientFactory(config, secrets))
         s.credentialsMissing = missing
         s.credentialsProblem = problem
+        sessionHook?(s)
         if credentialsUsable { sessions[id] = s } else { transientSessions[id] = (s, Date()) }
         return s
     }

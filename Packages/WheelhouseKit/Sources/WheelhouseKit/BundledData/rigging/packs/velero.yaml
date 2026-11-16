@@ -1,0 +1,79 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: velero, version: 1.0.0, description: "Backups, restores, schedules and storage locations", author: Wheelhouse, homepage: "https://velero.io" }
+sidebar:
+  - { apiGroup: velero.io, title: "Velero", kinds: [Backup, Restore, Schedule, BackupStorageLocation, VolumeSnapshotLocation] }
+views:
+  - id: backups
+    title: Backups
+    symbol: "externaldrive.badge.timemachine"
+    match: { group: velero.io, kind: Backup }
+    columns:
+      - { name: Phase, path: ".status.phase" }
+      - { name: Errors, path: ".status.errors", format: number }
+      - { name: Warnings, path: ".status.warnings", format: number }
+      - { name: Created, path: ".status.startTimestamp", format: age }
+      - { name: Expires, path: ".status.expiration", format: age }
+      - { name: Location, path: ".spec.storageLocation" }
+    status:
+      - { when: { path: ".status.phase", in: ["Failed", "FailedValidation"] }, tone: critical }
+      - { when: { path: ".status.phase", equals: "PartiallyFailed" }, tone: warning, label: "Partially failed" }
+      - { when: { path: ".status.phase", equals: "Completed" }, tone: healthy }
+    related:
+      - { kind: BackupStorageLocation, group: velero.io, nameFrom: ".spec.storageLocation", label: "Storage location" }
+  - id: restores
+    title: Restores
+    match: { group: velero.io, kind: Restore }
+    columns:
+      - { name: Backup, path: ".spec.backupName" }
+      - { name: Phase, path: ".status.phase" }
+      - { name: Errors, path: ".status.errors", format: number }
+      - { name: Warnings, path: ".status.warnings", format: number }
+    status:
+      - { when: { path: ".status.phase", in: ["Failed", "FailedValidation"] }, tone: critical }
+      - { when: { path: ".status.phase", equals: "PartiallyFailed" }, tone: warning }
+      - { when: { path: ".status.phase", equals: "Completed" }, tone: healthy }
+  - id: schedules
+    title: Schedules
+    symbol: "calendar.badge.clock"
+    match: { group: velero.io, kind: Schedule }
+    columns:
+      - { name: Schedule, path: ".spec.schedule" }
+      - { name: Last backup, path: ".status.lastBackup", format: age }
+      - { name: Phase, path: ".status.phase" }
+      - { name: Paused, path: ".spec.paused", format: bool }
+    status:
+      - { when: { path: ".status.phase", equals: "FailedValidation" }, tone: critical }
+      - { when: { path: ".spec.paused", equals: "true" }, tone: warning, label: "Paused" }
+      - { when: { path: ".status.phase", equals: "Enabled" }, tone: healthy }
+  - id: backupstoragelocations
+    title: Storage Locations
+    symbol: "externaldrive.connected.to.line.below"
+    match: { group: velero.io, kind: BackupStorageLocation }
+    columns:
+      - { name: Provider, path: ".spec.provider" }
+      - { name: Phase, path: ".status.phase" }
+      - { name: Last checked, path: ".status.lastValidationTime", format: age }
+      - { name: Default, path: ".spec.default", format: bool }
+    status:
+      - { when: { path: ".status.phase", equals: "Unavailable" }, tone: critical }
+      - { when: { path: ".status.phase", equals: "Available" }, tone: healthy }
+commands:
+  - title: "Describe backup"
+    for: { group: velero.io, kind: Backup }
+    terminal: "velero backup describe {{name}} -n {{namespace}} --details"
+  - title: "Show backup logs"
+    for: { group: velero.io, kind: Backup }
+    terminal: "velero backup logs {{name}} -n {{namespace}}"
+  - title: "Describe restore"
+    for: { group: velero.io, kind: Restore }
+    terminal: "velero restore describe {{name}} -n {{namespace}} --details"
+healthRules:
+  - for: { group: velero.io, kind: BackupStorageLocation }
+    when: { path: ".status.phase", equals: "Unavailable" }
+    tone: critical
+    message: "Backup storage location {{name}} is unavailable"
+  - for: { group: velero.io, kind: Backup }
+    when: { path: ".status.phase", in: ["Failed", "PartiallyFailed"] }
+    tone: warning
+    message: "Backup {{name}} did not complete cleanly"
