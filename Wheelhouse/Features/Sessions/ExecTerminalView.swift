@@ -9,6 +9,7 @@ struct ExecTerminalView: View {
 
     @Environment(ClusterRegistry.self) private var registry
     @Environment(AppRouter.self) private var router
+    @Environment(\.paneContributesToolbar) private var contributesToolbar
     @State private var model: ShellModel?
     @State private var confirm: ConfirmRequest?
     @State private var customShell = ""
@@ -259,7 +260,9 @@ struct ExecTerminalView: View {
     }
 
     private func popIfPossible() {
-        if router.isCompact {
+        // A Mac pane keeps its own stack: its Back (or closing the pane when this is its only screen), not the router's paths.
+        if let paneDismiss = router.paneDismiss { paneDismiss() }
+        else if router.isCompact {
             if router.selectedTab == .sessions, !router.sessionsPath.isEmpty { router.sessionsPath.removeLast() }
             else if router.selectedTab == .fleet, !router.fleetPath.isEmpty { router.fleetPath.removeLast() }
             else if router.selectedTab == .cluster, !router.clusterPath.isEmpty { router.clusterPath.removeLast() }
@@ -282,5 +285,6 @@ struct ExecTerminalView: View {
     private func shortcuts(_ model: ShellModel) -> some View {
         Button("Close Session") { hub.close(model); self.model = nil; popIfPossible() }
             .keyboardShortcut("w", modifiers: .command).hidden()
+            .disabled(!contributesToolbar)   // a Mac pane that is not the focused one must not close its shell on ⌘W (always true on iOS)
     }
 }

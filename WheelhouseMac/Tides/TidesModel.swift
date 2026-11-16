@@ -16,7 +16,14 @@ final class TidesClusterModel: Identifiable {
     var name: String { session.config.name }
     var config: ClusterConfig { session.config }
 
-    init(session: ClusterSession) { self.session = session }
+    init(session: ClusterSession) {
+        self.session = session
+        // Discovery is cached per cluster: a model made later (an app opened from the Overview) starts with it, not with "not found".
+        if let discovery = session.discovery {
+            detection = GitOpsDetection.detect(discovery)
+            discoveryDone = true
+        }
+    }
 
     /// Reads discovery (cached per cluster) and detects Flux and Argo CD.
     func loadDiscovery() async {

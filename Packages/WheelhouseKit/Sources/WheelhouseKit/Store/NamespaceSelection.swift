@@ -21,9 +21,12 @@ public enum NamespaceSelection: Hashable, Sendable {
 
     public init(_ name: String?) { self.init(names: name.map { [$0] } ?? []) }
 
-    /// Reads the persisted form. `*`, an empty string and whitespace are All.
+    /// Reads the persisted form. `*`, an empty string and whitespace are All. A hand-edited list longer than ``limit`` keeps the
+    /// first ``limit`` names in sorted order.
     public init(encoded: String) {
-        self = encoded == Self.allToken ? .all : Self(names: encoded.split(separator: ",").map(String.init))
+        guard encoded != Self.allToken else { self = .all; return }
+        let all = Self(names: encoded.split(separator: ",").map(String.init))
+        self = all.names.count > Self.limit ? Self(names: all.names.prefix(Self.limit)) : all
     }
 
     public var encoded: String {

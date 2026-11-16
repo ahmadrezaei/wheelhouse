@@ -48,6 +48,20 @@ struct SidebarPane: View {
         .accessibilityLabel("Sidebar")
         .background(Color.clear)
         .focusedSceneValue(\.sidebarFilterFocus, FocusAction { filterFocused = true })
+        // A namespace selection changed: the RBAC filter follows it (the model re-reviews the expanded clusters).
+        .onChange(of: selectionTokens) { old, new in
+            for id in Self.changedClusters(old: old, new: new) { model.namespaceChanged(cluster: id) }
+        }
+    }
+
+    /// Each cluster's persisted selection, to notice a change.
+    private var selectionTokens: [ClusterID: String] {
+        Dictionary(registry.clusters.map { ($0.id, registry.namespaceSelection(for: $0.id).encoded) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The clusters whose selection differs between two snapshots (a cluster in only one of them is not a selection change).
+    static func changedClusters(old: [ClusterID: String], new: [ClusterID: String]) -> [ClusterID] {
+        new.filter { id, selection in old[id].map { $0 != selection } ?? false }.keys.sorted()
     }
 
     // MARK: Footer
@@ -128,7 +142,7 @@ struct SidebarPane: View {
             guard let kind = row.kind else { return [] }
             var items: [SidebarMenuItem] = [
                 SidebarMenuItem(title: "Copy kubectl Command", symbol: "terminal") {
-                    Pasteboard.copy(MacNavigation.kubectlCommand(kind: kind, namespace: registry.namespace(for: id), context: cluster.name))
+                    Pasteboard.copy(MacNavigation.kubectlCommand(kind: kind, selection: registry.namespaceSelection(for: id), context: MacNavigation.kubectlContext(for: cluster)))
                 },
             ]
             if !cluster.readOnly, !row.isForbidden {

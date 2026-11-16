@@ -60,6 +60,25 @@ struct PortForwardLauncherTests {
 
     private func service(_ name: String = "mariadb") -> ResourceRef { ResourceRef(clusterID: "c1", kind: .service, namespace: "db", name: name) }
 
+    @Test func aLockedAppDoesNothingBeforeTheGateOrTheClusterIsTouched() async {
+        for configure in [false, true] {
+            let h = Harness(readOnly: true)   // a refusing cluster would show a banner, were the lock not checked first
+            var fetched = 0
+            h.onFetch = { fetched += 1 }
+            h.locked = true
+            #expect(await h.launcher.forward(service(), port: nil, configure: configure) == .busy)
+            #expect(h.advanced.isEmpty && fetched == 0 && h.started.isEmpty)
+            #expect(h.launcher.banner == nil && h.launcher.confirm == nil)
+        }
+    }
+
+    @Test func aRemovedClusterSaysSo() async {
+        let h = Harness()
+        h.session = nil
+        #expect(await h.launcher.forward(service(), port: 3306, configure: false) == .failed("This cluster was removed."))
+        #expect(h.launcher.banner?.message == "This cluster was removed.")
+    }
+
     // MARK: One click
 
     @Test func oneClickStartsAtOnceWithTheSameLocalPortAndNoSheet() async {
