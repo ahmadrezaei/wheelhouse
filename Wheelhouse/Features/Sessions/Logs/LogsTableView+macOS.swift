@@ -33,6 +33,7 @@ struct LogsTableView: NSViewRepresentable {
     var onUserScrolledAway: () -> Void
     var onReachedBottom: () -> Void
     var onSelect: (LogLine) -> Void
+    @Environment(\.paneIsInKeyLoop) private var paneIsInKeyLoop
 
     func makeNSView(context: Context) -> LogsScrollView {
         let v = LogsScrollView()
@@ -47,6 +48,7 @@ struct LogsTableView: NSViewRepresentable {
         v.onReachedBottom = onReachedBottom
         v.onSelect = onSelect
         v.isPaneVisible = isPaneVisible
+        v.gate.apply(visible: paneIsInKeyLoop, to: v)
         // Never read `source.visible` here: SwiftUI tracks what `updateNSView` reads, and that would put every flush back on its path.
         if let source { v.track(source) }
         v.apply(lines: source == nil ? lines : nil, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)
@@ -60,8 +62,20 @@ final class LogsTable: NSTableView {
     var copyHandler: (() -> Void)?
     var jumpToLiveHandler: (() -> Void)?
     var userScrollHandler: (() -> Void)?
+    /// True while VoiceOver's Show Menu pops the menu: no clicked row, the selected one is meant.
+    var menusSelectedRow = false
 
     @objc func copy(_ sender: Any?) { copyHandler?() }
+
+    /// VoiceOver's "Show Menu" on the table: the line menu of the selected row.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu, selectedRow >= 0 else { return false }
+        menusSelectedRow = true
+        defer { menusSelectedRow = false }
+        let rect = rect(ofRow: selectedRow)
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX + 24, y: rect.maxY), in: self)
+        return true
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), event.specialKey == .downArrow { jumpToLiveHandler?(); return }
@@ -86,6 +100,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
     var onSelect: (LogLine) -> Void = { _ in }
 
     private let table = LogsTable()
+    let gate = KeyViewGate()
     private var lines: [LogLine] = []
     private var settings = LogsDisplaySettings()
     private var matcher: LogMatcher?
@@ -579,7 +594,7 @@ final class LogsScrollView: NSScrollView, NSTableViewDataSource, NSTableViewDele
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let row = table.clickedRow
+        let row = table.clickedRow >= 0 ? table.clickedRow : (table.menusSelectedRow ? table.selectedRow : -1)
         guard row >= 0, row < lines.count, lines[row].kind == .line else { return }
         if !table.selectedRowIndexes.contains(row) { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
         let many = table.selectedRowIndexes.count > 1

@@ -123,6 +123,8 @@ struct KubeTable: NSViewRepresentable {
     /// fix-N: true when a linked pane shows this list's selection.
     var followsImmediately: () -> Bool = { false }
     var actions: (String) -> [KubeRowAction]
+    /// A hidden tab or a covered screen leaves the key-view loop (its table is still in the window, only faded by SwiftUI).
+    @Environment(\.paneIsInKeyLoop) private var paneIsInKeyLoop
 
     func makeNSView(context: Context) -> KubeTableScrollView { KubeTableScrollView() }
 
@@ -133,6 +135,7 @@ struct KubeTable: NSViewRepresentable {
         v.onFollow = onFollow
         v.followsImmediately = followsImmediately
         v.actions = actions
+        v.gate.apply(visible: paneIsInKeyLoop, to: v)
         v.update(kindID: kindID, columns: columns, sort: sort, reversed: reversed, keys: keys, rowAt: rowAt)
     }
 
@@ -144,6 +147,9 @@ final class KubeNSTable: NSTableView {
     var copyHandler: (() -> Void)?
     /// Called after a left click finished selecting: the clicked row and the modifiers held.
     var clickHandler: ((Int, NSEvent.ModifierFlags) -> Void)?
+    /// True while VoiceOver's Show Menu pops the menu: it has no clicked row and acts on the selected one (a right-click on empty space
+    /// still gets no menu).
+    var menusSelectedRow = false
 
     override func mouseDown(with event: NSEvent) {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
@@ -165,6 +171,16 @@ final class KubeNSTable: NSTableView {
     override func insertNewline(_ sender: Any?) { openHandler?() }
 
     @objc func copy(_ sender: Any?) { copyHandler?() }
+
+    /// VoiceOver's "Show Menu" (VO-Shift-M) on the table: the row menu of the selected row, which needs no mouse.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu, selectedRow >= 0 else { return false }
+        menusSelectedRow = true
+        defer { menusSelectedRow = false }
+        let rect = rect(ofRow: selectedRow)
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX + 24, y: rect.maxY), in: self)
+        return true
+    }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(copy(_:)) { return !selectedRowIndexes.isEmpty }
@@ -188,6 +204,7 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     var actions: (String) -> [KubeRowAction] = { _ in [] }
 
     private let table = KubeNSTable()
+    let gate = KeyViewGate()
     private var kindID = ""
     private var columns: [KubeColumn] = []
     private var keys: [KubeRowKey] = []
@@ -368,8 +385,14 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let id = NSUserInterfaceItemIdentifier("kubeRow")
-        let v = (tableView.makeView(withIdentifier: id, owner: self) as? NSTableRowView) ?? { let r = NSTableRowView(); r.identifier = id; return r }()
+        let v = (tableView.makeView(withIdentifier: id, owner: self) as? KubeRowView) ?? { let r = KubeRowView(); r.identifier = id; return r }()
         if row < keys.count { v.setAccessibilityLabel(rowAt(row).accessibility) }
+        // The row's actions as VoiceOver custom actions, resolved when asked (the row view is reused and the row index moves).
+        v.actionsProvider = { [weak self, weak v] in
+            guard let self, let v else { return [] }
+            let index = self.table.row(for: v)
+            return self.keys.indices.contains(index) ? self.actions(self.keys[index].id) : []
+        }
         return v
     }
 
@@ -381,6 +404,8 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         // fix-P: a forwarded pod or service shows its local port after the name (the name itself stays clean for Copy Name).
         let text = def.id == "name" && !data.forwarding.isEmpty ? "\(data.text(for: "name"))   ⇄ \(data.forwarding)" : data.text(for: def.id)
         cell.configure(text: text, column: def, tone: def.id == "status" ? data.tone : nil)
+        // The row's sentence follows its data: a live update changes a cell, and the label read for the row must change with it.
+        tableView.rowView(atRow: row, makeIfNecessary: false)?.setAccessibilityLabel(data.accessibility)
         return cell
     }
 
@@ -432,6 +457,11 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         }
     }
 
+    /// Test seams: the row view of a row, the row menu, and the table itself.
+    func rowView(at row: Int) -> NSTableRowView? { table.rowView(atRow: row, makeIfNecessary: true) }
+    var rowMenu: NSMenu? { table.menu }
+    var nsTable: NSTableView { table }
+
     /// Test seam: selects rows without a mouse.
     func selectRows(_ rows: IndexSet) { table.selectRowIndexes(rows, byExtendingSelection: false) }
 
@@ -460,7 +490,8 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
             }
             return
         }
-        let row = table.clickedRow
+        // A menu opened from the keyboard or VoiceOver has no clicked row: it acts on the selected one.
+        let row = table.clickedRow >= 0 ? table.clickedRow : (table.menusSelectedRow ? table.selectedRow : -1)
         guard row >= 0, row < keys.count else { return }
         if !table.selectedRowIndexes.contains(row) { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
         if table.selectedRowIndexes.count > 1 {
@@ -489,6 +520,27 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
     @objc private func toggleColumn(_ item: NSMenuItem) {
         guard let c = item.representedObject as? NSTableColumn else { return }
         c.isHidden.toggle()
+    }
+}
+
+// MARK: - Row
+
+/// A row view whose menu actions are also VoiceOver custom actions ("Actions" in the rotor), so a row can be acted on without a
+/// right-click or the VO menu shortcut.
+final class KubeRowView: NSTableRowView {
+    var actionsProvider: (() -> [KubeRowAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        Self.customActions(for: actionsProvider?() ?? [])
+    }
+
+    static func customActions(for actions: [KubeRowAction]) -> [NSAccessibilityCustomAction] {
+        actions.filter { !$0.isSeparator }.map { action in
+            NSAccessibilityCustomAction(name: action.title) {
+                MainActor.assumeIsolated { action.handler() }
+                return true
+            }
+        }
     }
 }
 
