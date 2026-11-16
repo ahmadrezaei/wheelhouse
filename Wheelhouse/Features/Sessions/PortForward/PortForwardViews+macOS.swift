@@ -17,17 +17,22 @@ func optionKeyIsDown() -> Bool { NSEvent.modifierFlags.contains(.option) }
 /// Presents a pane's launcher: the Production confirmation and the brief banner. Nothing here is modal except the confirmation.
 private struct PortForwardPresentation: ViewModifier {
     @Bindable var launcher: PortForwardLauncher
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .environment(\.portForwardLauncher, launcher)
+            // The banner is a live region: a new forward, a failure or a stop is spoken without moving focus.
+            .onChange(of: launcher.banner) { _, banner in
+                if let banner { AccessibilityAnnouncer.announce(banner.message, high: banner.isError) }
+            }
             .background { Color.clear.confirmSheet($launcher.confirm) }
             .overlay(alignment: .bottom) {
                 ZStack {
                     if let banner = launcher.banner {
                         PortForwardBannerView(launcher: launcher, banner: banner)
                             .padding(Spacing.l)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .animation(.snappy, value: launcher.banner)

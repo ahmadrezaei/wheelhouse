@@ -101,6 +101,10 @@ final class ActionHost {
 
     func show(_ toast: ActionToast) {
         self.toast = toast
+        #if os(macOS)
+        // A toast is a live region: VoiceOver hears it without moving focus, and a failure interrupts.
+        AccessibilityAnnouncer.announce(toast.message, high: toast.tone == .critical)
+        #endif
         toastTask?.cancel()
         let id = toast.id
         toastTask = Task { [weak self] in
@@ -295,6 +299,10 @@ extension PropagationPolicy {
 struct ActionHostModifier: ViewModifier {
     @Bindable var host: ActionHost
     @Environment(ClusterRegistry.self) private var registry
+    #if os(macOS)
+    @Environment(\.undoManager) private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    #endif
 
     func body(content: Content) -> some View {
         content
@@ -315,11 +323,45 @@ struct ActionHostModifier: ViewModifier {
                         if let undo = toast.undo { Task { @MainActor in await undo() } }
                     }, onDismiss: { host.dismissToast() })
                     .padding(.horizontal, Spacing.l).padding(.bottom, Spacing.m)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(Self.toastTransition(reduceMotion: reduceMotionValue))
                 }
             }
             .animation(.snappy, value: host.toast?.id)
+            #if os(macOS)
+            // An undoable action is also on the window's undo stack, so ⌘Z (Edit > Undo) works, not only the toast's button.
+            .onChange(of: host.toast?.id) { _, _ in registerUndo() }
+            #endif
     }
+}
+
+extension ActionHostModifier {
+    /// Reduce Motion: a toast fades in place instead of sliding up.
+    static func toastTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    private var reduceMotionValue: Bool {
+        #if os(macOS)
+        reduceMotion
+        #else
+        false
+        #endif
+    }
+
+    #if os(macOS)
+    private func registerUndo() {
+        // One entry at most, and only while the toast that offers it is up: a finished or dismissed toast takes its entry with it.
+        undoManager?.removeAllActions(withTarget: host)
+        guard let toast = host.toast, let undo = toast.undo, let undoManager else { return }
+        let id = toast.id
+        undoManager.registerUndo(withTarget: host) { host in
+            guard host.toast?.id == id else { return }
+            host.dismissToast()
+            Task { @MainActor in await undo() }
+        }
+        undoManager.setActionName(toast.message)
+    }
+    #endif
 }
 
 extension View {
@@ -346,6 +388,8 @@ struct ToastBanner: View {
         .frame(maxWidth: 560)
         .glassEffect(.regular, in: Capsule())
         .accessibilityElement(children: .combine)
+        #if !os(macOS)
         .accessibilityAddTraits(.updatesFrequently)
+        #endif
     }
 }
