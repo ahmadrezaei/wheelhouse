@@ -26,6 +26,9 @@ public final class ClusterSession: Identifiable {
     public private(set) var prometheusEndpoint: PrometheusEndpoint?
     public private(set) var discovery: DiscoveryInfo?
     public private(set) var lastHealthRefresh: Date?
+    /// Extra attention items computed after each health pass (the Mac app's Rigging health rules). nil on iOS. The items are added to the
+    /// result and can raise a healthy cluster to degraded, never to critical.
+    @ObservationIgnored public var healthAugmenter: (@MainActor (ClusterSession) async -> [AttentionItem])?
     /// Nodes and recent Warning events (24 h, newest first, max 60) from the last health pass, so the Fleet dashboard
     /// does not list them a second time.
     public private(set) var lastNodes: [Node] = []
@@ -194,7 +197,17 @@ public final class ClusterSession: Identifiable {
         consecutiveProbeFailures = 0
         let snapshot = await fetchHealthInput()
         if Task.isCancelled { return health ?? ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: "Timed out") }
-        let h = HealthEvaluator.evaluate(snapshot)
+        var h = HealthEvaluator.evaluate(snapshot)
+        if let healthAugmenter {
+            let extra = await healthAugmenter(self)
+            if Task.isCancelled { return health ?? ClusterHealth.unreachable(clusterID: config.id, environment: config.environment, cause: "Timed out") }
+            if !extra.isEmpty {
+                h.items = (h.items + extra).sorted { a, b in
+                    a.severity != b.severity ? a.severity > b.severity : (a.since ?? .distantPast) > (b.since ?? .distantPast)
+                }
+                if h.status == .healthy || h.status == .unknown { h.status = .warning }
+            }
+        }
         health = h
         lastHealthRefresh = Date()
         return h

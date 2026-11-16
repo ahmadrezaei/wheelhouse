@@ -37,6 +37,8 @@ public enum AttentionKind: String, Codable, Sendable {
     case nodeNotReady, nodePressure, nodeCordoned
     case jobFailed, deploymentUnavailable, deploymentDegraded, pvcPending
     case unreachable, credentialsExpiring
+    /// A health rule of a Rigging pack (Mac only; never produced on iOS).
+    case riggingRule
 }
 
 public struct AttentionItem: Identifiable, Hashable, Sendable {

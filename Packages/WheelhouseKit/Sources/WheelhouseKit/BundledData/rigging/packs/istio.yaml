@@ -1,0 +1,58 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: istio, version: 1.0.0, description: "Istio traffic and security resources", author: Wheelhouse, homepage: "https://istio.io" }
+sidebar:
+  - { apiGroup: networking.istio.io, title: "Istio Networking", kinds: [VirtualService, DestinationRule, Gateway, ServiceEntry, Sidecar] }
+  - { apiGroup: security.istio.io, title: "Istio Security", kinds: [PeerAuthentication, AuthorizationPolicy, RequestAuthentication] }
+views:
+  - id: virtualservices
+    title: Virtual Services
+    symbol: "arrow.triangle.branch"
+    match: { group: networking.istio.io, kind: VirtualService }
+    fields:
+      - { name: host, path: ".spec.hosts[0]" }
+    columns:
+      - { name: Hosts, path: ".spec.hosts" }
+      - { name: Gateways, path: ".spec.gateways" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+  - id: destinationrules
+    title: Destination Rules
+    match: { group: networking.istio.io, kind: DestinationRule }
+    columns:
+      - { name: Host, path: ".spec.host" }
+      - { name: TLS, path: ".spec.trafficPolicy.tls.mode" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+  - id: gateways
+    title: Gateways
+    match: { group: networking.istio.io, kind: Gateway }
+    columns:
+      - { name: Servers, path: ".spec.servers[0].hosts" }
+      - { name: Port, path: ".spec.servers[0].port.number", format: number }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+  - id: peerauthentications
+    title: Peer Authentications
+    symbol: "lock.shield"
+    match: { group: security.istio.io, kind: PeerAuthentication }
+    columns:
+      - { name: Mode, path: ".spec.mtls.mode" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { path: ".spec.mtls.mode", equals: "STRICT" }, tone: healthy }
+      - { when: { path: ".spec.mtls.mode", equals: "DISABLE" }, tone: warning, label: "mTLS off" }
+  - id: authorizationpolicies
+    title: Authorization Policies
+    match: { group: security.istio.io, kind: AuthorizationPolicy }
+    columns:
+      - { name: Action, path: ".spec.action" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+commands:
+  - title: "Analyze this namespace"
+    for: { group: networking.istio.io, kind: VirtualService }
+    terminal: "istioctl analyze -n {{namespace}}"
+  - title: "Describe virtual service"
+    for: { group: networking.istio.io, kind: VirtualService }
+    terminal: "kubectl describe virtualservice {{name}} -n {{namespace}}"
+  - title: "Show proxy status"
+    terminal: "istioctl proxy-status"
+  - title: "Analyze all namespaces"
+    terminal: "istioctl analyze -A"

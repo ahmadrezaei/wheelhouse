@@ -1,0 +1,62 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: karpenter, version: 1.0.0, description: "Node pools, node claims and node classes", author: Wheelhouse, homepage: "https://karpenter.sh" }
+sidebar:
+  - { apiGroup: karpenter.sh, title: "Karpenter", kinds: [NodePool, NodeClaim] }
+views:
+  - id: nodepools
+    title: Node Pools
+    symbol: "server.rack"
+    match: { group: karpenter.sh, kind: NodePool }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: NodeClass, path: ".spec.template.spec.nodeClassRef.name" }
+      - { name: Nodes, path: ".status.resources.nodes", format: number }
+      - { name: CPU, path: ".status.resources.cpu" }
+      - { name: Memory, path: ".status.resources.memory" }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical, label: "Not ready" }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+  - id: nodeclaims
+    title: Node Claims
+    symbol: "server.rack"
+    match: { group: karpenter.sh, kind: NodeClaim }
+    fields:
+      - { name: nodeName, path: ".status.nodeName" }
+    columns:
+      - { name: Node, path: ".status.nodeName" }
+      - { name: Launched, path: ".status.conditions[?(@.type=='Launched')].status" }
+      - { name: Registered, path: ".status.conditions[?(@.type=='Registered')].status" }
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: warning, label: "Not ready" }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+    related:
+      - { kind: Node, nameFrom: ".status.nodeName", label: "Node" }
+  - id: ec2nodeclasses
+    title: EC2 Node Classes
+    match: { group: karpenter.k8s.aws, kind: EC2NodeClass }
+    columns:
+      - { name: Ready, path: ".status.conditions[?(@.type=='Ready')].status" }
+      - { name: Role, path: ".spec.role" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Ready, status: "False" }, tone: critical }
+      - { when: { condition: Ready, status: "True" }, tone: healthy }
+commands:
+  - title: "Show node claim"
+    for: { group: karpenter.sh, kind: NodeClaim }
+    terminal: "kubectl describe nodeclaim {{name}}"
+  - title: "Show node pool"
+    for: { group: karpenter.sh, kind: NodePool }
+    terminal: "kubectl describe nodepool {{name}}"
+healthRules:
+  - for: { group: karpenter.sh, kind: NodePool }
+    when: { condition: Ready, status: "False", for: 10m }
+    tone: warning
+    message: "NodePool {{name}} is not ready"
+  - for: { group: karpenter.sh, kind: NodeClaim }
+    when: { condition: Ready, status: "False", for: 30m }
+    tone: warning
+    message: "NodeClaim {{name}} has not become ready"

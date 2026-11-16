@@ -229,6 +229,8 @@ final class SidebarModel {
                                       showsForbiddenKinds: showsForbiddenKinds, discovery: discovery, discoveryFailed: discoveryFailed, rules: rules,
                                       features: features(), isDemo: provider.isDemoMode)
         input.anyExist = anyExist
+        input.riggingLayouts = RiggingSidebarHook.layouts()   // M13 Rigging
+        input.riggingViews = RiggingSidebarHook.views()
         let out = SidebarTreeBuilder.build(input)
         rows = out.rows
         forcedOpen = out.forcedOpen

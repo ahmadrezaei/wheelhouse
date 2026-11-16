@@ -1,0 +1,59 @@
+apiVersion: rigging.wheelhouse.app/v1
+kind: Pack
+metadata: { name: gateway-api, version: 1.0.0, description: "Gateway API: gateways, routes and their acceptance", author: Wheelhouse, homepage: "https://gateway-api.sigs.k8s.io" }
+views:
+  - id: gateways
+    title: Gateways
+    symbol: "signpost.right.and.left"
+    match: { group: gateway.networking.k8s.io, kind: Gateway }
+    columns:
+      - { name: Class, path: ".spec.gatewayClassName" }
+      - { name: Address, path: ".status.addresses[0].value" }
+      - { name: Accepted, path: ".status.conditions[?(@.type=='Accepted')].status" }
+      - { name: Programmed, path: ".status.conditions[?(@.type=='Programmed')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { condition: Accepted, status: "False" }, tone: critical, label: "Not accepted" }
+      - { when: { condition: Programmed, status: "False" }, tone: warning, label: "Not programmed" }
+      - { when: { condition: Programmed, status: "True" }, tone: healthy }
+    related:
+      - { kind: GatewayClass, group: gateway.networking.k8s.io, nameFrom: ".spec.gatewayClassName", label: "Gateway class" }
+  - id: httproutes
+    title: HTTP Routes
+    symbol: "arrow.triangle.branch"
+    match: { group: gateway.networking.k8s.io, kind: HTTPRoute }
+    columns:
+      - { name: Hostnames, path: ".spec.hostnames" }
+      - { name: Parent, path: ".spec.parentRefs[0].name" }
+      - { name: Accepted, path: ".status.parents[0].conditions[?(@.type=='Accepted')].status" }
+      - { name: Age, path: ".metadata.creationTimestamp", format: age }
+    status:
+      - { when: { path: ".status.parents[0].conditions[?(@.type=='Accepted')].status", equals: "False" }, tone: critical, label: "Not accepted" }
+      - { when: { path: ".status.parents[0].conditions[?(@.type=='Accepted')].status", equals: "True" }, tone: healthy }
+    related:
+      - { kind: Gateway, group: gateway.networking.k8s.io, nameFrom: ".spec.parentRefs[0].name", label: "Gateway" }
+  - id: gatewayclasses
+    title: Gateway Classes
+    match: { group: gateway.networking.k8s.io, kind: GatewayClass }
+    columns:
+      - { name: Controller, path: ".spec.controllerName" }
+      - { name: Accepted, path: ".status.conditions[?(@.type=='Accepted')].status" }
+    status:
+      - { when: { condition: Accepted, status: "False" }, tone: critical }
+      - { when: { condition: Accepted, status: "True" }, tone: healthy }
+commands:
+  - title: "Describe gateway"
+    for: { group: gateway.networking.k8s.io, kind: Gateway }
+    terminal: "kubectl describe gateway {{name}} -n {{namespace}}"
+  - title: "Describe HTTP route"
+    for: { group: gateway.networking.k8s.io, kind: HTTPRoute }
+    terminal: "kubectl describe httproute {{name}} -n {{namespace}}"
+healthRules:
+  - for: { group: gateway.networking.k8s.io, kind: Gateway }
+    when: { condition: Programmed, status: "False", for: 10m }
+    tone: warning
+    message: "Gateway {{name}} is not programmed"
+  - for: { group: gateway.networking.k8s.io, kind: Gateway }
+    when: { condition: Accepted, status: "False" }
+    tone: critical
+    message: "Gateway {{name}} was not accepted by its controller"
