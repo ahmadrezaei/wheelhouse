@@ -82,6 +82,8 @@ struct MacCommands: Commands {
                 Button("Pin to Rail") { if let m = model { env.rail.pinSelection(of: m) } }.keyboardShortcut("b", modifiers: [.command, .option]).disabled(!hasWindow)
                 // end M4b
                 Divider()
+                Button("Namespace…") { NotificationCenter.default.post(name: .openNamespacePicker, object: model?.window) }
+                    .keyboardShortcut("n", modifiers: [.command, .option]).disabled(!hasWindow)
                 Button("Filter Sidebar…") { filterFocus?.run() }.keyboardShortcut("f", modifiers: [.command, .shift]).disabled(filterFocus == nil)
                 Toggle("Show Forbidden Kinds", isOn: Binding(get: { model?.sidebar.showsForbiddenKinds ?? false }, set: { model?.sidebar.showsForbiddenKinds = $0 }))
                 Button("Expand All Groups") { if let id = focusedCluster?.id { model?.sidebar.setAllGroups(expanded: true, in: id) } }

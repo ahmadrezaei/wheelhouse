@@ -28,6 +28,7 @@ struct TabBar: View {
         .frame(height: 30)
         .background(.bar)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("Tabs")
         .accessibilityIdentifier("tabbar")
     }
 }
@@ -89,8 +90,18 @@ private struct TabButton: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
+        .accessibilityValue(environmentsValue)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        // VoiceOver activates a tab with its default action; closing is a named action (the close button stays a separate stop).
+        .accessibilityAction { model.select(tab: tab.id) }
+        .accessibilityAction(named: "Close Tab") { if canClose { model.closeTab(tab.id) } }
         .accessibilityIdentifier("tab.\(index)")
+    }
+
+    /// The environments the tab's clusters are in, so a Production tab is more than a coloured stripe ("Production, Staging").
+    private var environmentsValue: String {
+        let environments = tab.clusterIDs.compactMap { env.registry.config(for: $0)?.environment }
+        return Array(Set(environments)).sorted { ($0 == .production ? 0 : 1, $0.rawValue) < ($1 == .production ? 0 : 1, $1.rawValue) }.map(\.title).joined(separator: ", ")
     }
 }
 
@@ -127,6 +138,7 @@ struct StatusBar: View {
         .frame(height: 24)
         .background(.bar)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("Status bar")
         .accessibilityIdentifier("statusbar")
     }
 
@@ -190,6 +202,7 @@ struct InspectorView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("Inspector")
         .accessibilityIdentifier("inspector")
     }
 }

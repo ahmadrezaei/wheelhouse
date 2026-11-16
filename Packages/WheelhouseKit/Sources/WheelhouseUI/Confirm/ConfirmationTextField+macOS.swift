@@ -87,10 +87,10 @@ final class HardenedFieldEditor: NSTextView {
     override var isContinuousSpellCheckingEnabled: Bool { get { false } set {} }
     override var isGrammarCheckingEnabled: Bool { get { false } set {} }
 
-    // Readable, not settable, through accessibility.
+    // Readable, not settable, through accessibility; only focus may be set, so VoiceOver and Full Keyboard Access can enter the field.
     override func setAccessibilityValue(_ accessibilityValue: Any?) {}
     override func setAccessibilitySelectedText(_ accessibilitySelectedText: String?) {}
-    override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool { false }
+    override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool { attribute == .focused ? super.accessibilityIsAttributeSettable(attribute) : false }
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -127,7 +127,7 @@ final class HardenedConfirmationTextField: NSTextField {
     override class var cellClass: AnyClass? { get { HardenedFieldCell.self } set {} }
 
     override func setAccessibilityValue(_ accessibilityValue: Any?) {}
-    override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool { false }
+    override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool { attribute == .focused ? super.accessibilityIsAttributeSettable(attribute) : false }
 }
 
 struct HardenedConfirmationFieldRepresentable: NSViewRepresentable {

@@ -228,7 +228,16 @@ public struct ConfirmSheet: View {
         .task { await runDryRun() }
         .presentationDetents([.medium, .large])
         .accessibilityElement(children: .contain)
+        #if os(macOS)
+        .accessibilityLabel(Self.sheetLabel(cluster: live ?? request.cluster, namespace: request.namespace, resource: request.resource))
+        #else
         .accessibilityLabel("\(request.cluster.name), \(request.namespace ?? "all namespaces"), \(request.resource)")
+        #endif
+    }
+
+    /// What VoiceOver reads for the sheet: the live cluster's environment first, so a Production target is never a surprise.
+    static func sheetLabel(cluster: ClusterConfig, namespace: String?, resource: String) -> String {
+        "\(cluster.environment.title) cluster \(cluster.name), \(namespace ?? "all namespaces"), \(resource)"
     }
 
     @ViewBuilder private var dryRunView: some View {

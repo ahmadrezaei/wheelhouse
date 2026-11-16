@@ -155,7 +155,7 @@ struct ReleaseDetailView: View {
                 Button("Copy helm get values Command") { Pasteboard.copy("helm get values \(model.name) -n \(model.namespace)") }
                 Button("Copy helm history Command") { Pasteboard.copy("helm history \(model.name) -n \(model.namespace)") }
             } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).fixedSize()
+                .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Copy helm commands")
         }
         .help(canAct ? "" : "Show the current revision to upgrade, roll back or uninstall")
     }
@@ -300,6 +300,19 @@ private struct ManifestTab: View {
 
 // MARK: - Resources
 
+/// What a drift dot says, for VoiceOver (the dot is only a colour).
+enum DriftWords {
+    static func label(_ state: HelmDrift.State?) -> String {
+        switch state {
+        case nil: "Not checked"
+        case .inSync: "In sync"
+        case .drifted(let paths): "Differs: \(paths.prefix(3).joined(separator: ", "))"
+        case .missing: "Missing from the cluster"
+        case .unreadable(let why): why
+        }
+    }
+}
+
 private struct ResourcesTab: View {
     @Bindable var model: ReleaseDetailModel
 
@@ -321,7 +334,7 @@ private struct ResourcesTab: View {
             }
             .font(.footnote).padding(.horizontal, Spacing.l).padding(.vertical, Spacing.s)
             Table(objects) {
-                TableColumn("") { o in driftDot(for: o) }.width(24)
+                TableColumn("Drift") { o in driftDot(for: o) }.width(min: 24, ideal: 48)
                 TableColumn("Kind") { o in Text(o.kind) }.width(min: 90, ideal: 120)
                 TableColumn("Name") { o in Text(o.name).fontWeight(.medium) }.width(min: 140, ideal: 200)
                 TableColumn("Namespace") { o in Text(o.namespace ?? model.namespace).foregroundStyle(.secondary) }.width(min: 80, ideal: 110)
@@ -333,6 +346,10 @@ private struct ResourcesTab: View {
     private func entry(for object: HelmManifestObject) -> HelmDrift.ObjectDrift? { model.driftReport?.objects.first { $0.id == object.id } }
 
     @ViewBuilder private func driftDot(for object: HelmManifestObject) -> some View {
+        dot(for: object).accessibilityElement(children: .ignore).accessibilityLabel(DriftWords.label(entry(for: object)?.state))
+    }
+
+    @ViewBuilder private func dot(for object: HelmManifestObject) -> some View {
         switch entry(for: object)?.state {
         case nil: Circle().fill(Color.secondary.opacity(0.25)).frame(width: 8, height: 8).help("Not checked")
         case .inSync: Circle().fill(Palette.healthy).frame(width: 8, height: 8).help("In sync")

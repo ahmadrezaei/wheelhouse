@@ -111,7 +111,7 @@ struct ArtifactHubSheet: View {
             HStack {
                 TextField("Search Artifact Hub", text: $query).textFieldStyle(.roundedBorder).onSubmit { Task { await search() } }
                 Button("Search") { Task { await search() } }.disabled(ArtifactHub.searchURL(query: query) == nil || searching)
-                Button("Done") { dismiss() }
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding(Spacing.l)
             Divider()
