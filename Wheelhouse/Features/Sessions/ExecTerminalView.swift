@@ -259,7 +259,9 @@ struct ExecTerminalView: View {
     }
 
     private func popIfPossible() {
-        if router.isCompact {
+        // A Mac pane keeps its own stack: its Back, not the router's paths.
+        if let paneBack = router.paneBack { paneBack() }
+        else if router.isCompact {
             if router.selectedTab == .sessions, !router.sessionsPath.isEmpty { router.sessionsPath.removeLast() }
             else if router.selectedTab == .fleet, !router.fleetPath.isEmpty { router.fleetPath.removeLast() }
             else if router.selectedTab == .cluster, !router.clusterPath.isEmpty { router.clusterPath.removeLast() }

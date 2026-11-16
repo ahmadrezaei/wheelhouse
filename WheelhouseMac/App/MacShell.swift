@@ -168,6 +168,7 @@ struct WorkspaceWindowContent: View {
         // and window menus ask instead.
         .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
         .navigationTitle(model.focusedPane?.title(registry: registry) ?? "Wheelhouse")
+        .background(WindowTitleSync(title: model.focusedPane?.title(registry: registry) ?? "Wheelhouse").frame(width: 0, height: 0))
         .task { env.workspace.announceMovedAsideFileOnce() }
     }
 
@@ -263,6 +264,7 @@ struct DetachedPaneWindow: View {
         .onChange(of: env.lock.isLocked) { _, locked in if locked { WorkspaceWindowContent.lockEngaged(env: env) } }
         .windowDismissBehavior(model.windowHasUnsavedEdits ? .disabled : .automatic)
         .navigationTitle(model.pane(paneID)?.title(registry: env.registry) ?? "Pane")
+        .background(WindowTitleSync(title: model.pane(paneID)?.title(registry: env.registry) ?? "Pane").frame(width: 0, height: 0))
         .focusedSceneValue(\.workspaceModel, model)
     }
 }

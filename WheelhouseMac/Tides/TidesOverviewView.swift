@@ -82,7 +82,7 @@ struct TidesRootView: View {
     @Environment(ClusterRegistry.self) private var registry
     @State private var cache = TidesModelCache()
     @State private var selection: TidesRow.ID?
-    @State private var opened: TidesRow?
+    @Environment(\.paneDestinationPusher) private var pushDestination
     @State private var showsSources = false
     @State private var problemsOnly = false
     @State private var search = ""
@@ -106,18 +106,20 @@ struct TidesRootView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle(scope.clusterID.flatMap { registry.config(for: $0)?.name }.map { "Tides: \($0)" } ?? "Tides")
-                .navigationDestination(item: $opened) { row in
-                    if let model = models.first(where: { $0.id == row.cluster }) {
-                        TidesDetailView(model: model, appID: row.app.id)
-                    }
-                }
-        }
+        // Not a NavigationStack: inside the workspace's split view it is taken over after its first push (see PaneStack). An app opens
+        // as a screen of the pane's own stack, and the pane's Back returns here.
+        content
+            .navigationTitle(scope.clusterID.flatMap { registry.config(for: $0)?.name }.map { "Tides: \($0)" } ?? "Tides")
         .whileVisible(id: watchID) { await run() }
         .accessibilityIdentifier("tides-root")
     }
+
+    /// What opening a row shows: the app, as its own screen of the pane.
+    static func destination(for row: TidesRow) -> WorkspaceDestination {
+        .gitopsApp(ResourceRef(clusterID: row.cluster, kind: row.app.kind, namespace: row.app.namespace, name: row.app.name))
+    }
+
+    private func open(_ row: TidesRow) { pushDestination?(Self.destination(for: row)) }
 
     private func run() async {
         let list = models
@@ -198,7 +200,7 @@ struct TidesRootView: View {
             TableColumn("Message") { r in Text(r.app.message ?? "").lineLimit(1).foregroundStyle(.secondary).help(r.app.message ?? "") }
         }
         .contextMenu(forSelectionType: TidesRow.ID.self) { _ in } primaryAction: { ids in
-            if let id = ids.first, let row = rows.first(where: { $0.id == id }) { opened = row }
+            if let id = ids.first, let row = rows.first(where: { $0.id == id }) { open(row) }
         }
         .accessibilityIdentifier("tides-table")
     }
