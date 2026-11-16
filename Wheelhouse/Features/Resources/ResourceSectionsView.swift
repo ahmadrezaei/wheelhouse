@@ -79,6 +79,8 @@ final class CountsModel {
                 }
             }
             for await (id, count) in group {
+                // A newer load (another selection) owns the counts now: a superseded one must not overwrite them.
+                guard !Task.isCancelled, loadedFor == key else { continue }
                 counts[id] = count
             }
         }

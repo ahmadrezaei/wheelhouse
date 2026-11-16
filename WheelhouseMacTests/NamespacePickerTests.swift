@@ -128,7 +128,9 @@ import WheelhouseKit
 private final class ForbiddingClient: KubeClientProtocol, @unchecked Sendable {
     let inner: DemoKubeClient
     let forbidden: String
-    init(inner: DemoKubeClient, forbidden: String) { self.inner = inner; self.forbidden = forbidden }
+    /// A namespace whose lists answer late, so a load for it finishes after a newer one.
+    let delayed: String?
+    init(inner: DemoKubeClient, forbidden: String, delayed: String? = nil) { self.inner = inner; self.forbidden = forbidden; self.delayed = delayed }
     func version() async throws -> KubeVersion { try await inner.version() }
     func discovery() async throws -> DiscoveryInfo { try await inner.discovery() }
     func list<T: KubeObject>(_ type: T.Type, kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> KubeList<T> {
@@ -138,6 +140,7 @@ private final class ForbiddingClient: KubeClientProtocol, @unchecked Sendable {
     func get<T: KubeObject>(_ type: T.Type, kind: ResourceKind, name: String, namespace: String?) async throws -> T { try await inner.get(type, kind: kind, name: name, namespace: namespace) }
     func listRaw(_ kind: ResourceKind, namespace: String?, options: ListOptions) async throws -> JSONValue {
         if namespace == forbidden { throw KubeError.forbidden(verb: "list", resource: "pods", namespace: namespace, message: "forbidden") }
+        if namespace != nil, namespace == delayed { try await Task.sleep(for: .milliseconds(600)) }
         return try await inner.listRaw(kind, namespace: namespace, options: options)
     }
     func getRaw(_ kind: ResourceKind, name: String, namespace: String?) async throws -> JSONValue { try await inner.getRaw(kind, name: name, namespace: namespace) }
@@ -253,6 +256,21 @@ private final class ForbiddingClient: KubeClientProtocol, @unchecked Sendable {
         await single.load(session: partial, selection: NamespaceSelection(names[1]))
         #expect(single.counts[ResourceKind.pod.id] == .locked)
         #expect(single.counts[ResourceKind.node.id] != .locked)      // a cluster-scoped kind is listed once, whatever the selection
+    }
+
+    @Test func aSupersededLoadCannotOverwriteNewerCounts() async throws {
+        let config = DemoFleet.configs[0]
+        let demo = DemoKubeClient(config: config)
+        let names = try await twoNamespaces(demo)
+        let expected = try await demo.list(Unstructured.self, kind: .pod, namespace: names[0], options: ListOptions()).items.count
+        let session = ClusterSession(config: config, client: ForbiddingClient(inner: demo, forbidden: "nowhere", delayed: "zz-none"))
+        let model = CountsModel()
+        let stale = Task { await model.load(session: session, selection: NamespaceSelection("zz-none")) }
+        await Task.yield()
+        await model.load(session: session, selection: NamespaceSelection(names[0]))     // the newer selection finishes first
+        await stale.value
+        #expect(model.counts[ResourceKind.pod.id] == .exact(expected))                  // the late, older answer (0 pods) was dropped
+        #expect(model.loadedFor == "\(session.id)|\(names[0])")
     }
 
     @Test func kindCountsSum() {
