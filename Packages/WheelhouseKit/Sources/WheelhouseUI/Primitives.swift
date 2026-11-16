@@ -50,11 +50,23 @@ public struct EnvBadge: View {
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
+                #if os(macOS)
+                .background(Palette.envProductionFill, in: Capsule())
+                #else
                 .background(Palette.envProduction, in: Capsule())
+                #endif
             case .staging:
+                #if os(macOS)
+                Text(environment.badgeText).foregroundStyle(Palette.envStagingText).padding(.horizontal, 6).background(Palette.envStaging.opacity(0.15), in: Capsule())
+                #else
                 Text(environment.badgeText).foregroundStyle(Palette.envStaging).padding(.horizontal, 6).background(Palette.envStaging.opacity(0.15), in: Capsule())
+                #endif
             case .development:
+                #if os(macOS)
+                Text(environment.badgeText).foregroundStyle(Palette.envDevelopmentText).padding(.horizontal, 6).background(Palette.tint.opacity(0.15), in: Capsule())
+                #else
                 Text(environment.badgeText).foregroundStyle(Palette.tintText).padding(.horizontal, 6).background(Palette.tint.opacity(0.15), in: Capsule())
+                #endif
             case .personal:
                 Text(environment.badgeText).foregroundStyle(.secondary).padding(.horizontal, 6).background(Palette.fieldFill, in: Capsule())
             }

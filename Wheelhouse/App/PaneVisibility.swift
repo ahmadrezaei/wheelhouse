@@ -25,6 +25,19 @@ extension EnvironmentValues {
     }
 }
 
+private struct PaneInKeyLoopKey: EnvironmentKey { static let defaultValue = true }
+
+extension EnvironmentValues {
+    /// False for a screen the keyboard must not reach: its tab is not the selected one, it is parked behind a zoomed pane, or another
+    /// screen of its pane was pushed over it. SwiftUI only fades such a screen, so its AppKit tables would stay in Tab and Full
+    /// Keyboard Access order; they hide themselves while this is false. Unlike ``paneIsVisible`` it does not follow the window's
+    /// occlusion (a covered window has no keyboard anyway). Nothing sets it on iOS, so there it is always true.
+    var paneIsInKeyLoop: Bool {
+        get { self[PaneInKeyLoopKey.self] }
+        set { self[PaneInKeyLoopKey.self] = newValue }
+    }
+}
+
 private struct PaneContributesToolbarKey: EnvironmentKey { static let defaultValue = true }
 
 extension EnvironmentValues {

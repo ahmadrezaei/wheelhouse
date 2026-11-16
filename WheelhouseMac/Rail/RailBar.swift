@@ -23,6 +23,10 @@ struct RailBar: View {
                         RailChip(item: item, number: index < 9 ? index + 1 : nil)
                             .environment(env)
                             .onTapGesture { activate(item) }
+                            .accessibilityAction { activate(item) }
+                            .accessibilityAction(named: "Open in New Tab") { rail.activate(item, in: model, placement: .newTab, controller: env.workspace) }
+                            .accessibilityAction(named: "Rename…") { newName = rail.title(for: item); renaming = item }
+                            .accessibilityAction(named: "Remove from Rail") { rail.remove(item.id) }
                             .contextMenu { menu(for: item, index: index, count: items.count) }
                     }
                     if items.isEmpty {
@@ -35,7 +39,7 @@ struct RailBar: View {
                 Menu {
                     ForEach(items.dropFirst(9)) { item in Button(rail.title(for: item)) { rail.activate(item, in: model, placement: .here, controller: env.workspace) } }
                 } label: { Image(systemName: "chevron.right.2") }
-                    .menuStyle(.borderlessButton).fixedSize().padding(.trailing, 8).help("More Rail items")
+                    .menuStyle(.borderlessButton).fixedSize().padding(.trailing, 8).help("More Rail items").accessibilityLabel("More Rail items")
             }
         }
         .frame(height: 30)
@@ -82,6 +86,8 @@ private struct RailChip: View {
         let rail = env.rail
         let available = rail.isAvailable(item)
         let config = item.clusterID.flatMap { env.registry.config(for: $0) }
+        // A cluster chip's dot is only a colour: its health is spoken too.
+        let health = item.kind == .cluster ? item.clusterID.flatMap { env.registry.health(for: $0)?.status } : nil
         HStack(spacing: 4) {
             if item.kind == .cluster, let id = item.clusterID {
                 Circle().fill(color(for: id)).frame(width: 7, height: 7)
@@ -97,7 +103,7 @@ private struct RailChip: View {
         .opacity(available ? 1 : 0.4)
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(rail.title(for: item))\(config.map { ", \($0.environment.title)" } ?? "")\(number.map { ", Rail item \($0)" } ?? "")")
+        .accessibilityLabel("\(rail.title(for: item))\(config.map { ", \($0.environment.title)" } ?? "")\(health.map { ", \($0.title)" } ?? "")\(number.map { ", Rail item \($0)" } ?? "")")
         .accessibilityAddTraits(.isButton)
     }
 

@@ -27,6 +27,11 @@ public enum Palette {
     public static let envProduction = Color(light: 0xD3245A, dark: 0xFF4D7D)
     public static let envStaging = Color(light: 0x5856D6, dark: 0x5E5CE6)
     public static let envDevelopment = tint
+    // Badge-only tokens (the Mac environment badge): text on a 15% tint of the same hue must reach 4.5:1, and white text on the
+    // Production fill must too, in both appearances. The tokens above stay as they are for fills, dots and iOS.
+    public static let envStagingText = Color(light: 0x4B49C2, dark: 0xA5A3FF)
+    public static let envDevelopmentText = Color(light: 0x07625C, dark: 0x2DD4BF)
+    public static let envProductionFill = Color(hex: 0xD3245A)
 
     // Charts
     public static let chartCPU = tint

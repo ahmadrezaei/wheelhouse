@@ -45,6 +45,7 @@ private struct DeckTerminalContent: View {
                 TerminalSurfaceHost(surface: session.surface)
                     .background(WindowReader { window in env.gangwaySheets.register(pane: session.paneID, name: session.title, window: window) })
                     .accessibilityLabel("Terminal, \(session.title)")
+                    .accessibilityHint(Self.help(for: session.cluster))
                 if let error = session.startError {
                     EmptyState(.empty(title: "The terminal could not start", systemImage: "terminal", hint: error))
                         .background(.background)
@@ -63,6 +64,12 @@ private struct DeckTerminalContent: View {
                 Button("New Direct Shell (no guard)…") { Task { await openDirect() } }
             }
         }
+    }
+
+    /// A Production terminal says so to VoiceOver, since the colour of the banner is the only other cue.
+    static func help(for cluster: ClusterConfig?) -> String {
+        guard let cluster, cluster.environment == .production else { return "" }
+        return "Production cluster \(cluster.name), kubectl and helm changes need confirmation"
     }
 
     private func openDirect() async {
@@ -96,6 +103,17 @@ private struct DeckBanner: View {
         .background(tone.opacity(0.12))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("terminal-banner")
+        .onChange(of: model.banner) { _, banner in
+            if let spoken = Self.announcement(for: banner) { AccessibilityAnnouncer.announce(spoken, high: true) }
+        }
+    }
+
+    /// The banner changes that must be heard, not just seen: the shell lost its guard or its session.
+    static func announcement(for banner: ShellBanner) -> String? {
+        switch banner {
+        case .unguarded, .direct, .sessionEnded, .integrationLost: content(banner).0
+        default: nil
+        }
     }
 
     private func restore() {

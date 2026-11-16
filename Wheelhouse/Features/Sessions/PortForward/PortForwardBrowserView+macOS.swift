@@ -57,9 +57,9 @@ struct PortForwardBrowserView: View {
             Text("\(forward.target.title) → \(forward.localAddress)").font(.footnote.monospaced()).lineLimit(1).truncationMode(.middle)
             Spacer()
             if showsPreview {
-                Button { controller.webView?.goBack() } label: { Image(systemName: "chevron.left") }.disabled(!controller.canGoBack).help("Back")
-                Button { controller.webView?.goForward() } label: { Image(systemName: "chevron.right") }.disabled(!controller.canGoForward).help("Forward")
-                Button { controller.webView?.reload() } label: { Image(systemName: "arrow.clockwise") }.help("Reload")
+                Button { controller.webView?.goBack() } label: { Image(systemName: "chevron.left") }.disabled(!controller.canGoBack).help("Back").accessibilityLabel("Back")
+                Button { controller.webView?.goForward() } label: { Image(systemName: "chevron.right") }.disabled(!controller.canGoForward).help("Forward").accessibilityLabel("Forward")
+                Button { controller.webView?.reload() } label: { Image(systemName: "arrow.clockwise") }.help("Reload").accessibilityLabel("Reload")
             }
             Button { copy() } label: { Label(copied ? "Copied" : "Copy Address", systemImage: copied ? "checkmark" : "doc.on.doc") }
             Button { showsPreview ? release() : (showsPreview = true) } label: {

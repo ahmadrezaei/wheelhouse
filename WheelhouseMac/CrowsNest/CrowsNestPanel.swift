@@ -70,7 +70,7 @@ struct CrowsNestPanel: View {
                 Text("Fleet").font(.headline)
                 Text(summary.attentionCount == 0 ? "All clear · \(registry.clusters.count) clusters" : "\(summary.attentionCount) need attention · \(registry.clusters.count) clusters")
                     .font(.caption).foregroundStyle(.secondary)
-                if let last = env.fleet.lastCheck { Text("Checked \(last.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.tertiary) }
+                if let last = env.fleet.lastCheck { Text("Checked \(last.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
                 if env.fleet.isPaused { Text("Checks paused").font(.caption2).foregroundStyle(Palette.warningText) }
             }
             Spacer()

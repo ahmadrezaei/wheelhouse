@@ -73,6 +73,14 @@ final class SidebarOutline: NSOutlineView {
         return menuProvider?(item)
     }
 
+    /// VoiceOver's "Show Menu" on the outline: the selected row's context menu, without a right-click.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard selectedRow >= 0, let item = item(atRow: selectedRow) as? SidebarOutlineItem, let menu = menuProvider?(item) else { return false }
+        let rect = rect(ofRow: selectedRow)
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX + 24, y: rect.maxY), in: self)
+        return true
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76, selectedRow >= 0, let item = item(atRow: selectedRow) as? SidebarOutlineItem { openHandler?(item); return }
         super.keyDown(with: event)
@@ -295,6 +303,12 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         let decor = decorProvider(item.row, expanded)
         lastDecor[item.id] = decor
         cell.configure(item.row, decor: decor, isSelected: item.id == selectedID, expanded: expanded, parentTitle: parentTitle(of: item))
+        // The row's menu items as VoiceOver custom actions, built when asked (the menu can be costly and most rows are never queried).
+        let row = item.row
+        cell.actionsProvider = { [weak self] in
+            guard let self else { return [] }
+            return Self.customActions(for: menuProvider(row))
+        }
         return cell
     }
 
@@ -342,6 +356,15 @@ final class SidebarScrollView: NSScrollView, NSOutlineViewDataSource, NSOutlineV
         @objc func run() { handler() }
     }
 
+    static func customActions(for items: [SidebarMenuItem]) -> [NSAccessibilityCustomAction] {
+        items.filter { !$0.isSeparator }.map { item in
+            NSAccessibilityCustomAction(name: item.title) {
+                MainActor.assumeIsolated { item.handler() }
+                return true
+            }
+        }
+    }
+
     private func makeMenu(for row: SidebarRow) -> NSMenu? {
         let items = menuProvider(row)
         guard !items.isEmpty else { return nil }
@@ -376,6 +399,11 @@ private final class SidebarCellView: NSTableCellView {
     private var hovered = false { didSet { if hovered != oldValue { updateCount() } } }
     private var selected = false
     private var decor = SidebarDecor()
+    var actionsProvider: (() -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? { actionsProvider?() }
+    /// The row is one element carrying the sentence set in `configure`; its pieces are not elements.
+    override func isAccessibilityElement() -> Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -399,6 +427,8 @@ private final class SidebarCellView: NSTableCellView {
         [icon, title, secondary, dot, envLabel, lock, badgeDot, badgeLabel, countLabel].forEach(addSubview)
         textField = title
         imageView = icon
+        // The row reads as one sentence (set in `configure`): its pieces are not separate stops.
+        [icon, title, secondary, dot, envLabel, lock, badgeDot, badgeLabel, countLabel].forEach { $0.setAccessibilityElement(false) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -435,7 +465,7 @@ private final class SidebarCellView: NSTableCellView {
             default: .systemFont(ofSize: 12)
             }
         }()
-        title.textColor = isSection ? .tertiaryLabelColor : (row.isForbidden ? .tertiaryLabelColor : .labelColor)
+        title.textColor = isSection ? .secondaryLabelColor : (row.isForbidden ? .tertiaryLabelColor : .labelColor)
         secondary.stringValue = row.secondary ?? ""
         secondary.isHidden = row.secondary == nil
 
@@ -452,7 +482,7 @@ private final class SidebarCellView: NSTableCellView {
         envLabel.isHidden = !(isCluster && decor.environment != nil)
         if let env = decor.environment {
             envLabel.stringValue = Self.short(env)
-            envLabel.textColor = env == .production ? NSColor(Palette.criticalText) : .secondaryLabelColor
+            envLabel.textColor = env == .production ? Self.productionChipText : .secondaryLabelColor
             envLabel.layer?.cornerRadius = 3
             envLabel.layer?.backgroundColor = (env == .production ? NSColor(Palette.critical).withAlphaComponent(0.14) : NSColor.quaternaryLabelColor.withAlphaComponent(0.2)).cgColor
         }
@@ -487,6 +517,13 @@ private final class SidebarCellView: NSTableCellView {
         setAccessibilityLabel(parts.joined(separator: ", "))
         setAccessibilityDisclosureLevel(max(row.level, 1))
         needsLayout = true
+    }
+
+    /// The PROD chip's text: 0xA8151F in light mode (4.5:1 on the 14% red tint), the shared critical text colour in dark mode.
+    private static let productionChipText = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(Palette.criticalText)
+            : NSColor(srgbRed: 0xA8 / 255, green: 0x15 / 255, blue: 0x1F / 255, alpha: 1)
     }
 
     private static func short(_ env: ClusterEnvironment) -> String {

@@ -101,6 +101,10 @@ final class ActionHost {
 
     func show(_ toast: ActionToast) {
         self.toast = toast
+        #if os(macOS)
+        // A toast is a live region: VoiceOver hears it without moving focus, and a failure interrupts.
+        AccessibilityAnnouncer.announce(toast.message, high: toast.tone == .critical)
+        #endif
         toastTask?.cancel()
         let id = toast.id
         toastTask = Task { [weak self] in
@@ -295,6 +299,9 @@ extension PropagationPolicy {
 struct ActionHostModifier: ViewModifier {
     @Bindable var host: ActionHost
     @Environment(ClusterRegistry.self) private var registry
+    #if os(macOS)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    #endif
 
     func body(content: Content) -> some View {
         content
@@ -315,11 +322,27 @@ struct ActionHostModifier: ViewModifier {
                         if let undo = toast.undo { Task { @MainActor in await undo() } }
                     }, onDismiss: { host.dismissToast() })
                     .padding(.horizontal, Spacing.l).padding(.bottom, Spacing.m)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(Self.toastTransition(reduceMotion: reduceMotionValue))
                 }
             }
             .animation(.snappy, value: host.toast?.id)
     }
+}
+
+extension ActionHostModifier {
+    /// Reduce Motion: a toast fades in place instead of sliding up.
+    static func toastTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    private var reduceMotionValue: Bool {
+        #if os(macOS)
+        reduceMotion
+        #else
+        false
+        #endif
+    }
+
 }
 
 extension View {
@@ -346,6 +369,8 @@ struct ToastBanner: View {
         .frame(maxWidth: 560)
         .glassEffect(.regular, in: Capsule())
         .accessibilityElement(children: .combine)
+        #if !os(macOS)
         .accessibilityAddTraits(.updatesFrequently)
+        #endif
     }
 }

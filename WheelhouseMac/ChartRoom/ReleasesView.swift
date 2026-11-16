@@ -183,12 +183,12 @@ struct ReleasesView: View {
 
     @ViewBuilder private func driftCell(_ state: DriftState?) -> some View {
         switch state {
-        case nil: Text("—").foregroundStyle(.tertiary).help("Checked when you open the release")
+        case nil: Text("—").foregroundStyle(.secondary).help("Checked when you open the release")
         case .checking: ProgressView().controlSize(.small)
         case .checked(let drifted, let total):
             if drifted == 0 { Label("In sync", systemImage: "checkmark").labelStyle(.titleAndIcon).foregroundStyle(Palette.healthyText).font(.caption) }
             else { Label("\(drifted)/\(total)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Palette.warningText).font(.caption) }
-        case .unavailable(let why): Text("n/a").foregroundStyle(.tertiary).help(why)
+        case .unavailable(let why): Text("n/a").foregroundStyle(.secondary).help(why)
         }
     }
 

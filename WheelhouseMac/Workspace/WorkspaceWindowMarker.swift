@@ -41,11 +41,13 @@ final class WindowObserver {
     private(set) weak var window: NSWindow?
     private let model: WorkspaceWindowModel
     private var tokens: [NSObjectProtocol] = []
+    private var focusSync: PaneFocusSync?
 
     init(window: NSWindow, model: WorkspaceWindowModel) {
         self.window = window
         self.model = model
         model.window = window
+        focusSync = PaneFocusSync(window: window, model: model)
         window.isRestorable = false          // the workspace restores its own windows (WorkspaceStore), not AppKit
         restoreFrame(window)
         let center = NotificationCenter.default

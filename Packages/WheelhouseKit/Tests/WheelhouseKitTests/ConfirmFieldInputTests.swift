@@ -74,6 +74,9 @@ struct ConfirmFieldInputTests {
         #expect(field.stringValue == "typed")
         #expect(!field.accessibilityIsAttributeSettable(.value))
         #expect(!field.accessibilityIsAttributeSettable(.selectedText))
+        #expect(!field.accessibilityIsAttributeSettable(.selectedTextRange))
+        // Focus alone may be set, so VoiceOver and Full Keyboard Access can enter the field.
+        #expect(field.accessibilityIsAttributeSettable(.focused))
         let editor = HardenedFieldEditor()
         editor.string = "typed"
         editor.setAccessibilityValue("forged")
@@ -81,6 +84,7 @@ struct ConfirmFieldInputTests {
         #expect(editor.string == "typed")
         #expect(!editor.accessibilityIsAttributeSettable(.value))
         #expect(!editor.accessibilityIsAttributeSettable(.selectedTextRange))
+        #expect(editor.accessibilityIsAttributeSettable(.focused))
     }
 
     @Test func typingAidsAreOff() {
@@ -109,6 +113,12 @@ struct ConfirmFieldInputTests {
         token.disable(); token.disable()
         #expect(!token.isEnabled)
         #expect(IsSecureEventInputEnabled() == before)   // exactly balanced
+    }
+
+    @Test func theSheetLabelLeadsWithTheLiveEnvironment() {
+        let prod = ClusterConfig(name: "p", server: URL(string: "https://p.example.com")!, environment: .production)
+        #expect(ConfirmSheet.sheetLabel(cluster: prod, namespace: nil, resource: "web") == "Production cluster p, all namespaces, web")
+        #expect(ConfirmSheet.sheetLabel(cluster: prod, namespace: "apps", resource: "web") == "Production cluster p, apps, web")
     }
 
     @Test func originForcesTypingOnProductionAndKeepsIOSBehaviourWhenNil() {

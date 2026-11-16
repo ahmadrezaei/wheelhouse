@@ -120,7 +120,7 @@ struct WorkspaceWindowContent: View {
             Group {
                 switch sheet {
                 case .saveStation: SaveStationSheet(model: model)
-                case .stations: StationsView().environment(env).safeAreaInset(edge: .bottom) { HStack { Spacer(); Button("Done") { model.sheet = nil } }.padding() }
+                case .stations: StationsView().environment(env).safeAreaInset(edge: .bottom) { HStack { Spacer(); Button("Done") { model.sheet = nil }.keyboardShortcut(.cancelAction) }.padding() }
                 case .pickClusters(let id, let fromLink):
                     if let station = env.workspace.store.stations.first(where: { $0.id == id }) { StationClusterPicker(station: station, fromLink: fromLink).environment(env) }
                 }

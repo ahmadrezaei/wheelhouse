@@ -112,6 +112,13 @@ final class CompassModel {
         guard !isLocked() else { return }
         if let seed { query = seed }
         else if let closedAt, now().timeIntervalSince(closedAt) > Self.rememberQueryFor { query = "" }
+        if !isOpen {
+            let responder = NSApp.keyWindow?.firstResponder
+            // A text field being edited is represented by the window's shared field editor, which the panel's field takes over:
+            // remember the field itself.
+            if let text = responder as? NSTextView, text.isFieldEditor { previousResponder = text.delegate as? NSView } else { previousResponder = responder }
+            openedFor = focusPlace
+        }
         isOpen = true
         selection = 0
         actions = []
@@ -120,12 +127,51 @@ final class CompassModel {
         Task { stats = await index.stats }
     }
 
+    /// What had the keyboard when the panel opened: Esc and a finished command give it back.
+    @ObservationIgnored private weak var previousResponder: NSResponder?
+    /// The tab and pane that were focused when the panel opened. A command that moved the focus (open in a split, Focus Pane) must
+    /// not have the keyboard pulled back to where it was.
+    @ObservationIgnored private var openedFor: FocusPlace?
+    /// Restores of the keyboard focus that ran, and that were skipped because a command moved the focus (tests wait on these).
+    @ObservationIgnored private(set) var focusRestores = 0
+    @ObservationIgnored private(set) var focusRestoreSkips = 0
+
+    private struct FocusPlace: Equatable {
+        let model: ObjectIdentifier
+        let tab: TabID
+        let pane: PaneID
+    }
+
+    private var focusPlace: FocusPlace? {
+        workspace.activeModel.map { FocusPlace(model: ObjectIdentifier($0), tab: $0.selectedTab.id, pane: $0.focusedPaneID) }
+    }
+
     func close() {
         guard isOpen else { return }
         isOpen = false
         closedAt = now()
+        restoreKeyboardFocus()
         searchTask?.cancel()
         frecency.flush()
+    }
+
+    /// After the panel is gone (next turn: its text field is still the first responder until SwiftUI removes it).
+    private func restoreKeyboardFocus() {
+        guard let responder = previousResponder as? NSView else { return }
+        previousResponder = nil
+        let opened = openedFor
+        DispatchQueue.main.async { [weak responder, weak self] in
+            guard let self else { return }
+            guard let responder, let window = responder.window, window.isKeyWindow else { focusRestoreSkips += 1; return }
+            // Only when the command left the focus where it was.
+            guard opened == nil || opened == focusPlace else { focusRestoreSkips += 1; return }
+            // A command the panel ran may have placed the keyboard itself (Filter Sidebar…): only an unplaced keyboard is restored.
+            let current = window.firstResponder
+            let unplaced = current == nil || current === window || (current as? NSView)?.window == nil
+            guard unplaced else { focusRestoreSkips += 1; return }
+            focusRestores += 1
+            window.makeFirstResponder(responder)
+        }
     }
 
     /// App Lock: the panel closes and forgets what was typed.
@@ -287,6 +333,17 @@ final class CompassModel {
     }
 
     var showsActionList: Bool { actionsFor != nil }
+
+    /// What VoiceOver hears when the arrows move the highlight (the text field keeps its focus).
+    var spokenSelection: String? {
+        if showsActionList { return actions.indices.contains(selection) ? actions[selection].title : nil }
+        guard let r = selected else { return nil }
+        return [r.title, r.subtitle, r.environment?.title, r.isProblem ? "failing" : nil].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    static func resultsSummary(_ count: Int) -> String {
+        count == 0 ? "No results" : count == 1 ? "1 result" : "\(count) results"
+    }
 
     /// The result under the selection.
     var selected: CompassResult? { results.indices.contains(selection) ? results[selection] : nil }

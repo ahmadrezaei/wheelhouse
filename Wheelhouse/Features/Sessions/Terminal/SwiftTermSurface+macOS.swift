@@ -27,7 +27,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         static func clamp(_ lines: Int) -> Int { min(max(lines, 1_000), maxLines) }
     }
 
-    private let terminalView: TerminalView
+    private let terminalView: AccessibleTerminalView
     private let bridge = Bridge()
     let scrollbackLines: Int
 
@@ -35,7 +35,10 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
     let modifiers = TerminalModifierState()
     var showsExtraKeys = false
     var fontSize: CGFloat = 13 {
-        didSet { terminalView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular) }
+        didSet {
+            terminalView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            terminalView.contentDidChange()
+        }
     }
     var view: PlatformView { terminalView }
     var size: (cols: Int, rows: Int) {
@@ -54,7 +57,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         scrollbackLines = scrollback == Scrollback.signInLines ? Scrollback.signInLines : Scrollback.clamp(scrollback)
         var options = TerminalOptions.default
         options.scrollback = scrollbackLines
-        terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 400), font: .monospacedSystemFont(ofSize: 13, weight: .regular), options: options)
+        terminalView = AccessibleTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 400), font: .monospacedSystemFont(ofSize: 13, weight: .regular), options: options)
         super.init()
         bridge.surface = self
         terminalView.terminalDelegate = bridge
@@ -75,10 +78,22 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
 
     // MARK: TerminalSurface
 
-    func feed(_ data: Data) { terminalView.feed(byteArray: ArraySlice([UInt8](data))) }
-    func feed(_ text: String) { terminalView.feed(text: text) }
-    func reset() { terminalView.resetToInitialState() }
-    func clearScreen() { terminalView.feed(text: "\u{1b}[2J\u{1b}[3J\u{1b}[H") }
+    func feed(_ data: Data) {
+        terminalView.feed(byteArray: ArraySlice([UInt8](data)))
+        terminalView.contentDidChange()
+    }
+    func feed(_ text: String) {
+        terminalView.feed(text: text)
+        terminalView.contentDidChange()
+    }
+    func reset() {
+        terminalView.resetToInitialState()
+        terminalView.contentDidChange()
+    }
+    func clearScreen() {
+        terminalView.feed(text: "\u{1b}[2J\u{1b}[3J\u{1b}[H")
+        terminalView.contentDidChange()
+    }
     func allText() -> String { String(decoding: terminalView.getBufferAsData(), as: UTF8.self) }
 
     func sendKey(_ key: TerminalKey, modifiers: TerminalModifiers) {
@@ -104,6 +119,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         weak var surface: SwiftTermSurface?
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+            (source as? AccessibleTerminalView)?.contentDidChange()
             guard let surface else { return }
             surface.delegate?.terminalSurface(surface, didResize: newCols, rows: newRows)
         }
