@@ -8,12 +8,22 @@ import WheelhouseUI
 /// The Deck Terminal shells that exist, held weakly, so a pack command can be inserted into the right one.
 @MainActor
 final class RiggingTerminals {
-    private struct Weak { weak var model: LocalShellModel? }
+    private struct Weak {
+        weak var model: LocalShellModel?
+        /// What the pane that shows this shell was opened with, and the terminal's own view (to bring its window and pane forward).
+        var spec: TerminalSpec?
+        weak var view: NSView?
+    }
     private var items: [Weak] = []
 
-    func register(_ model: LocalShellModel) {
+    func register(_ model: LocalShellModel, spec: TerminalSpec? = nil, view: NSView? = nil) {
         items.removeAll { $0.model == nil }
-        items.append(Weak(model: model))
+        items.append(Weak(model: model, spec: spec, view: view))
+    }
+
+    /// Where the shell that takes a paste lives, for bringing it to the front.
+    func location(of model: LocalShellModel) -> (spec: TerminalSpec?, view: NSView?)? {
+        items.first { $0.model === model }.map { ($0.spec, $0.view) }
     }
 
     /// The newest guarded shell on `cluster` that can take a paste right now (a Direct shell never receives pack text).
@@ -187,7 +197,7 @@ final class RiggingRuntime {
         }
         switch TerminalInserter.insert(text, forCluster: cluster, into: target) {
         case .inserted(let removed):
-            revealTerminal(for: cluster.id)
+            revealTerminal(of: target)
             record(item, cluster: cluster, subject: subject, verb: "insert", result: removed == 0 ? "ok" : "ok (removed \(removed) hidden characters)", commandLine: text)
         case .refused(let why):
             record(item, cluster: cluster, subject: subject, verb: "insert", result: "refused: \(why)")
@@ -196,13 +206,21 @@ final class RiggingRuntime {
     }
 
     /// Brings the terminal pane the text went into to the front, so the person sees it and can review it before pressing Return.
-    private func revealTerminal(for cluster: ClusterID) {
-        guard let model = workspace.activeModel else { return }
-        let pane = model.state.allPanes.first { pane in
-            if case .deckTerminal(let spec)? = pane.top { return spec.clusterID == cluster }
-            return false
+    private func revealTerminal(of target: LocalShellModel) {
+        guard let location = terminals.location(of: target) else { return }
+        // The pane that holds this very shell: the one pane opened with its spec, when that is unambiguous (two identical terminals make it a guess,
+        // so none is focused), then the window and the terminal view itself.
+        if let spec = location.spec, let model = workspace.activeModel {
+            let matches = model.state.allPanes.filter { pane in
+                if case .deckTerminal(let s)? = pane.top { return s == spec }
+                return false
+            }
+            if matches.count == 1, let pane = matches.first { model.focus(pane: pane.id) }
         }
-        if let pane { model.focus(pane: pane.id) }
+        if let view = location.view, let window = view.window {
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(view)
+        }
     }
 
     // MARK: Port-forward

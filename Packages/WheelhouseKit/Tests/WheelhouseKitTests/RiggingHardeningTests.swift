@@ -57,6 +57,11 @@ struct RiggingHardeningTests {
         "'sh' -c {{name}}", "kubectl get --kube{{name}}", "kubectl get -s{{name}}", "kubectl krew install x", "kubectl config view --raw", "kubectl cp a b", "kubectl proxy",
         "kubectl create -f x", "kubectl", "kubectl 'get' x | | kubectl get y", "helm list --post-renderer sh", "env kubectl get x", "/usr/bin/kubectl get x", "jq . x",
         "istioctl analyze -c x", "kubectl rollout restart deploy/x", "velero --kubecontext x get backups", "kubectl get x --tls-server-name=x", "kubectl get x --cache-dir=/tmp",
+        "velero backup delete {{name}} --confirm", "velero schedule delete --all --confirm", "velero plugin add x", "istioctl uninstall --purge -y", "istioctl install -f https://x.example/y",
+        "cmctl x install", "kubectl cnpg destroy {{name}}", "kubectl cnpg report operator -S", "velero client config set x", "istioctl analyze --xds-address x", "velero backup get --foo-address x",
+        "kubectl get pods -f x.yaml", "kubectl get pods -k dir", "kubectl get pods -R", "kubectl get pods --output yaml", "kubectl get pods --template x", "kubectl get pods -o go-template-file=x",
+        "kubectl get pods -o file", "kubectl get pods -o jsonpath={{name}}", "kubectl get pods -o {{name}}", "kubectl get pods http://x", "kubectl get secret x -o yaml", "kubectl get Secrets",
+        "kubectl get secret/x", "kubectl get secrets.v1", "kubectl get pods,secrets", "kubectl describe SECRET x", "kubectl logs x -k y",
     ])
     func templatesThatCouldSkipGangwayAreRefused(_ text: String) {
         #expect(throws: RiggingTemplate.TemplateError.self, "\(text)") { try RiggingTemplate(text, mode: .shell, allowed: ["name"]) }
@@ -87,9 +92,32 @@ struct RiggingHardeningTests {
     }
 
     @Test func quotesInsidePlainScalarsAndExplicitKeysDoNotHideNesting() {
+        for opener in ["x: [a'b, ", "x: [a \", ", "x: [a:\", ", "x: [\"a #\", ", "x: {a: 'b #', "] {
+            #expect(throws: RiggingPackError.self, "\(opener)") { try RiggingPackParser.parse(opener + String(repeating: "[", count: 5_000) + "\n") }
+        }
         let sneaky = "x: [a'b, " + String(repeating: "[", count: 5_000)
         #expect(throws: RiggingPackError.self) { try RiggingPackParser.parse(sneaky + "\n") }
         #expect(throws: RiggingPackError.self) { try RiggingPackParser.parse(String(repeating: "? ", count: 5_000) + "x\n") }
+    }
+
+    @Test func logsMayFollowAndOutputFormatsStillWork() throws {
+        for text in ["kubectl logs {{name}} -f", "kubectl get pods -o wide", "kubectl get pods -owide", "kubectl get pods -o json"] {
+            _ = try RiggingTemplate(text, mode: .shell, allowed: ["name"])
+        }
+    }
+
+    @Test func yamlEscapesCannotSmuggleHiddenCharacters() {
+        let withSidebar = Self.base + "\nsidebar:\n  - { apiGroup: example.io, title: \"Examples\" }\n"
+        let cases: [(String, String, String)] = [
+            (Self.base, "version: 1.0.0", "version: \"1.0\\u202E\""),
+            (Self.base, "version: 1.0.0", "version: \"1.0\\e\""),
+            (Self.base, "version: 1.0.0", "version: \"1.0\\x1b\""),
+            (withSidebar, "title: \"Examples\"", "title: \"Exa\\u200Bmples\""),
+        ]
+        for (text, old, new) in cases {
+            #expect(throws: RiggingPackError.self, "\(new)") { try RiggingPackParser.parse(text.replacingOccurrences(of: old, with: new)) }
+        }
+        #expect(throws: Never.self) { try RiggingPackParser.parse(withSidebar) }
     }
 
     @Test func everyBuiltInPackStillLoads() {

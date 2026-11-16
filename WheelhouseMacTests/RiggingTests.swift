@@ -211,6 +211,18 @@ struct RiggingRuntimeTests {
         #expect(items.last?.title == "noisy: and 30 more")
     }
 
+    @Test func aLongDiffEndsWithANoteAboutTheRest() throws {
+        let (paths, home) = tempPaths()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = try makeFolder(in: home)
+        let store = RiggingStore(paths: paths)
+        store.approve(try store.candidate(folder: folder))
+        let long = folderPack + "\n" + (0..<300).map { "# line \($0)" }.joined(separator: "\n")
+        try long.write(to: folder.appending(path: "rigging.yaml"), atomically: true, encoding: .utf8)
+        let candidate = try store.candidate(folder: folder)
+        #expect(candidate.changes.count == 201 && candidate.changes.last == "… and 100 more lines")
+    }
+
     @Test func aFailedKindIsNotListedAgainOnTheNextPass() async throws {
         let (rigging, session, home) = try runtime(pack: healthPack, builtIn: false)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -231,6 +243,7 @@ struct RiggingRuntimeTests {
         #expect(rigging.compassCommands().isEmpty)
         let ref = ResourceRef(clusterID: session.id, kind: .pod, namespace: "default", name: "p")
         #expect(rigging.menuActions(for: ref, raw: [:]).isEmpty)
+        #expect(rigging.railActions(for: .resource(ref)).isEmpty && rigging.railActions(for: .cluster(session.id)).isEmpty)
         // The seam a Distribution build uses: Rigging is out of the release set.
         #expect(!RiggingFeature.isEnabled(gateActive: false))
         #expect(RiggingFeature.isEnabled(gateActive: true))

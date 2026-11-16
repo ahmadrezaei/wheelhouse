@@ -49,7 +49,7 @@ final class RiggingStore {
             }
             return "Replaces the installed pack “\(name)” from \(old.summary). Remove the old pack first if you did not expect this."
         }
-        /// The lines that differ from the approved file (`+` added, `-` removed), at most 200.
+        /// The lines that differ from the approved file (`+` added, `-` removed): the first 200, then a note with the rest.
         var changes: [String] {
             guard let previousText else { return [] }
             let before = previousText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -61,7 +61,8 @@ final class RiggingStore {
                 case .remove(_, let line, _): out.append("- \(line)")
                 }
             }
-            return Array(out.prefix(200))
+            guard out.count > 200 else { return out }
+            return Array(out.prefix(200)) + ["… and \(out.count - 200) more lines"]
         }
         var sections: [RiggingDeclaration.Section] { RiggingDeclaration.sections(for: loaded.pack) }
     }

@@ -25,16 +25,11 @@ public enum RiggingPackParser {
     public static let maxDepth = 64
     private static func kindTag(_ node: Yams.Node) -> String { if case .mapping = node { "m" } else if case .sequence = node { "q" } else { "s" } }
 
-    /// A quote only opens a quoted scalar at the start of a value; inside a plain scalar (`a'b`) it is an ordinary character.
-    private static func opensScalar(_ s: [Unicode.Scalar], _ k: Int, start: Int) -> Bool {
-        k == start || [" ", "[", "{", ",", ":"].contains(s[k - 1])
-    }
-
-    /// A linear scan of the raw text, run before Yams sees it (libyaml's own nesting limit is 1000 levels and the code after it recurses, so a
-    /// file nested that deep could still overflow the stack). Counts the deepest of flow nesting (`[` and `{` outside quotes), block indentation levels and `- - -` runs.
+    /// A linear scan of the raw text, run before Yams sees it (libyaml's own nesting limit is 1000 levels, and the code after it recurses). Counts the deepest of flow nesting (`[` and `{` outside quotes), block indentation levels and `- - -` runs.
     static func preScan(_ text: String) throws {
         var indents: [Int] = []
         var flow = 0
+        var flowIndent = 0
         var deepest = 0
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let scalars = Array(line.unicodeScalars)
@@ -51,27 +46,17 @@ public enum RiggingPackParser {
                 j += 2
                 while j < scalars.count, scalars[j] == " " { j += 1 }
             }
-            var single = false, double = false
-            var k = j
-            while k < scalars.count {
-                let c = scalars[k]
-                if double {
-                    if c == "\\" { k += 1 } else if c == "\"" { double = false }
-                } else if single {
-                    if c == "'" { single = false }
-                } else if c == "\"", opensScalar(scalars, k, start: j) {
-                    double = true
-                } else if c == "'", opensScalar(scalars, k, start: j) {
-                    single = true
-                } else if c == "#", k == 0 || scalars[k - 1] == " " {
-                    break
-                } else if c == "[" || c == "{" {
+            // Quotes and comments are deliberately not understood: a quote inside a plain scalar can hide the rest of a line from a scanner that
+            // honours them. Every bracket counts, so the scan can only over-count (and a flow collection cannot outlive the block it started in).
+            if flow > 0, i <= flowIndent { flow = 0 }
+            for c in scalars[j...] {
+                if c == "[" || c == "{" {
+                    if flow == 0 { flowIndent = i }
                     flow += 1
                     deepest = max(deepest, indents.count + dashes + flow)
                 } else if c == "]" || c == "}", flow > 0 {
                     flow -= 1
                 }
-                k += 1
             }
             deepest = max(deepest, indents.count + dashes + flow)
             if deepest > maxDepth { throw RiggingPackError("rigging.yaml is nested too deeply.") }
@@ -107,6 +92,25 @@ public enum RiggingPackParser {
         }
     }
 
+    /// The first hidden, control or bidirectional character in any string or key of a decoded value (LF, CR and TAB are allowed).
+    static func firstUnsafeScalar(in value: JSONValue) -> Unicode.Scalar? {
+        func bad(_ text: String) -> Unicode.Scalar? { text.unicodeScalars.first { $0 != "\n" && $0 != "\r" && $0 != "\t" && RiggingTemplate.isUnsafe($0) } }
+        var stack = [value]
+        while let next = stack.popLast() {
+            switch next {
+            case .string(let text): if let found = bad(text) { return found }
+            case .array(let items): stack.append(contentsOf: items)
+            case .object(let map):
+                for (key, item) in map {
+                    if let found = bad(key) { return found }
+                    stack.append(item)
+                }
+            default: break
+            }
+        }
+        return nil
+    }
+
     public static func parse(_ text: String, schema override: JSONValue? = nil) throws -> RiggingPack {
         guard text.utf8.count <= maxBytes else { throw RiggingPackError("rigging.yaml is larger than \(maxBytes / 1024) KB.") }
         if let bad = text.unicodeScalars.first(where: { $0 != "\n" && $0 != "\r" && $0 != "\t" && RiggingTemplate.isUnsafe($0) }) {
@@ -124,6 +128,8 @@ public enum RiggingPackParser {
         guard issues.isEmpty else {
             throw RiggingPackError(issues.sorted { ($0.span.line, $0.span.column) < ($1.span.line, $1.span.column) }.prefix(20).map { "Line \($0.span.line + 1): \($0.message)" })
         }
+        // YAML escapes ("\u202E", "\e", "\x1b") only become characters after decoding, so every string is checked again here.
+        if let bad = firstUnsafeScalar(in: root.value) { throw RiggingPackError("rigging.yaml contains a control, hidden or bidirectional character once decoded (U+\(String(bad.value, radix: 16, uppercase: true))).") }
         let pack: RiggingPack
         do { pack = try root.value.decode(RiggingPack.self) } catch { throw RiggingPackError("The pack could not be read: \(error.localizedDescription)") }
         let problems = RiggingPackValidator.problems(in: pack)

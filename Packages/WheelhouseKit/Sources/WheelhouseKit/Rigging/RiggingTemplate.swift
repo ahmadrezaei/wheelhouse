@@ -172,10 +172,9 @@ public struct RiggingTemplate: Hashable, Sendable {
 
     /// The only programs a terminal template may start (in every `|` segment). Nothing here runs code from its arguments.
     static let allowedPrograms: Set<String> = ["kubectl", "cmctl", "istioctl", "velero"]
-    /// What `kubectl` may do from a pack: read-only subcommands and the one plugin the built-in packs use. An unknown name would run a
+    /// What `kubectl` may do from a pack: read-only subcommands and the one plugin the built-in packs use (`cnpg status`). An unknown name would run a
     /// `kubectl-<name>` found on PATH, and `config`, `cp`, `proxy`, `create`, `apply` and `krew` reach credentials, local files or the network.
     static let allowedKubectl: Set<String> = ["get", "describe", "logs", "top", "events", "explain", "api-resources", "api-versions", "rollout", "cnpg"]
-    static let allowedRollout: Set<String> = ["status", "history"]
     /// Flags that choose another identity, cluster, server, credentials or local file. Matched as a prefix, so `--as-uid` and `--kube-token` are caught.
     private static let deniedFlagPrefixes = ["--as", "--context", "--cluster", "--user", "--kube", "--server", "--token", "--insecure", "--certificate", "--client-", "--tls-",
                                               "--cache-dir", "--profile", "--password", "--address", "--raw", "--from-file", "--filename", "--local"]
@@ -218,26 +217,58 @@ public struct RiggingTemplate: Hashable, Sendable {
         for words in segments { try checkSegment(words, programs: programs) }
     }
 
+    /// What each program may do from a pack: exactly what the built-in packs use. Anything else (`velero backup delete`, `istioctl uninstall`,
+    /// `cmctl x install`, `kubectl cnpg destroy`, …) changes a cluster or fetches code and is refused.
+    private static func checkSubcommand(_ words: [Word]) throws {
+        func word(_ i: Int) -> String? { i < words.count && !words[i].quoted && !words[i].text.contains(marker) ? words[i].text : nil }
+        let ok: Bool
+        switch words[0].text {
+        case "cmctl": ok = ["renew", "status", "check"].contains(word(1) ?? "")
+        case "istioctl": ok = ["analyze", "proxy-status"].contains(word(1) ?? "")
+        case "velero": ok = ["backup", "restore", "schedule"].contains(word(1) ?? "") && ["describe", "logs", "get"].contains(word(2) ?? "")
+        case "kubectl":
+            guard let sub = word(1), allowedKubectl.contains(sub) else {
+                throw TemplateError(message: "kubectl in a terminal template may only use get, describe, logs, top, events, explain, api-resources, api-versions, rollout status|history or cnpg status.")
+            }
+            if sub == "rollout" { ok = ["status", "history"].contains(word(2) ?? "") }
+            else if sub == "cnpg" { ok = word(2) == "status" }
+            else { ok = true }
+        default: ok = true   // only reachable with a test-injected program list
+        }
+        guard ok else {
+            throw TemplateError(message: "“\(words.prefix(3).map(\.text).joined(separator: " ").replacingOccurrences(of: String(marker), with: "{{…}}"))” is not one of the commands a pack may insert (read-only describe, status, logs and get).")
+        }
+    }
+
+    /// Whether `word` names Secrets: `secret`, `secrets`, `secret/x`, `secrets.v1`, `pods,secrets`, in any case.
+    private static func namesSecrets(_ word: String) -> Bool {
+        word.lowercased().split(whereSeparator: { $0 == "," || $0 == "/" }).contains { part in
+            part == "secret" || part == "secrets" || part.hasPrefix("secret.") || part.hasPrefix("secrets.")
+        }
+    }
+
     private static func checkSegment(_ words: [Word], programs: Set<String>) throws {
         guard let first = words.first else { throw TemplateError(message: "A terminal template has an empty command (check the “|”).") }
         guard !first.quoted, programs.contains(first.text) else {
             throw TemplateError(message: "A terminal template may only start kubectl, cmctl, istioctl or velero (not “\(first.text.replacingOccurrences(of: String(marker), with: "{{…}}"))”).")
         }
-        if first.text == "kubectl" {
-            guard words.count > 1, !words[1].quoted, allowedKubectl.contains(words[1].text) else {
-                throw TemplateError(message: "kubectl in a terminal template may only use get, describe, logs, top, events, explain, api-resources, api-versions, rollout status|history or the cnpg plugin.")
-            }
-            if words[1].text == "rollout", !(words.count > 2 && allowedRollout.contains(words[2].text)) {
-                throw TemplateError(message: "kubectl rollout in a terminal template may only be “status” or “history”.")
-            }
-        }
+        try checkSubcommand(words)
+        let isLogs = first.text == "kubectl" && words.count > 1 && words[1].text == "logs"
+        var expectOutputValue = false
         for word in words.dropFirst() {
             let w = word.text
+            if w.contains("://") { throw TemplateError(message: "A terminal template cannot name a URL.") }
+            if namesSecrets(w) { throw TemplateError(message: "A terminal template cannot read Secrets.") }
+            if expectOutputValue {
+                expectOutputValue = false
+                try checkOutputValue(w)
+                continue
+            }
             if w.hasPrefix("--") {
                 let name = w.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? w
                 if name.contains(marker) { throw TemplateError(message: "A variable cannot be part of a flag name.") }
-                if deniedFlagPrefixes.contains(where: { name.hasPrefix($0) }) {
-                    throw TemplateError(message: "“\(name)” selects another cluster, identity, server or local file and is not allowed in a terminal template.")
+                if deniedFlagPrefixes.contains(where: { name.hasPrefix($0) }) || name.contains("address") || ["--output", "--template", "--kustomize", "--recursive"].contains(name) {
+                    throw TemplateError(message: "“\(name)” selects another cluster, identity, server, address or local file, or changes how objects print, and is not allowed in a terminal template.")
                 }
             } else if w.hasPrefix("-"), w != "-" {
                 if w.contains(marker), !w.contains("=") { throw TemplateError(message: "A variable cannot be glued to a flag; put a space before it.") }
@@ -250,8 +281,20 @@ public struct RiggingTemplate: Hashable, Sendable {
                 if body == "s" || (body == "c" && first.text == "istioctl") {
                     throw TemplateError(message: "“\(w)” selects a server or kubeconfig and is not allowed in a terminal template.")
                 }
+                if ["f", "k", "R"].contains(String(body)), !(String(body) == "f" && isLogs) {
+                    throw TemplateError(message: "“\(w)” reads files or URLs and is not allowed in a terminal template.")
+                }
+                if body == "o" { expectOutputValue = true }
+                else if isOutput { try checkOutputValue(String(body.dropFirst().drop { $0 == "=" })) }
             }
         }
+        if expectOutputValue { throw TemplateError(message: "-o needs a format.") }
+    }
+
+    /// An output format may not be built from a variable or read a template from a file.
+    private static func checkOutputValue(_ value: String) throws {
+        if value.contains(marker) { throw TemplateError(message: "A variable cannot be an output format.") }
+        if value.lowercased().contains("file") { throw TemplateError(message: "An output format that reads a file is not allowed in a terminal template.") }
     }
 
     // MARK: Rendering

@@ -56,7 +56,7 @@ final class DeckTerminalSession: TerminalSurfaceDelegate {
         shell.bracketedPasteProvider = { [weak self] in self?.surface.isBracketedPasteEnabled ?? false }
         // Visible to close() from the start, so a pane closed while the shell is starting ends it.
         model = shell
-        if RiggingFeature.isEnabled() { env.rigging.terminals.register(shell) }      // M13: pack commands find this shell
+        if RiggingFeature.isEnabled() { env.rigging.terminals.register(shell, spec: spec, view: surface.view) }      // M13: pack commands find this shell
         do {
             let service = direct ? nil : try await env.gangway.service()
             if closed { throw CancellationError() }
