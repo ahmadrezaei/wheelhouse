@@ -209,7 +209,7 @@ struct RepositoriesView: View {
                     TableColumn("URL") { r in Text(r.url).foregroundStyle(.secondary).textSelection(.enabled) }.width(min: 200, ideal: 300)
                     TableColumn("Last updated") { r in
                         if let date = model.snapshot.lastUpdated[r.name] { Text(date.formatted(.relative(presentation: .numeric))).foregroundStyle(.secondary) }
-                        else { Text(r.isOCI ? "n/a" : "never").foregroundStyle(.tertiary) }
+                        else { Text(r.isOCI ? "n/a" : "never").foregroundStyle(.secondary) }
                     }.width(min: 100, ideal: 120)
                     TableColumn("Charts") { r in
                         if let error = model.snapshot.errors[r.name] {

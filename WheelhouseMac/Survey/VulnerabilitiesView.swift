@@ -136,7 +136,7 @@ struct VulnerabilitiesTabView: View {
                     Text("Local scanning: \(coordinator.source.title)").font(.callout).foregroundStyle(.secondary)
                 }
             }
-            if let error = p.lastError ?? coordinator.message { Text(error).font(.caption).foregroundStyle(Palette.warning).lineLimit(2) }
+            if let error = p.lastError ?? coordinator.message { Text(error).font(.caption).foregroundStyle(Palette.warningText).lineLimit(2) }
         }
     }
 
@@ -160,7 +160,7 @@ struct VulnerabilitiesTabView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                             workloadTable(rollup)
                         } else if let error = c.error {
-                            Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(Palette.warning)
+                            Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(Palette.warningText)
                         } else {
                             ProgressView("Reading reports…")
                         }
@@ -324,7 +324,7 @@ struct ScannerSetupSheet: View {
                     Text(TrivyPin.unavailableMessage).font(.callout).foregroundStyle(.secondary)
                 }
             }
-            if let message = coordinator.message { Text(message).font(.caption).foregroundStyle(Palette.warning) }
+            if let message = coordinator.message { Text(message).font(.caption).foregroundStyle(Palette.warningText) }
             HStack { Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
         .padding(Spacing.xl)

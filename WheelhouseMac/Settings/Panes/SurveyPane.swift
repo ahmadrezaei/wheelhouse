@@ -38,7 +38,7 @@ struct SurveyPane: View {
             Section("Accepted risks") {
                 if let error = hub.riskStoreError {
                     Label("Accepted risks could not be stored in Survey's database: \(error)", systemImage: "exclamationmark.triangle")
-                        .font(.callout).foregroundStyle(Palette.warning)
+                        .font(.callout).foregroundStyle(Palette.warningText)
                 }
                 if hub.risks.risks.isEmpty {
                     Text("Nothing accepted. Use Accept Risk… on a finding to record a reason and an expiry.").foregroundStyle(.secondary)
