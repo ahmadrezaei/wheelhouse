@@ -16,6 +16,14 @@ import Testing
         for s in [NamespaceSelection.all, .init("x"), .init(names: ["q", "p", "r"])] { #expect(NamespaceSelection(encoded: s.encoded) == s) }
     }
 
+    @Test func aHandEditedListIsTruncatedToTheLimit() {
+        let names = (0 ..< NamespaceSelection.limit + 3).map { "ns\($0)" }
+        let decoded = NamespaceSelection(encoded: names.joined(separator: ","))
+        #expect(decoded.names == Array(names.sorted().prefix(NamespaceSelection.limit)))
+        let atLimit = (0 ..< NamespaceSelection.limit).map { "ns\($0)" }
+        #expect(NamespaceSelection(encoded: atLimit.joined(separator: ",")).names.count == NamespaceSelection.limit)
+    }
+
     @Test func singleIsTheNameOnlyForExactlyOne() {
         #expect(NamespaceSelection.all.single == nil)
         #expect(NamespaceSelection(nil).single == nil)

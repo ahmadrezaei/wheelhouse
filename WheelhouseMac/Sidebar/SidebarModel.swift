@@ -69,6 +69,8 @@ final class SidebarModel {
     @ObservationIgnored private let provider: any SidebarSessionProviding
     @ObservationIgnored private let features: () -> [FeatureDescriptor]
     @ObservationIgnored private var rulesFetchedAt: [String: Date] = [:]
+    /// The pooled rules each scope produced, so switching back to a selection inside the TTL restores its own rules.
+    @ObservationIgnored private var rulesByKey: [String: SidebarRuleSet] = [:]
     @ObservationIgnored private var inflight: [ClusterID: Task<Void, Never>] = [:]
     @ObservationIgnored private var lastBadgeRefresh = Date.distantPast
     @ObservationIgnored private var storeStamps: [String: Date] = [:]
@@ -164,7 +166,8 @@ final class SidebarModel {
         guard expandedClusters.contains(id) || !filter.isEmpty else { return }
         inflight[id]?.cancel()
         let selection = provider.selection(for: id)
-        let namespace = selection.single ?? selection.names.first      // several namespaces: review the first one
+        // Several namespaces: one review per name (bounded by `NamespaceSelection.limit`); a kind shows when any of them allows it.
+        let namespaces: [String?] = selection.names.isEmpty ? [nil] : selection.names
         inflight[id] = Task { [weak self] in
             guard let self else { return }
             if self.discovery[id] == nil {
@@ -179,22 +182,32 @@ final class SidebarModel {
                 }
                 self.rebuild()
             }
-            await self.loadRules(for: id, namespace: namespace)
+            await self.loadRules(for: id, namespaces: namespaces)
         }
     }
 
-    private func rulesKey(_ id: ClusterID, _ namespace: String?) -> String { "\(id)|\(namespace ?? "*")" }
+    private func rulesKey(_ id: ClusterID, _ namespaces: [String?]) -> String { "\(id)|\(namespaces.map { $0 ?? "*" }.joined(separator: ","))" }
 
-    private func loadRules(for id: ClusterID, namespace: String?) async {
-        let key = rulesKey(id, namespace)
-        if let at = rulesFetchedAt[key], Date().timeIntervalSince(at) < Self.rulesTTL, rules[id] != nil { return }
+    private func loadRules(for id: ClusterID, namespaces: [String?]) async {
+        let key = rulesKey(id, namespaces)
+        if let at = rulesFetchedAt[key], Date().timeIntervalSince(at) < Self.rulesTTL, let cached = rulesByKey[key] {
+            if rules[id] != cached { rules[id] = cached; rebuild() }
+            return
+        }
         if Task.isCancelled { return }
-        reviewPosts += 1
-        let response = await provider.rulesReview(for: id, namespace: namespace)
-        if Task.isCancelled { return }
+        var sets: [SidebarRuleSet] = []
+        var unreadable = false
+        for namespace in namespaces {
+            reviewPosts += 1
+            let response = await provider.rulesReview(for: id, namespace: namespace)
+            if Task.isCancelled { return }
+            if let response, let parsed = SidebarRuleSet.parse(response) { sets.append(parsed) } else { unreadable = true }
+        }
         rulesFetchedAt[key] = Date()
-        // A failed or unreadable review hides nothing.
-        if let response, let parsed = SidebarRuleSet.parse(response) { rules[id] = parsed } else { rules[id] = nil }
+        // A failed or unreadable review hides nothing; otherwise the rules of every namespace are pooled (any one may allow a kind).
+        let pooled = unreadable ? nil : SidebarRuleSet(rules: sets.flatMap(\.rules), incomplete: sets.contains(where: \.incomplete))
+        rulesByKey[key] = pooled     // an unreadable review is not cached: the next load asks again
+        rules[id] = pooled
         rebuild()
     }
 
