@@ -14,6 +14,7 @@
 		03381643954AD1B9FC1ADC14 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5059A2198553AB06D391E97A /* ShellModel.swift */; };
 		04443B4BBDFAA43D66EB5842 /* WorkspaceRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C66A04D633FC07752038E35 /* WorkspaceRuntimeTests.swift */; };
 		0580638D2F6B10FC247CD065 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C9C52EE391C749B058D73B /* main.swift */; };
+		05C5B54E08A4FA55BE840C40 /* AccessibleTerminalView+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6781DEC2347405B792B7960 /* AccessibleTerminalView+macOS.swift */; };
 		05EE3699B3DFEA88FDCA7BD2 /* ClusterClientFactoryKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */; };
 		07910056929F7D4F65CB9A8D /* CompassMetadataIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07925036213A72C282F0095E /* CompassMetadataIndexer.swift */; };
 		082B69AB73BCCBF3C180127B /* MemoryRelief.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ACFC492FBDDB66BB25512D /* MemoryRelief.swift */; };
@@ -225,6 +226,7 @@
 		986C75C08A97B39AFD41A86A /* LogsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6588A384B938BCFED31E6199 /* LogsModel.swift */; };
 		98E48F3DF6F721D48B00A40F /* YAMLEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF47E5721C6C9919C4C7D474 /* YAMLEditorView.swift */; };
 		9A0E860EB75F190F907B40C3 /* ResourceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3DCA0B06CA23F5BB2FC12 /* ResourceDetailView.swift */; };
+		9D0AAE032213F6CC4F4C89C2 /* KeyViewGate+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC07C615DA2BAE3899D592BD /* KeyViewGate+macOS.swift */; };
 		9DAF2740E790BB6FD70FF124 /* MooringsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1372DA7415597DAFEB2EAACD /* MooringsController.swift */; };
 		9E6FB8CD9F202694AFA67941 /* PadShell+iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD6EFD06CAE1A0E63B81DDAA /* PadShell+iOS.swift */; };
 		9EFC963CA0161071EB8BDFD5 /* ProposalReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711D29041D1D5BF5E1D65F5E /* ProposalReview.swift */; };
@@ -269,6 +271,7 @@
 		BB7D09ACC1ACAFE7860202E5 /* FirstMateHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CC9028AE7CC55DC2B97E0F7 /* FirstMateHub.swift */; };
 		BBE9A51DD5C7A91FDEA8453D /* KubeconfigImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBEB32ACB248A15C67DE849 /* KubeconfigImportView.swift */; };
 		BBE9F0B13CA4FD8A0CDB96B1 /* KubeconfigFileInliner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3720896A00597F1D024CEC76 /* KubeconfigFileInliner.swift */; };
+		BC6E4BABEAD48D404D6AD944 /* TerminalAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A75DF7C5B96793C6DA6A23 /* TerminalAccessibilityTests.swift */; };
 		BCC9E607F364FA125F8DE808 /* CodeEditor+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F7FD7A255DE280B727A491A /* CodeEditor+macOS.swift */; };
 		BD55D69EC5CD7C3FEE79F9B4 /* ChartRoomPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E67EC3F0EC76D6F1ED176190 /* ChartRoomPane.swift */; };
 		BED948694B39CB4C2A87AA5A /* WheelhouseUI in Frameworks */ = {isa = PBXBuildFile; productRef = 430E5EDC6B20418B4B75EB5E /* WheelhouseUI */; };
@@ -284,6 +287,7 @@
 		C3233E41862D72A41B3E581B /* MacSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE98D737DBE9DD8D09F605F /* MacSafetyTests.swift */; };
 		C359CF0FB80323149B2D613E /* PaneDragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C5ED73FE745445D246E837 /* PaneDragDrop.swift */; };
 		C4F858BF8386AB9F54632D17 /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D3C546C16695AD9E2351D6E /* Providers.swift */; };
+		C56197DC26552E01B2D0ADD3 /* PaneFocusSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1FAFDB4AAB1E31B52A8FD99 /* PaneFocusSync.swift */; };
 		C572807372A65744AC2EDC39 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BFDD26E1A7212B653A9485 /* ShareViewController.swift */; };
 		C5C3EC014AD92210E5D774FE /* AppLockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25DBC4EC930E2924210B3E63 /* AppLockController.swift */; };
 		C74D2A0047953811D4AB2849 /* ListScreen+PortForward+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E543407C20B2F1ADFC33347D /* ListScreen+PortForward+macOS.swift */; };
@@ -308,6 +312,7 @@
 		D26B5EDEC0A30B265148E5FB /* ListSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB6DDDD598E77EF51206330 /* ListSupport.swift */; };
 		D488326ABD8D594B4125814B /* NotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1409C7CDCD5574F2BF1528 /* NotificationCoordinator.swift */; };
 		D6B9FB6B896CB15549ABC423 /* TidesSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */; };
+		D8EC9483C56FE5C403611332 /* AccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96B1854AA4173C4740CF82F /* AccessibilityTests.swift */; };
 		D93BFC6950ACF2C590D4DA8C /* ClusterDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4271F087BBF30B039F71536D /* ClusterDashModel.swift */; };
 		D9E226ACD67DB36AB8481A31 /* ConnectionTestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */; };
 		DB4B9B5939F1F8087389A62F /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F908929F7BCCEE3FA17EF43C /* MacCommands.swift */; };
@@ -470,6 +475,7 @@
 		07925036213A72C282F0095E /* CompassMetadataIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassMetadataIndexer.swift; sourceTree = "<group>"; };
 		086FF7B4E5C15F59E447A189 /* RailModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailModel.swift; sourceTree = "<group>"; };
 		08790B8AD5629A5F56B5C65C /* WorkspaceDestination+Clusters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceDestination+Clusters.swift"; sourceTree = "<group>"; };
+		09A75DF7C5B96793C6DA6A23 /* TerminalAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAccessibilityTests.swift; sourceTree = "<group>"; };
 		0D9A6F860BFB18BDE3F3CCDB /* SurveyPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyPane.swift; sourceTree = "<group>"; };
 		0E5800E827B175B44600EA63 /* SurveyModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyModel.swift; sourceTree = "<group>"; };
 		0F13DCEB437CE6A298E9C69F /* WheelhouseMacPerfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMacPerfTests.swift; sourceTree = "<group>"; };
@@ -633,6 +639,7 @@
 		9F7FD7A255DE280B727A491A /* CodeEditor+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodeEditor+macOS.swift"; sourceTree = "<group>"; };
 		9FB6DDDD598E77EF51206330 /* ListSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSupport.swift; sourceTree = "<group>"; };
 		A023E423619E813328039D2C /* LandfallPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallPane.swift; sourceTree = "<group>"; };
+		A1FAFDB4AAB1E31B52A8FD99 /* PaneFocusSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneFocusSync.swift; sourceTree = "<group>"; };
 		A23F934D607C6736AA7850A4 /* WorkspaceDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDestination.swift; sourceTree = "<group>"; };
 		A348388E0E98C445C8AA52DE /* ConnectionTestCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionTestCard.swift; sourceTree = "<group>"; };
 		A3A8B15BD1430061595E91E9 /* LogsTableView+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LogsTableView+Shared.swift"; sourceTree = "<group>"; };
@@ -683,6 +690,7 @@
 		CADC6E0637ED64C2044F2BAF /* MacWidgetSnapshotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWidgetSnapshotWriter.swift; sourceTree = "<group>"; };
 		CB9B4B53B1781036C80C12A4 /* BeaconPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeaconPane.swift; sourceTree = "<group>"; };
 		CBC1C9A08BAA202CA06E9326 /* KubeTable+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KubeTable+macOS.swift"; sourceTree = "<group>"; };
+		CC07C615DA2BAE3899D592BD /* KeyViewGate+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyViewGate+macOS.swift"; sourceTree = "<group>"; };
 		CC32D39307D690CC2810013B /* CrowsNestFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowsNestFeature.swift; sourceTree = "<group>"; };
 		CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandfallSafetyTests.swift; sourceTree = "<group>"; };
 		CEE7C5F2FC25097D61E73CCB /* WheelhouseShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WheelhouseShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -740,11 +748,13 @@
 		F495E201E0610A974851C166 /* ObjectRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectRow.swift; sourceTree = "<group>"; };
 		F5913BA974E2B10BD36AFB6E /* PortForwardBrowserView+iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortForwardBrowserView+iOS.swift"; sourceTree = "<group>"; };
 		F6612E7D7BAF07A705404E18 /* HelmRepoViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelmRepoViews.swift; sourceTree = "<group>"; };
+		F6781DEC2347405B792B7960 /* AccessibleTerminalView+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccessibleTerminalView+macOS.swift"; sourceTree = "<group>"; };
 		F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeepLink+Routes.swift"; sourceTree = "<group>"; };
 		F756D86F9AA69A8B3EA0A20E /* VulnerabilitiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VulnerabilitiesView.swift; sourceTree = "<group>"; };
 		F7A6CF8DD4B434DD8CF25040 /* SidebarTreeBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTreeBuilder.swift; sourceTree = "<group>"; };
 		F830568796FB0B0194A1E103 /* FirstMateTranscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMateTranscript.swift; sourceTree = "<group>"; };
 		F908929F7BCCEE3FA17EF43C /* MacCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommands.swift; sourceTree = "<group>"; };
+		F96B1854AA4173C4740CF82F /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };
 		FB415F4BD5D14446531D8331 /* ChartRoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomTests.swift; sourceTree = "<group>"; };
 		FB8746F491D03C8CD0BAAF30 /* TidesSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TidesSheets.swift; sourceTree = "<group>"; };
 		FCEFC7FC29766A828319C122 /* SidebarCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCatalog.swift; sourceTree = "<group>"; };
@@ -829,6 +839,7 @@
 		05D9F1AF6A0ABEE5A4D81CFD /* WheelhouseMacTests */ = {
 			isa = PBXGroup;
 			children = (
+				F96B1854AA4173C4740CF82F /* AccessibilityTests.swift */,
 				D59BBE14BE5DA3D6D35A2A92 /* AppKitPortTests.swift */,
 				5EDBC19987A40E057E713723 /* BeaconApprovalSheetTests.swift */,
 				5E38F5342A24A50E7AFD0FF5 /* BeaconHelperTests.swift */,
@@ -861,6 +872,7 @@
 				595E05758EBAA172D428E075 /* ShellRegressionTests.swift */,
 				FEDC89EAF411887826A97205 /* SidebarModelTests.swift */,
 				B6D6CEB1D55B12F7AE3BD204 /* SurveyModelTests.swift */,
+				09A75DF7C5B96793C6DA6A23 /* TerminalAccessibilityTests.swift */,
 				C0FD38774DD3D34ED21D952F /* TidesRenderSmokeTests.swift */,
 				60529108D22876F77D9BC34D /* TidesTests.swift */,
 				448E27387E9FE683013FB7E8 /* WidgetSnapshotWriterTests.swift */,
@@ -1149,6 +1161,7 @@
 				B8D13DF1F47F46F6D99E63F2 /* ClusterClientFactoryKey.swift */,
 				7275A86CF4878D4D8D18379D /* DebugKeychainProbe+iOS.swift */,
 				F745D3264C6E7492599492D4 /* DeepLink+Routes.swift */,
+				CC07C615DA2BAE3899D592BD /* KeyViewGate+macOS.swift */,
 				53995759C6782852A5AF1FCC /* LockScreenView.swift */,
 				154E3E63CDDD3FE3693DD62C /* LockWindowManager+iOS.swift */,
 				60B2D3A3F138EC3D2CA018FA /* NetworkMonitor.swift */,
@@ -1185,6 +1198,7 @@
 		6F2B1826D80E8CC71B0B9E9A /* Terminal */ = {
 			isa = PBXGroup;
 			children = (
+				F6781DEC2347405B792B7960 /* AccessibleTerminalView+macOS.swift */,
 				1ED31BF9841DCBEB1A867B06 /* BasicTerminalSurface+iOS.swift */,
 				5059A2198553AB06D391E97A /* ShellModel.swift */,
 				1D0DD6C5827213D05E2799CF /* SwiftTermSurface+macOS.swift */,
@@ -1356,6 +1370,7 @@
 				72DAC6F8EBD962CBA6F07781 /* Destinations.swift */,
 				D5ACFC492FBDDB66BB25512D /* MemoryRelief.swift */,
 				72C5ED73FE745445D246E837 /* PaneDragDrop.swift */,
+				A1FAFDB4AAB1E31B52A8FD99 /* PaneFocusSync.swift */,
 				827B4EB31C8D12A1EBDEE0B6 /* PaneTreeLayout.swift */,
 				22E78640B4DF385289E5CF0B /* PaneViews.swift */,
 				A4F2BAC65467A71C0E8A95EF /* PortForwardCommand.swift */,
@@ -1911,6 +1926,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6A6C8916200CC0A8F0E1F42 /* AboutViews.swift in Sources */,
+				05C5B54E08A4FA55BE840C40 /* AccessibleTerminalView+macOS.swift in Sources */,
 				1B881DEAAE26133A890CCB7F /* ActionHost.swift in Sources */,
 				E05F7E5BBA7C4E34C0BB2713 /* ActionSheets.swift in Sources */,
 				DFC91BEE7354BEC8A265B88C /* ActivationPolicyController.swift in Sources */,
@@ -1984,6 +2000,7 @@
 				A2257B877ED757FD3C2635D6 /* HelmToolbox+Live.swift in Sources */,
 				F34ADDABAD6081F5CC481776 /* HelmToolbox.swift in Sources */,
 				7530D2CE52F321690788A5AD /* ICloudPane.swift in Sources */,
+				9D0AAE032213F6CC4F4C89C2 /* KeyViewGate+macOS.swift in Sources */,
 				B607829F5B89295DA4C0B437 /* KubeTable+Diff.swift in Sources */,
 				C8CA295AD6896E6193598156 /* KubeTable+macOS.swift in Sources */,
 				BBE9F0B13CA4FD8A0CDB96B1 /* KubeconfigFileInliner.swift in Sources */,
@@ -2031,6 +2048,7 @@
 				F3D8B183D188BCE011FC576F /* NotificationsPane.swift in Sources */,
 				FD5ED4330563F154F45DF81A /* ObjectRow.swift in Sources */,
 				C359CF0FB80323149B2D613E /* PaneDragDrop.swift in Sources */,
+				C56197DC26552E01B2D0ADD3 /* PaneFocusSync.swift in Sources */,
 				B8E9CDBE8D2EC80170026193 /* PaneTreeLayout.swift in Sources */,
 				CD7E66823A2D7956C4395BDB /* PaneViews.swift in Sources */,
 				7A2B9C01EFF66790C27C8507 /* PaneVisibility.swift in Sources */,
@@ -2232,6 +2250,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D8EC9483C56FE5C403611332 /* AccessibilityTests.swift in Sources */,
 				4A7D4239BCA77080F016445E /* AppKitPortTests.swift in Sources */,
 				350C95041E10D37BFD6EEEB6 /* BeaconApprovalSheetTests.swift in Sources */,
 				B914E09E747960CCC7594BF2 /* BeaconHelperTests.swift in Sources */,
@@ -2264,6 +2283,7 @@
 				25E3B4F3A5FC26CA22425B46 /* ShellRegressionTests.swift in Sources */,
 				77824CA2FFC209355E210A53 /* SidebarModelTests.swift in Sources */,
 				FABFE485E37679C753C93A88 /* SurveyModelTests.swift in Sources */,
+				BC6E4BABEAD48D404D6AD944 /* TerminalAccessibilityTests.swift in Sources */,
 				31B747FDCD700E985490094C /* TidesRenderSmokeTests.swift in Sources */,
 				E12D0FEE0DB59A024675DDC8 /* TidesTests.swift in Sources */,
 				2B70DBCB6BE5021D3B54422E /* WidgetSnapshotWriterTests.swift in Sources */,
