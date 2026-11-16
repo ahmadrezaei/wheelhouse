@@ -101,8 +101,8 @@ struct NamespacePickerButton: View {
         .popover(isPresented: $isOpen, arrowEdge: .bottom) { content }
         .background(PickerWindowProbe(window: $window))
         .onReceive(NotificationCenter.default.publisher(for: .openNamespacePicker)) { note in
-            // Only the picker in the window the command was sent from (a window the probe has not reached yet answers too).
-            guard window == nil || note.object as? NSWindow === window else { return }
+            // Only the picker in the window the command was sent from.
+            guard let window, note.object as? NSWindow === window else { return }
             query = ""; highlight = nil; isOpen = true
         }
         .task { await store.run() }

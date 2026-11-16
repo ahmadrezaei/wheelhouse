@@ -20,14 +20,14 @@ final class PaneFocusSync {
     private var observation: NSKeyValueObservation?
     private var stopped = false
     /// The event being handled; tests replace it (there is no current event outside a run loop turn that received one).
-    var currentEventType: () -> NSEvent.EventType? = {
-        // `currentEvent` keeps the last event the app took: only a recent one is the user's hand on the keyboard or mouse.
-        guard let event = NSApp.currentEvent, ProcessInfo.processInfo.systemUptime - event.timestamp < 0.25 else { return nil }
-        return event.type
+    var isUserGesture: (_ responder: NSView, _ window: NSWindow) -> Bool = { responder, window in
+        PaneFocusSync.isUserGesture(NSApp.currentEvent, responder: responder, in: window)
     }
     /// The tab and pane the keyboard focus was last placed for: the model also changes for reasons that have nothing to do with focus
     /// (a sidebar click, an inspector toggle), and those must not pull the keyboard out of the sidebar or the toolbar.
     private var placedFor: (tab: TabID, pane: PaneID)?
+    /// How many model changes were looked at (tests wait on it instead of sleeping).
+    private(set) var modelChangeCount = 0
 
     init(window: NSWindow, model: WorkspaceWindowModel) {
         self.window = window
@@ -43,10 +43,17 @@ final class PaneFocusSync {
 
     // MARK: Responder to pane
 
-    /// A key or mouse press is what moves the keyboard focus by the user's hand.
-    static func isUserEvent(_ type: NSEvent.EventType?) -> Bool {
-        guard let type else { return false }
-        return [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown].contains(type)
+    /// What counts as the user moving the keyboard focus: Tab or Shift-Tab, or a mouse press in this window that lands inside the
+    /// responder. Return, a menu shortcut, a command that places focus itself, a shell connecting in a background pane: none of those.
+    static func isUserGesture(_ event: NSEvent?, responder: NSView, in window: NSWindow) -> Bool {
+        guard let event, ProcessInfo.processInfo.systemUptime - event.timestamp < 0.25 else { return false }
+        switch event.type {
+        case .keyDown: return event.keyCode == 48
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard event.window === window else { return false }
+            return responder.bounds.contains(responder.convert(event.locationInWindow, from: nil))
+        default: return false
+        }
     }
 
     private var isInert: Bool {
@@ -55,8 +62,8 @@ final class PaneFocusSync {
     }
 
     func responderChanged() {
-        guard !isInert, Self.isUserEvent(currentEventType()), let window,
-              let responder = window.firstResponder as? NSView, let id = pane(containing: responder),
+        guard !isInert, let window, let responder = window.firstResponder as? NSView, isUserGesture(responder, window),
+              let id = pane(containing: responder),
               id != model.focusedPaneID else { return }
         model.focus(pane: id)
     }
@@ -93,6 +100,7 @@ final class PaneFocusSync {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    self.modelChangeCount += 1
                     let now = (tab: self.model.selectedTab.id, pane: self.model.focusedPaneID)
                     if self.placedFor?.tab != now.tab || self.placedFor?.pane != now.pane {
                         self.placedFor = now

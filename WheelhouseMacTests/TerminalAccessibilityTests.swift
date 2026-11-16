@@ -113,13 +113,53 @@ struct TerminalAccessibilityTests {
 
     @Test func resizeAndFontChangesInvalidateTheText() throws {
         let (surface, view) = try makeView()
-        view.now = { Date(timeIntervalSince1970: 5_000) }
+        var clock = Date(timeIntervalSince1970: 5_000)
+        view.now = { clock }
         surface.feed("x")
-        let before = view.accessibilityText
-        view.now = { Date(timeIntervalSince1970: 6_000) }
+        _ = view.accessibilityText
+        let built = view.buildCount
+        // Nothing changed: the cached text is served, even a second later.
+        clock = clock.addingTimeInterval(1)
+        _ = view.accessibilityText
+        #expect(view.buildCount == built)
+        // A font change reflows the grid without any output: the next read rebuilds.
         surface.fontSize = 18
-        let after = view.accessibilityText
-        #expect(after.value.contains("x"))
-        #expect(before.value.contains("x"))
+        clock = clock.addingTimeInterval(1)
+        _ = view.accessibilityText
+        #expect(view.buildCount == built + 1)
+    }
+
+    @Test func scrollbackIsCopiedOnlyWhileVoiceOverRuns() throws {
+        let (surface, view) = try makeView()
+        var clock = Date(timeIntervalSince1970: 9_000)
+        view.now = { clock }
+        view.voiceOverIsRunning = { false }
+        for i in 0..<200 { surface.feed("line \(i)\r\n") }
+        let screen = view.accessibilityText
+        #expect(screen.rows.count <= surface.size.rows + 1)
+        #expect(!screen.value.contains("line 0\n"))
+        view.voiceOverIsRunning = { true }
+        clock = clock.addingTimeInterval(1)
+        let all = view.accessibilityText
+        #expect(all.value.contains("line 0\n"))
+        #expect(all.rows.count > screen.rows.count)
+    }
+
+    @Test func voiceOverStateIsNotReadOnEveryChunk() throws {
+        let (surface, view) = try makeView()
+        var reads = 0
+        let clock = Date(timeIntervalSince1970: 100)
+        view.now = { clock }
+        view.voiceOverIsRunning = { reads += 1; return false }
+        for i in 0..<100 { surface.feed("chunk \(i)\r\n") }
+        #expect(reads == 1)
+    }
+
+    @Test func theCursorOffsetCountsWideCharactersOnce() throws {
+        let (surface, view) = try makeView()
+        surface.feed("日本x")
+        let text = view.accessibilityText
+        let line = text.lineRanges[text.cursorLine]
+        #expect(text.insertionPoint - line.location == 3)
     }
 }

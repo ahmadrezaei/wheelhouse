@@ -47,8 +47,9 @@ struct LogsTableView: NSViewRepresentable {
         v.onUserScrolledAway = onUserScrolledAway
         v.onReachedBottom = onReachedBottom
         v.onSelect = onSelect
-        v.isPaneVisible = isPaneVisible
+        // Show the view first: a hidden table has no size, so the position a paused reader holds would be captured wrongly.
         v.gate.apply(visible: paneIsInKeyLoop, to: v)
+        v.isPaneVisible = isPaneVisible
         // Never read `source.visible` here: SwiftUI tracks what `updateNSView` reads, and that would put every flush back on its path.
         if let source { v.track(source) }
         v.apply(lines: source == nil ? lines : nil, settings: settings, matcher: matcher, follow: follow, scrollTarget: scrollTarget)

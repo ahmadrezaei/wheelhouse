@@ -152,6 +152,6 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
 
         func clipboardRead(source: TerminalView) -> Data? { nil }
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
-        func rangeChanged(source: TerminalView, startY: Int, endY: Int) { (source as? AccessibleTerminalView)?.contentDidChange() }
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     }
 }

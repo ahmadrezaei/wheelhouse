@@ -74,8 +74,9 @@ struct ConfirmFieldInputTests {
         #expect(field.stringValue == "typed")
         #expect(!field.accessibilityIsAttributeSettable(.value))
         #expect(!field.accessibilityIsAttributeSettable(.selectedText))
-        #expect(field.accessibilityIsAttributeSettable(.focused) == NSTextField().accessibilityIsAttributeSettable(.focused))
-        #expect(HardenedFieldEditor().accessibilityIsAttributeSettable(.focused) == NSTextView().accessibilityIsAttributeSettable(.focused))
+        #expect(!field.accessibilityIsAttributeSettable(.selectedTextRange))
+        // Focus alone may be set, so VoiceOver and Full Keyboard Access can enter the field.
+        #expect(field.accessibilityIsAttributeSettable(.focused))
         let editor = HardenedFieldEditor()
         editor.string = "typed"
         editor.setAccessibilityValue("forged")
@@ -83,6 +84,7 @@ struct ConfirmFieldInputTests {
         #expect(editor.string == "typed")
         #expect(!editor.accessibilityIsAttributeSettable(.value))
         #expect(!editor.accessibilityIsAttributeSettable(.selectedTextRange))
+        #expect(editor.accessibilityIsAttributeSettable(.focused))
     }
 
     @Test func typingAidsAreOff() {

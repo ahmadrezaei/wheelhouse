@@ -306,8 +306,17 @@ final class KubeTableScrollView: NSScrollView, NSTableViewDataSource, NSTableVie
         flush(force: structural || keys.isEmpty)
     }
 
+    /// A table that is hidden (a covered screen, a hidden tab) has no layout to anchor the scroll position to: updates wait, and the
+    /// latest one is applied when it is shown again. Without a window (tests) the table applies at once.
+    private var isHiddenInWindow: Bool { window != nil && isHiddenOrHasHiddenAncestor }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if pending != nil { flush(force: true) }
+    }
+
     private func flush(force: Bool) {
-        guard pending != nil, isShown || window == nil else { return }
+        guard pending != nil, isShown || window == nil, !isHiddenInWindow else { return }
         let elapsed = ContinuousClock.now - lastApplied
         if !force, elapsed < Self.minInterval {
             guard flushTask == nil else { return }

@@ -91,12 +91,20 @@ struct TerminalAccessibilityText: Equatable {
 /// (SwiftTerm ships none). The text is rebuilt lazily and at most four times a second, and only when VoiceOver asks, so the
 /// terminal costs nothing for everyone else. The pod shell and the Deck Terminal both use this view.
 final class AccessibleTerminalView: TerminalView {
-    /// Scrollback rows VoiceOver can read above the screen.
-    static let scrollbackRowsForAccessibility = 1_000
+    /// Scrollback rows VoiceOver can read above the screen. Without VoiceOver nothing but the live screen is ever copied out.
+    static let scrollbackRowsForAccessibility = 500
     static let changeInterval: TimeInterval = 0.25
 
     /// Swapped by tests.
-    var voiceOverIsRunning: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
+    var voiceOverIsRunning: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled } {
+        didSet { voiceOverCheckedAt = .distantPast }
+    }
+    /// How many times the text was rebuilt (tests).
+    private(set) var buildCount = 0
+    /// VoiceOver's state is read at most once a second, not on every chunk of output.
+    private var voiceOverOn = false
+    private var voiceOverCheckedAt = Date.distantPast
+    static let voiceOverCheckInterval: TimeInterval = 1
     var postNotification: ((NSAccessibility.Notification) -> Void)?
     var announce: ((String) -> Void)?
     var now: () -> Date = Date.init
@@ -111,7 +119,7 @@ final class AccessibleTerminalView: TerminalView {
     /// frame, so the rebuild (not the post) is what is throttled.
     func contentDidChange() {
         isDirty = true
-        guard !changePending, voiceOverIsRunning() else { return }
+        guard !changePending, refreshVoiceOverState() else { return }
         changePending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.changeInterval) { [weak self] in
             guard let self else { return }
@@ -121,10 +129,26 @@ final class AccessibleTerminalView: TerminalView {
         }
     }
 
+    /// The cached VoiceOver state, refreshed when it is older than a second. A change of state makes the text stale.
+    @discardableResult
+    private func refreshVoiceOverState() -> Bool {
+        let current = now()
+        if current.timeIntervalSince(voiceOverCheckedAt) >= Self.voiceOverCheckInterval {
+            let running = voiceOverIsRunning()
+            if running != voiceOverOn { voiceOverOn = running; isDirty = true; cachedText = nil }
+            voiceOverCheckedAt = current
+        }
+        return voiceOverOn
+    }
+
     var accessibilityText: TerminalAccessibilityText {
+        let withScrollback = refreshVoiceOverState()
         if let cachedText, !isDirty || now().timeIntervalSince(lastBuild) < Self.changeInterval { return cachedText }
-        let text = Self.makeText(from: terminalContentSnapshot(region: .history(maximumScrollbackRows: Self.scrollbackRowsForAccessibility)))
+        // The scrollback (anything that scrolled off, possibly secrets) is copied out only for a person using VoiceOver.
+        let region: TerminalContentRegion = withScrollback ? .history(maximumScrollbackRows: Self.scrollbackRowsForAccessibility) : .history(maximumScrollbackRows: -1)
+        let text = Self.makeText(from: terminalContentSnapshot(region: region))
         cachedText = text
+        buildCount += 1
         isDirty = false
         lastBuild = now()
         return text
@@ -149,7 +173,7 @@ final class AccessibleTerminalView: TerminalView {
                 cursorLine = lines.count - 1
                 let before = (lines[cursorLine] as NSString).length - (row.text as NSString).length
                 let column = min(max(snapshot.cursorColumn, 0), row.cells.count)
-                let inRow = row.cells.prefix(column).reduce(0) { $0 + ($1.text.isEmpty ? 1 : ($1.text as NSString).length) }
+                let inRow = row.cells.prefix(column).reduce(0) { $0 + ($1.text.isEmpty ? ($1.width == 0 ? 0 : 1) : ($1.text as NSString).length) }
                 cursorOffset = before + min(inRow, (row.text as NSString).length)
             }
         }

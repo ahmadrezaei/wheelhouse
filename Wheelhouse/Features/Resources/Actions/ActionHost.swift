@@ -300,7 +300,6 @@ struct ActionHostModifier: ViewModifier {
     @Bindable var host: ActionHost
     @Environment(ClusterRegistry.self) private var registry
     #if os(macOS)
-    @Environment(\.undoManager) private var undoManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #endif
 
@@ -327,10 +326,6 @@ struct ActionHostModifier: ViewModifier {
                 }
             }
             .animation(.snappy, value: host.toast?.id)
-            #if os(macOS)
-            // An undoable action is also on the window's undo stack, so ⌘Z (Edit > Undo) works, not only the toast's button.
-            .onChange(of: host.toast?.id) { _, _ in registerUndo() }
-            #endif
     }
 }
 
@@ -348,20 +343,6 @@ extension ActionHostModifier {
         #endif
     }
 
-    #if os(macOS)
-    private func registerUndo() {
-        // One entry at most, and only while the toast that offers it is up: a finished or dismissed toast takes its entry with it.
-        undoManager?.removeAllActions(withTarget: host)
-        guard let toast = host.toast, let undo = toast.undo, let undoManager else { return }
-        let id = toast.id
-        undoManager.registerUndo(withTarget: host) { host in
-            guard host.toast?.id == id else { return }
-            host.dismissToast()
-            Task { @MainActor in await undo() }
-        }
-        undoManager.setActionName(toast.message)
-    }
-    #endif
 }
 
 extension View {

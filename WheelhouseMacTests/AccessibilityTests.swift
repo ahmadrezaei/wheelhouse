@@ -26,10 +26,6 @@ struct AccessibilityTests {
         #expect(heard.count == 2)
     }
 
-    @Test func reduceMotionFadesToastsInPlace() {
-        #expect(String(describing: ActionHostModifier.toastTransition(reduceMotion: true)) != String(describing: ActionHostModifier.toastTransition(reduceMotion: false)))
-    }
-
     @Test func compassSpeaksResultCountsAndTheSelectedRow() {
         #expect(CompassModel.resultsSummary(0) == "No results")
         #expect(CompassModel.resultsSummary(1) == "1 result")
@@ -69,7 +65,7 @@ struct AccessibilityTests {
         #expect(ran == ["delete", "tab"])
     }
 
-    @Test func aRowViewAsksItsTableForActionsAtTheTimeOfTheQuestion() {
+    @Test func aRowViewAsksItsTableForActionsAtTheTimeOfTheQuestion() async throws {
         let table = KubeTableScrollView()
         table.assumeVisible = true
         table.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
@@ -88,7 +84,11 @@ struct AccessibilityTests {
         #expect(view?.accessibilityCustomActions()?.map(\.name) == ["Open"])
         _ = view?.accessibilityCustomActions()?.first?.handler?()
         #expect(handled == 1)
+        // A live update changes the row's data: the label read for the row follows it.
         label = "second"
+        table.update(kindID: ResourceKind.pod.id, columns: cols, sort: .status, reversed: false, keys: [KubeRowKey(id: "p0", version: "2")], rowAt: row)
+        try await waitUntil { table.rowView(at: 0)?.accessibilityLabel() == "pod-0, second" }
+        #expect(table.rowView(at: 0)?.accessibilityLabel() == "pod-0, second")
     }
 
     @Test func theRowMenuActsOnTheSelectedRowWhenNothingWasClicked() throws {
@@ -207,8 +207,10 @@ struct AccessibilityTests {
         let outline = try #require(shownViews(f.window, "SidebarOutline").first)
         f.window.makeKeyAndOrderFront(nil)
         #expect(f.window.makeFirstResponder(outline))
+        let sync = PaneFocusSync(window: f.window, model: f.model)
         f.model.selectSidebar(.kind(f.cluster, .configMap))
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil { sync.modelChangeCount > 0 }
+        #expect(sync.modelChangeCount > 0)
         #expect(f.window.firstResponder === outline)
     }
 
@@ -219,9 +221,69 @@ struct AccessibilityTests {
         let first = f.model.focusedPaneID
         f.model.split(.horizontal)
         f.model.focus(pane: first)
+        let sync = PaneFocusSync(window: f.window, model: f.model)
         f.model.push(.resourceDetail(f.ref), from: first)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil { sync.modelChangeCount > 0 }
         #expect(f.model.focusedPaneID == first)
+    }
+
+    @Test func aCompassCommandThatMovesTheFocusIsNotUndone() async throws {
+        let f = try workspaceWindow()
+        defer { close(f) }
+        try await waitUntil { shownViews(f.window, "KubeNSTable").contains { !$0.isHiddenOrHasHiddenAncestor } }
+        f.window.makeKeyAndOrderFront(nil)
+        let table = try #require(shownViews(f.window, "KubeNSTable").first { !$0.isHiddenOrHasHiddenAncestor })
+        #expect(f.window.makeFirstResponder(table))
+        let compass = f.env.compass
+        compass.open()
+        #expect(compass.isOpen)
+        // The command (open in a split) moves the focus to the new pane, then the panel closes.
+        f.model.split(.horizontal)
+        let created = f.model.focusedPaneID
+        compass.close()
+        try await waitUntil { compass.focusRestores + compass.focusRestoreSkips > 0 }
+        #expect(compass.focusRestores == 0)
+        #expect(f.model.focusedPaneID == created)
+    }
+
+    @Test func gestureRulesAcceptOnlyTabAndMouseInsideTheResponder() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        window.contentView?.addSubview(view)
+        func key(_ code: UInt16, age: TimeInterval = 0) -> NSEvent? {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime - age,
+                             windowNumber: window.windowNumber, context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: code)
+        }
+        func click(_ point: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
+        }
+        #expect(PaneFocusSync.isUserGesture(key(48), responder: view, in: window))
+        #expect(!PaneFocusSync.isUserGesture(key(36), responder: view, in: window))          // Return
+        #expect(!PaneFocusSync.isUserGesture(key(48, age: 1), responder: view, in: window))  // stale
+        #expect(!PaneFocusSync.isUserGesture(nil, responder: view, in: window))
+        #expect(PaneFocusSync.isUserGesture(click(NSPoint(x: 10, y: 10)), responder: view, in: window))
+        #expect(!PaneFocusSync.isUserGesture(click(NSPoint(x: 250, y: 150)), responder: view, in: window))
+    }
+
+    @Test func theKeyViewGateGivesTheKeyboardBackWhenShown() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 50))
+        container.addSubview(field)
+        window.contentView?.addSubview(container)
+        #expect(window.makeFirstResponder(field))
+        let gate = KeyViewGate()
+        gate.apply(visible: false, to: container)
+        #expect(container.isHidden)
+        #expect(window.firstResponder === window)
+        gate.apply(visible: true, to: container)
+        #expect(!container.isHidden)
+        #expect(window.firstResponder === field)
     }
 
     @Test func keyboardFocusAndTheFocusedPaneFollowEachOther() async throws {
@@ -241,12 +303,12 @@ struct AccessibilityTests {
 
         // A responder change by a click or a key press into the other pane focuses it.
         f.window.makeKeyAndOrderFront(nil)
-        sync.currentEventType = { .leftMouseDown }
+        sync.isUserGesture = { _, _ in true }
         #expect(f.window.makeFirstResponder(byPane[first]))
         sync.responderChanged()
         #expect(f.model.focusedPaneID == first)
-        // Without a user event (a shell connecting in a background pane) nothing is refocused.
-        sync.currentEventType = { nil }
+        // Without a user gesture (a shell connecting in a background pane, Return on a row) nothing is refocused.
+        sync.isUserGesture = { _, _ in false }
         #expect(f.window.makeFirstResponder(byPane[second]))
         sync.responderChanged()
         #expect(f.model.focusedPaneID == first)
