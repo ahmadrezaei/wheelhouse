@@ -1,6 +1,9 @@
 # Wheelhouse
 
-Wheelhouse is a native iPhone and iPad app for keeping an eye on — and hands on — several Kubernetes clusters at once.
+Wheelhouse is a free, open-source Kubernetes manager for iPhone, iPad and Mac, for keeping an eye on — and hands on — several Kubernetes clusters at once. On the Mac it is a native alternative to Lens.
+
+- **iPhone and iPad:** [Wheelhouse for Kubernetes on the App Store](https://apps.apple.com/app/id6831379262)
+- **Mac:** [download the latest release](https://github.com/ahmadrezaei/wheelhouse/releases/latest) (macOS 27, Apple silicon)
 
 - **Fleet dashboard** with health, capacity and the problems that need attention across every cluster.
 - **Cluster dashboards** with nodes, workloads, events and CPU/memory from metrics-server or Prometheus (auto-detected).
