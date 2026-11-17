@@ -59,9 +59,21 @@ The Distribution build has the safety gate off and reads `~/.kube`, so never run
 - [ ] Check the download page and the appcast URL in a browser.
 
 ## Known limits shipping in 1.0 (tracked for 1.1)
-- **Memory:**
-  - after an hour of heavy use with overlapping windows, the peak can reach about 230 MB against the 200 MB internal budget (the M4a soak gate is still open);
-  - P2, the second performance pass on a Distribution build, has not run.
+- **Performance (P2, measured 2026-11-16 on a Mac16,8 with Profile builds, `perf/baselines/P2.json`):**
+  - **Passing:**
+    - idle-1: 0.087 % CPU, 93 MB;
+    - busy-10: 0.683 % CPU, 189 MB;
+    - hidden and hidden-min: 0.042 % and 0.045 % CPU, 79 and 83 MB. Both failed on main (0.21 % and 0.15 %) until P2's fixes: menu-bar checks reuse a recent evaluation, and JSON decoding is faster. P2 also ran on the cleaned test cluster (118 pods against 872 for M13), so part of this drop, and of busy-10's, comes from the smaller cluster;
+    - launch: 0.33 s to the window, 0.70 s to content (p90).
+  - **1-hour soak:** passes growth (0 MB), leaks (0), threads and file descriptors. It fails the peak: 277 MB against the 200 MB internal budget, so **the M4a soak gate stays open**.
+    - Between navigation cycles the footprint is 160–170 MB.
+    - The peak is a one-second window-server graphics allocation of up to about 97 MB at each tab change while two windows overlap.
+    - It sits on top of a working set of about 204 MB while the cycle's tabs and split are open.
+  - **Opening and closing tabs:** P2 removed one source of growth (timers left behind by closed screens). About 0.75 MB still stays per 20 tabs opened and closed, inside SwiftUI and AppKit; `leaks` reports none. One part of it comes from the toolbar search field being re-inserted on tab switch, which an AppKit search field would avoid (1.1).
+  - **Not run yet, owed by hand:**
+    - the runs on the reference MacBook Air M1;
+    - a Distribution build on a separate macOS user with no `~/.kube`;
+    - the battery-menu check below.
 - **Not audited yet:**
   - accessibility (VoiceOver, keyboard, contrast) uses standard SwiftUI behaviour, without an audit pass;
   - the Mac UI test suite needs a one-time automation approval and has not run in this release cycle.
@@ -69,4 +81,4 @@ The Distribution build has the safety gate off and reads `~/.kube`, so never run
   - Compass does not yet search Helm releases, GitOps apps or Survey findings;
   - `?` (Ask First Mate) and `!` (run in a terminal) show a hint only.
 - **Crow's Nest:** with every window closed, a full health check runs every 5 minutes for Production clusters and every 15 for others, so notifications can arrive later than with a window open.
-- **Rigging (M13)** is complete on branch `worktree-agent-ab42170c7ba45f2de`. It needs its security review rerun (the first attempt was cut off by a network error), its perf baseline, and a live fixture check before it ships.
+- **Rigging (M13)** is complete on branch `worktree-agent-ab42170c7ba45f2de`. It needs its security review rerun (the first attempt was cut off by a network error) and a live fixture check before it ships. Its perf baseline is recorded (`perf/baselines/M13.json`, measured on main with Rigging merged and off).
