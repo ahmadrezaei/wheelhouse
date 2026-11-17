@@ -22,6 +22,12 @@ settings:
     CURRENT_PROJECT_VERSION: "7"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_EMIT_LOC_STRINGS: YES
+# The App Store edition's version, shared by its app and widget so they cannot drift. the release script (M6) overrides both on
+# the xcodebuild command line.
+settingGroups:
+  MASVersion:
+    MAS_MARKETING_VERSION: "1.0"
+    MAS_BUILD_NUMBER: "1000"
 packages:
   WheelhouseKit:
     path: Packages/WheelhouseKit
@@ -455,7 +461,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.ahmadrezaei.wheelhouse.mas
             CFBundleURLSchemes:
-              - wheelhouse
+              - wheelhouse-mas      # not `wheelhouse`: that scheme belongs to the GitHub edition and iOS
+        WHURLScheme: wheelhouse-mas   # a literal (DeepLink.scheme falls back to `wheelhouse` if this were ever unexpanded)
         CFBundleDocumentTypes:
           - CFBundleTypeName: Kubeconfig
             LSHandlerRank: Alternate
@@ -484,12 +491,11 @@ targets:
         WHDefaultTestKubeconfig: $(WH_DEFAULT_TEST_KUBECONFIG)   # empty in Distribution
         WHPerfScenarioDirectory: $(WH_PERF_SCENARIOS)            # empty in Distribution
     settings:
+      groups: [MASVersion]
       base:
-        PRODUCT_NAME: Wheelhouse
+        PRODUCT_NAME: WheelhouseMAS             # Debug, Profile and Release build WheelhouseMAS.app, apart from the GitHub edition's Wheelhouse.app
         PRODUCT_MODULE_NAME: WheelhouseMac       # the shared sources and WheelhouseMacTests import this module
         PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse
-        MAS_MARKETING_VERSION: "1.0"
-        MAS_BUILD_NUMBER: "1000"
         ENABLE_HARDENED_RUNTIME: YES
         ARCHS: arm64
         CODE_SIGN_STYLE: Automatic
@@ -514,6 +520,7 @@ targets:
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug
         Distribution:
+          PRODUCT_NAME: Wheelhouse              # the App Store product keeps the app's name
           PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse
           CODE_SIGN_ENTITLEMENTS: WheelhouseMAS/Resources/WheelhouseMAS.entitlements
           WH_KEYCHAIN_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.shared
@@ -544,11 +551,11 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
         WHAppGroup: $(WH_APP_GROUP)
+        WHURLScheme: wheelhouse-mas   # the widget process reads its own Info.plist (DeepLink.scheme)
     settings:
+      groups: [MASVersion]
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug.widgets
-        MAS_MARKETING_VERSION: "1.0"
-        MAS_BUILD_NUMBER: "1000"
         ENABLE_HARDENED_RUNTIME: YES
         SKIP_INSTALL: YES
         ARCHS: arm64
@@ -578,7 +585,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.tests
         GENERATE_INFOPLIST_FILE: YES
         ARCHS: arm64
-        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS   # Distribution (Wheelhouse.app) is never tested
         BUNDLE_LOADER: $(TEST_HOST)
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
   WheelhouseMacTests:
@@ -663,7 +670,7 @@ schemes:
     profile:
       config: Profile
     archive:
-      config: Release                    # local archives keep the Debug identity; do not archive or upload Distribution before M3 (DevSafety does not know the MAS identity yet)
+      config: Release                    # local archives keep the Debug identity; never archive or upload Distribution except through the M6 release script (DevSafety knows the MAS identity since M3)
   WheelhouseMacUI:                       # UI tests with a test plan that keeps no screenshots (no screen captures are retained)
     build:
       targets:

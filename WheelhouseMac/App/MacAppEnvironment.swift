@@ -260,27 +260,33 @@ final class MacAppEnvironment {
         alerts.start()
         gangway.follow(lock: lock)      // M5a: app lock closes Gangway streams (no listener is started here)
         // M12: Beacon starts OFF (a launch with -WHBeaconLaunch does not turn it on). Only the helper symlink and the lock observer.
+        #if !WH_MAS   // the App Store edition has no Beacon (no helper tool, no socket): nothing of it is created
         beacon.maintainHelperLink()
         beacon.follow(lock: lock)
+        #endif
         // end M12
         if RiggingFeature.isEnabled() {      // M13: nothing of Rigging is created or started in a build where the feature is off
             rigging.isLocked = { [lock] in lock.isLocked }
             rigging.start()      // pack health rules, sidebar layouts and resource-menu commands
         }
+        #if !WH_MAS   // no Deck Terminal and no Direct shell in the App Store edition
         gangwaySheets.follow(lock: lock)      // M5b: the app lock dismisses every confirmation sheet
         // M5b: no Direct shell survives a restart, so the credential folders of earlier runs go now, and this run's go at quit.
         let root = paths.root
         DirectKubeconfig.removeAll(root: root)
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in DirectKubeconfig.removeAll(root: root) }
+        #endif
         // Discovery needs the allowed hosts (a context is marked blocked against them), so it starts once they are known.
         whenReady { [moorings] in Task { await moorings.start() } }
         // Landfall (M10): built once the allowed hosts are known. It starts the daily rescan only when the user chose "daily", and never in a
         // development build (the service refuses everything while the gate is active).
+        #if !WH_MAS   // no Landfall in the App Store edition
         whenReady { [moorings, paths] in
             let landfall = LandfallModel.make(moorings: moorings, paths: paths)
             LandfallHub.shared.model = landfall
             Task { await landfall.start() }
         }
+        #endif
         // Sidebar badges: read from stores that already run, every 5 s while a window is visible (never faster than once a second).
         if badgeTask == nil {
             let workspace = workspace

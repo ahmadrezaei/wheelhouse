@@ -256,7 +256,7 @@ public enum AlertPlanner {
     }
 
     static func clusterURL(_ id: ClusterID) -> URL? {
-        var c = URLComponents(); c.scheme = "wheelhouse"; c.host = "cluster"; c.path = "/\(id)"; return c.url
+        var c = URLComponents(); c.scheme = DeepLink.scheme; c.host = "cluster"; c.path = "/\(id)"; return c.url
     }
 
     private static func candidate(_ item: AttentionItem, fingerprint: String, rule: AlertRule, clusterName: String,
@@ -264,7 +264,7 @@ public enum AlertPlanner {
         let level: AlertLevel = switch rule { case .crashLoop, .nodeNotReady: .timeSensitive; case .jobFailed: .active; case .unreachable: .passive }
         var url = clusterURL(item.clusterID)
         if let ref = item.resource {
-            var c = URLComponents(); c.scheme = "wheelhouse"; c.host = "cluster"
+            var c = URLComponents(); c.scheme = DeepLink.scheme; c.host = "cluster"
             var path = "/\(ref.clusterID)"
             if let ns = ref.namespace { path += "/ns/\(ns)" }
             c.path = path + "/\(ref.kind.plural)/\(ref.name)"

@@ -479,6 +479,7 @@
 		CC32488B9762B039BB3CF34D /* LandfallSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7308F83038BBF68C9E446D /* LandfallSafetyTests.swift */; };
 		CC807C37CAE0516F319B10D6 /* BeaconPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16E668499B8579C3A11866E /* BeaconPresenter.swift */; };
 		CD7E66823A2D7956C4395BDB /* PaneViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22E78640B4DF385289E5CF0B /* PaneViews.swift */; };
+		CDAD6BEF6780007DF3B08C0E /* MASTrimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E802B005165F7DC4ADBE01B7 /* MASTrimTests.swift */; };
 		CE011F8209CFDF5FC41F0504 /* ResourceRowExtensions+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660AB48BF56B95612950E83B /* ResourceRowExtensions+macOS.swift */; };
 		CE2CB7D8DDDBE371B2312D8E /* WheelhouseMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E530C6D3731258C4406AD97 /* WheelhouseMacApp.swift */; };
 		CE637FE0DA3F31DE78392BFB /* AlertNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */; };
@@ -981,6 +982,7 @@
 		E67EC3F0EC76D6F1ED176190 /* ChartRoomPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRoomPane.swift; sourceTree = "<group>"; };
 		E6A2E73CC3EF44755686DCDF /* MenuBarSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSettingsSection.swift; sourceTree = "<group>"; };
 		E6B407BD853C14466FED8F73 /* ResourceSectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSectionsView.swift; sourceTree = "<group>"; };
+		E802B005165F7DC4ADBE01B7 /* MASTrimTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MASTrimTests.swift; sourceTree = "<group>"; };
 		E807AD74708CC25D66B2E59A /* WheelhouseWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseWidgets.swift; sourceTree = "<group>"; };
 		E84D8194B6C8616AA8C1C161 /* FleetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetModel.swift; sourceTree = "<group>"; };
 		E9F46F7D601D2A96B649C139 /* ClusterDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterDashboardView.swift; sourceTree = "<group>"; };
@@ -1808,6 +1810,7 @@
 			isa = PBXGroup;
 			children = (
 				FAC6DA09FAFB3D68EEDAED91 /* MASSafetyTests.swift */,
+				E802B005165F7DC4ADBE01B7 /* MASTrimTests.swift */,
 			);
 			path = WheelhouseMASTests;
 			sourceTree = "<group>";
@@ -2945,6 +2948,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DCA1F753C4CADCF4E9DAF55B /* MASSafetyTests.swift in Sources */,
+				CDAD6BEF6780007DF3B08C0E /* MASTrimTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3300,7 +3304,7 @@
 				MAS_MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.debug;
 				PRODUCT_MODULE_NAME = WheelhouseMac;
-				PRODUCT_NAME = Wheelhouse;
+				PRODUCT_NAME = WheelhouseMAS;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
 				WH_APP_GROUP = JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug;
@@ -3333,7 +3337,7 @@
 				MAS_MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.debug;
 				PRODUCT_MODULE_NAME = WheelhouseMac;
-				PRODUCT_NAME = Wheelhouse;
+				PRODUCT_NAME = WheelhouseMAS;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG WH_TEST_HOOKS WH_MAS";
 				WH_APP_GROUP = JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug;
@@ -3544,7 +3548,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.tests;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS";
 			};
 			name = Distribution;
 		};
@@ -3617,7 +3621,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.tests;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS";
 			};
 			name = Debug;
 		};
@@ -3746,7 +3750,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.tests;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS";
 			};
 			name = Release;
 		};
@@ -4010,7 +4014,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.tests;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS";
 			};
 			name = Profile;
 		};
@@ -4132,7 +4136,7 @@
 				MAS_MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.debug;
 				PRODUCT_MODULE_NAME = WheelhouseMac;
-				PRODUCT_NAME = Wheelhouse;
+				PRODUCT_NAME = WheelhouseMAS;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WH_MAS";
 				WH_APP_GROUP = JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug;

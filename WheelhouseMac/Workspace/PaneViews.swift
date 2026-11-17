@@ -392,7 +392,7 @@ struct PaneDestinationView: View {
             if let view = FeatureRegistry.view(for: destination) {
                 view
             } else {
-                EmptyState(.empty(title: "Not available", systemImage: "hammer", hint: "This view is not part of this build."))
+                EmptyState(.empty(title: "Not available", systemImage: "hammer", hint: FeatureRegistry.unavailableHint))
             }
         }
     }
