@@ -53,6 +53,7 @@ struct ReleaseDetailView: View {
     @State private var flow: HelmFlowModel?
     @Environment(AppLockController.self) private var lock: AppLockController?
     @Environment(MacAppEnvironment.self) private var env
+    @Environment(\.chartRoomCapabilities) private var capabilities
 
     var body: some View {
         VStack(spacing: 0) {
@@ -147,9 +148,9 @@ struct ReleaseDetailView: View {
 
     private var actions: some View {
         HStack(spacing: Spacing.s) {
-            Button("Upgrade…") { start(.upgrade) }.disabled(!canAct)
-            Button("Roll Back…") { start(.rollback) }.disabled(!canAct || (model.summary?.history.count ?? 0) < 2)
-            Button("Uninstall…", role: .destructive) { start(.uninstall) }.disabled(!canAct)
+            if capabilities.offers(.upgrade) { Button("Upgrade…") { start(.upgrade) }.disabled(!canAct) }
+            if capabilities.offers(.rollBack) { Button("Roll Back…") { start(.rollback) }.disabled(!canAct || (model.summary?.history.count ?? 0) < 2) }
+            if capabilities.offers(.uninstall) { Button("Uninstall…", role: .destructive) { start(.uninstall) }.disabled(!canAct) }
             Menu {
                 Button("Copy helm status Command") { Pasteboard.copy("helm status \(model.name) -n \(model.namespace)") }
                 Button("Copy helm get values Command") { Pasteboard.copy("helm get values \(model.name) -n \(model.namespace)") }
@@ -157,12 +158,12 @@ struct ReleaseDetailView: View {
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Copy helm commands")
         }
-        .help(canAct ? "" : "Show the current revision to upgrade, roll back or uninstall")
+        .help(canAct || !capabilities.writes ? "" : "Show the current revision to upgrade, roll back or uninstall")
     }
 
     private var pendingBanner: some View {
         StateBanner(.custom(tone: .warning, symbol: "hourglass", title: "A previous operation didn't finish",
-                            message: "Roll back to the last deployed revision, or wait if an upgrade is still running in CI."))
+                            message: capabilities.writes ? "Roll back to the last deployed revision, or wait if an upgrade is still running in CI." : "An upgrade may still be running in CI. Check again in a moment."))
     }
 
     // MARK: Tabs
@@ -437,6 +438,7 @@ private struct HistoryTab: View {
     @Bindable var model: ReleaseDetailModel
     @State private var selection: Set<String> = []
     @State private var showCompare = false
+    @Environment(\.chartRoomCapabilities) private var capabilities
 
     var body: some View {
         let history = model.summary?.history ?? []
@@ -451,7 +453,7 @@ private struct HistoryTab: View {
                 }
                 .disabled(chosen.count != 2)
                 .help("Select two revisions to compare their values and manifests")
-                Button("Roll Back to This Revision…") {}.disabled(true).help("Arrives with the write path (M6b)")
+                if capabilities.offers(.rollBack) { Button("Roll Back to This Revision…") {}.disabled(true).help("Arrives with the write path (M6b)") }
                 Spacer()
                 Text("\(history.count) revision\(history.count == 1 ? "" : "s")").font(.footnote).foregroundStyle(.secondary)
             }

@@ -24,6 +24,7 @@ struct VulnerabilitiesTabView: View {
     @State private var search = ""
     @State private var accepting: LocalVulnerabilityRow?
     @State private var selection: LocalVulnerabilityRow.ID?
+    @Environment(\.surveyCapabilities) private var capabilities
 
     init(sessions: [ClusterSession], namespace: String?) {
         self.sessions = sessions
@@ -84,7 +85,11 @@ struct VulnerabilitiesTabView: View {
 
     // MARK: Controls
 
-    private var controls: some View {
+    @ViewBuilder private var controls: some View {
+        if capabilities.localScans { scanControls } else { OpenSourceEditionNote(message: SurveyCapabilities.notice).padding(.horizontal, Spacing.l).padding(.vertical, Spacing.s) }
+    }
+
+    private var scanControls: some View {
         HStack(spacing: Spacing.m) {
             progressSummary
             Spacer()
@@ -146,7 +151,7 @@ struct VulnerabilitiesTabView: View {
         let withOperator = model.clusters.filter { $0.detection.hasVulnerabilityReports }
         if withOperator.isEmpty {
             if model.isWatching, !model.clusters.isEmpty {
-                Text("Trivy Operator is not installed in the selected cluster\(model.clusters.count == 1 ? "" : "s"). Install it for always-fresh reports at no cost on this Mac, or scan images locally.")
+                Text("Trivy Operator is not installed in the selected cluster\(model.clusters.count == 1 ? "" : "s"). Install it for always-fresh reports at no cost on this Mac\(capabilities.localScans ? ", or scan images locally" : "").")
                     .font(.callout).foregroundStyle(.secondary)
             }
         } else {
@@ -188,7 +193,9 @@ struct VulnerabilitiesTabView: View {
     // MARK: Local
 
     @ViewBuilder private var localSection: some View {
-        if !coordinator.scans.isEmpty {
+        if !capabilities.localScans {
+            EmptyView()
+        } else if !coordinator.scans.isEmpty {
             let rows = self.rows          // computed once per body
             GroupBox {
                 VStack(alignment: .leading, spacing: Spacing.s) {
@@ -241,7 +248,9 @@ struct VulnerabilitiesTabView: View {
     }
 
     private var sourcesFootnote: some View {
-        Text("Sources: Trivy Operator reports (in the cluster) · local scans with \(coordinator.source.title). Scans are cached by image digest and vulnerability database version.")
+        Text(capabilities.localScans
+             ? "Sources: Trivy Operator reports (in the cluster) · local scans with \(coordinator.source.title). Scans are cached by image digest and vulnerability database version."
+             : "Source: Trivy Operator reports in the cluster.")
             .font(.caption).foregroundStyle(.secondary)
     }
 }
