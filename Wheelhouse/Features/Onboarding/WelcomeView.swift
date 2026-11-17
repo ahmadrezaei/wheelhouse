@@ -16,7 +16,11 @@ struct WelcomeView: View {
                 VStack(alignment: .leading, spacing: Spacing.l) {
                     ValueRow(symbol: "gauge.with.dots.needle.67percent", title: "Fleet health at a glance", text: "Every cluster, node and workload in one calm overview.")
                     ValueRow(symbol: "checkmark.shield", title: "Fix problems safely", text: "Dry-run first, typed confirmation on production, read-only mode.")
+                    #if os(macOS)
+                    ValueRow(symbol: "apple.terminal", title: "Logs and shell, anywhere", text: "Follow logs, exec into pods and port-forward from your Mac.")
+                    #else
                     ValueRow(symbol: "apple.terminal", title: "Logs and shell, anywhere", text: "Follow logs, exec into pods and port-forward from your phone.")
+                    #endif
                 }
                 .frame(maxWidth: 440)
                 Spacer(minLength: Spacing.l)
