@@ -28,12 +28,16 @@ struct PerfScenario: Codable, Equatable {
     /// The scenario runs with Crow's Nest on: the menu bar item, keep-running, and every cluster of the scenario watched. Applied in
     /// memory only (never saved to the defaults).
     var crowsNest: Bool?
+    /// P2, measurement only (`tabs-20`): every `cycleSeconds` the window opens this many tabs one after another, each built while it is
+    /// selected, then closes them all, so a sampler can compare the heap after each round (the command-line form of the Allocations
+    /// generation marks of ARCHITECTURE-MAC section 12.3.5: persistent growth after the close must be 0).
+    var tabChurn: Int? = nil
     /// `-WHPerfKeepVisible YES`: the workspace window floats on every Space, so a visible scenario measures a window that is really on
     /// screen even while another app is full screen or in front (the sampler checks it). Not part of the fixture file.
     var keepsWindowVisible = false
 
     private enum CodingKeys: String, CodingKey {
-        case name, description, clusters, windows, tabs, panes, hideWindowsAfterSeconds, windowAction, cycleSeconds, crowsNest
+        case name, description, clusters, windows, tabs, panes, hideWindowsAfterSeconds, windowAction, cycleSeconds, crowsNest, tabChurn
     }
 
     var minimises: Bool { windowAction == "minimise" }
@@ -162,6 +166,7 @@ enum PerfScenarioRunner {
         if scenario.crowsNest == true { env.applyPerfCrowsNest(watching: Set(ids.values)) }
         // end M4b
         if scenario.name.hasPrefix("soak") { startCycle(ids: ids, env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
+        if let count = scenario.tabChurn { startTabChurn(count: count, clusters: ordered.map(\.id), env: env, cycleSeconds: scenario.cycleSeconds ?? 60) }
         // M11b: `-WHPerfFirstMate YES` replays a 50-turn First Mate conversation over each soak cycle (no network; gate-only).
         if scenario.name.hasPrefix("soak") { FirstMatePerfReplay.startIfRequested(env: env, cycleSeconds: scenario.cycleSeconds ?? 300) }
     }
@@ -199,6 +204,53 @@ enum PerfScenarioRunner {
         t.start()
     }
 
+    /// P2 (`tabChurn`): one round of opening and closing `count` tabs every `cycleSeconds`. It shares the one cycle slot with the soak
+    /// cycle, so a `soak-*` scenario that also sets `tabChurn` runs only the soak cycle.
+    private static func startTabChurn(count: Int, clusters: [ClusterID], env: MacAppEnvironment, cycleSeconds: TimeInterval) {
+        guard cycle == nil, !clusters.isEmpty else { return }
+        let t = PeriodicTask(name: "perf.tab-churn", interval: cycleSeconds, hiddenInterval: nil, tolerance: 1) {
+            await MainActor.run {
+                guard let model = env.workspace.activeModel ?? env.workspace.models.values.first else { return }
+                Task { @MainActor in await runTabChurn(model: model, count: count, clusters: clusters) }
+            }
+        }
+        cycle = t
+        t.start()
+    }
+
+    /// The tabs a churn round opens: resource lists (the 2,000-row ConfigMaps among them), cluster overviews and the Fleet, over the
+    /// scenario's clusters in turn.
+    static func churnDestinations(count: Int, clusters: [ClusterID]) -> [WorkspaceDestination] {
+        guard !clusters.isEmpty else { return [] }
+        return (0..<max(0, count)).map { i in
+            let id = clusters[i % clusters.count]
+            switch i % 5 {
+            case 0: return .route(.resourceList(id, .configMap, namespace: nil))
+            case 1: return .route(.resourceList(id, .deployment, namespace: nil))
+            case 2: return .route(.resourceList(id, .pod, namespace: nil))
+            case 3: return .route(.cluster(id))
+            default: return .route(.fleet)
+            }
+        }
+    }
+
+    /// Publishes 6 while the tabs open, 7 once all are open, 0 after they are closed again.
+    static func runTabChurn(model: WorkspaceWindowModel, count: Int, clusters: [ClusterID], pause: Duration = .seconds(1)) async {
+        let original = model.selectedTab.id
+        var opened: [TabID] = []
+        for destination in churnDestinations(count: count, clusters: clusters) {
+            model.openInNewTab(destination)
+            opened.append(model.selectedTab.id)
+            CyclePhaseReport.publish(6)
+            try? await Task.sleep(for: pause)
+        }
+        CyclePhaseReport.publish(7)
+        try? await Task.sleep(for: pause * 2)
+        for tab in opened { model.closeTab(tab) }
+        model.select(tab: original)
+        CyclePhaseReport.publish(0)
+    }
+
     static func runCycle(model: WorkspaceWindowModel, cluster id: ClusterID, pause: Duration = .seconds(8)) async {
         let original = model.selectedTab.id
         var opened: [TabID] = []
@@ -224,7 +276,8 @@ enum PerfScenarioRunner {
 }
 
 /// The soak cycle's step as the state of a Darwin notification, so a sampler can align its samples with the cycle (`notifyutil -g`):
-/// 1 ConfigMaps opened, 2 Deployments, 3 Pods, 4 Fleet, 5 split, 0 every cycle tab closed again (and before the first cycle). Only
+/// 1 ConfigMaps opened, 2 Deployments, 3 Pods, 4 Fleet, 5 split, 0 every cycle tab closed again (and before the first cycle); the P2
+/// tab churn publishes 6 while it opens its tabs and 7 once they are all open. Only
 /// scenario runs publish it, and scenarios run only while the safety gate is active.
 @MainActor
 enum CyclePhaseReport {

@@ -1,0 +1,12 @@
+{
+  "name": "tabs-20",
+  "description": "P2 Allocations check: 3 clusters, 1 window with the Fleet; every 90 seconds the window opens 20 tabs one after another (ConfigMaps with 2,000 rows, Deployments, Pods, cluster overviews, the Fleet), each built while selected, then closes them all. The heap after each round must not grow (ARCHITECTURE-MAC section 12.3.5). Not a budgeted scenario.",
+  "clusters": 3,
+  "windows": 1,
+  "tabs": 1,
+  "panes": [
+    "fleet"
+  ],
+  "cycleSeconds": 90,
+  "tabChurn": 20
+}

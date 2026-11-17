@@ -695,5 +695,21 @@ struct AppKitPortTests {
         #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "idle-1"], gate: gate, info: info)?.keepsWindowVisible == false)
         #expect(PerfScenario.requested(arguments: keep, gate: DevSafetyPolicy(isActive: false), info: info) == nil)
         #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "soak-5"], gate: gate, info: info)?.cycleSeconds == 120)
+        #expect(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "soak-5"], gate: gate, info: info)?.tabChurn == nil)
+    }
+
+    @Test func tabChurnOpensListsOverviewsAndTheFleetOverEveryCluster() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "perf-scenarios-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(#"{"name":"tabs-20","clusters":3,"windows":1,"tabs":1,"cycleSeconds":90,"tabChurn":20}"#.utf8).write(to: dir.appending(path: "tabs-20.json"))
+        let scenario = try #require(PerfScenario.requested(arguments: ["app", "-WHPerfScenario", "tabs-20"], gate: DevSafetyPolicy(isActive: true),
+                                                           info: ["WHPerfScenarioDirectory": dir.path]))
+        #expect(scenario.tabChurn == 20)
+        let tabs = PerfScenarioRunner.churnDestinations(count: 20, clusters: ["a", "b", "c"])
+        #expect(tabs.count == 20)
+        #expect(tabs.prefix(5) == [.route(.resourceList("a", .configMap, namespace: nil)), .route(.resourceList("b", .deployment, namespace: nil)),
+                                   .route(.resourceList("c", .pod, namespace: nil)), .route(.cluster("a")), .route(.fleet)])
+        #expect(PerfScenarioRunner.churnDestinations(count: 20, clusters: []).isEmpty)
     }
 }
