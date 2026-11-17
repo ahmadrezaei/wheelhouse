@@ -8,6 +8,8 @@ public enum KubeconfigLoadError: Error, Equatable, Sendable, LocalizedError {
     case invalid(String, String)
     /// App Store edition: the file (or what its symlink points at) is outside every granted folder. Carries the folder to grant.
     case needsAccess(path: String, folder: String)
+    /// App Store edition: the file is directly in the home folder, which can't be granted. It has to be moved.
+    case needsMove(path: String)
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +17,7 @@ public enum KubeconfigLoadError: Error, Equatable, Sendable, LocalizedError {
         case .unreadable(let p): "\((p as NSString).lastPathComponent) could not be read."
         case .invalid(let p, let why): "\((p as NSString).lastPathComponent) is not a usable kubeconfig: \(why)"
         case .needsAccess(let p, let folder): "Needs access to \(folder) to read \((p as NSString).lastPathComponent)."
+        case .needsMove(let p): AccessFolderPlanner.moveMessage(forFile: p)
         }
     }
 }
@@ -82,7 +85,11 @@ public struct KubeconfigLoader: Sendable {
         guard (st.st_mode & S_IFMT) == S_IFREG else { throw KubeconfigLoadError.unreadable(url.path) }
         guard st.st_size <= Self.maxFileSize else { throw KubeconfigLoadError.tooLarge(url.path) }
         if let probe, probe.probe(canonical.path) == .needsAccess {
-            throw KubeconfigLoadError.needsAccess(path: url.path, folder: (canonical.path as NSString).deletingLastPathComponent)
+            // The folder to grant is never the home folder: a file directly in it has to be moved.
+            guard let folder = AccessFolderPlanner.folders(forDenied: [canonical.path], accountHome: gate.home).first else {
+                throw KubeconfigLoadError.needsMove(path: canonical.path)
+            }
+            throw KubeconfigLoadError.needsAccess(path: url.path, folder: folder)
         }
         guard let data = try? Data(contentsOf: canonical) else { throw KubeconfigLoadError.unreadable(url.path) }
         guard let text = String(data: data, encoding: .utf8) else { throw KubeconfigLoadError.invalid(url.path, "it is not UTF-8 text") }

@@ -197,14 +197,32 @@ public enum FolderGrantPolicy {
 public enum AccessFolderPlanner {
     /// The common parent of all denied files under the account home when it is strictly below the home folder; otherwise each file's own
     /// parent folder. `~/.config/foo/ca.crt` therefore asks for `~/.config/foo`, never `~/.config`.
+    /// Never the home folder or a folder above it (granting those is refused): files directly in the home folder are in
+    /// ``filesNeedingMove(forDenied:accountHome:)`` instead.
     public static func folders(forDenied paths: [String], accountHome: URL) -> [String] {
         let home = PathCanonicalizer.canonical(accountHome)
-        let files = paths.map { PathCanonicalizer.canonical($0) }
+        let files = paths.map { PathCanonicalizer.canonical($0) }.filter { !isHomeLevel($0, home: home) }
         guard !files.isEmpty else { return [] }
         let parents = files.map { ($0 as NSString).deletingLastPathComponent }
         let inHome = parents.filter { $0.hasPrefix(home + "/") }
         if inHome.count == parents.count, let common = commonParent(inHome), common.hasPrefix(home + "/") { return [common] }
         return Array(Set(parents)).sorted()
+    }
+
+    /// Files whose folder is the home folder (or above it): no grant can fix those, the person has to move them into a folder.
+    public static func filesNeedingMove(forDenied paths: [String], accountHome: URL) -> [String] {
+        let home = PathCanonicalizer.canonical(accountHome)
+        return paths.map { PathCanonicalizer.canonical($0) }.filter { isHomeLevel($0, home: home) }.sorted()
+    }
+
+    static func isHomeLevel(_ file: String, home: String) -> Bool {
+        let parent = (file as NSString).deletingLastPathComponent
+        return parent == home || home.hasPrefix(parent == "/" ? "/" : parent + "/")
+    }
+
+    /// What to tell the person about a file that sits directly in their home folder.
+    public static func moveMessage(forFile path: String) -> String {
+        "\((path as NSString).lastPathComponent) is directly in your home folder. Wheelhouse can't be given your whole home folder, so move the file into a folder (for example ~/.kube) and point the kubeconfig at it."
     }
 
     static func commonParent(_ folders: [String]) -> String? {
@@ -270,7 +288,7 @@ public struct POSIXFileAccessProbe: FileAccessProbing {
 
 /// The wording of the exec-plugin badge (one place, used by the rows and the import sheet).
 public enum EditionNotice {
-    public static let learnMoreURL = URL(string: "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html")!
+    public static let learnMoreURL = URL(string: "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html#exec-plugins")!
 
     public static func execPlugin(command: String) -> String {
         ExecCredentialError.unavailableInEdition(command: (command as NSString).lastPathComponent).localizedDescription

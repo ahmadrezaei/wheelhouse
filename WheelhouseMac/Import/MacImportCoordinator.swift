@@ -60,11 +60,21 @@ final class MacImportCoordinator {
         }
     }
 
+    /// The text of the file for the preflight, or nil. The gate and the size cap come BEFORE anything is read, so a development build
+    /// never reads `~/.kube` (not even through a symlink or a hard link) and an oversized file is not pulled into memory; the import
+    /// policy then shows its own error.
+    static func preflightText(of url: URL, gate: DevSafetyPolicy, read: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> String? {
+        let real = url.resolvingSymlinksInPath()
+        guard (try? gate.assertReadable(url)) != nil, (try? gate.assertReadable(real)) != nil else { return nil }
+        if let size = (try? FileManager.default.attributesOfItem(atPath: real.path))?[.size] as? Int, size > MacImportPolicy.maxFileBytes { return nil }
+        return read(real)
+    }
+
     /// The panel's own grant lasts for this run, and the inliner copies the data in at once: nothing is stored for a one-off import.
     private func askForReferencedFolders(of url: URL) async {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let text = try? String(contentsOf: url.resolvingSymlinksInPath(), encoding: .utf8) else { return }
+        guard let text = Self.preflightText(of: url, gate: .current) else { return }
         let inliner = KubeconfigFileInliner()
         let home = DevSafetyPolicy.accountHome
         for folder in inliner.foldersNeedingAccess(text, baseDirectory: url.resolvingSymlinksInPath().deletingLastPathComponent(), accountHome: home) {

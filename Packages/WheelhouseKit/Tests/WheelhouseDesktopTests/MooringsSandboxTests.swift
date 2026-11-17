@@ -555,7 +555,7 @@ struct MooringsSandboxServiceTests {
         try await h.service.grantKubeFolder(h.kube)
         #expect(h.state.contexts.isEmpty)
         let needed = await h.service.accessNeeded
-        #expect(needed.values.first == elsewhere.deletingLastPathComponent().path)
+        #expect(needed.values.first == PathCanonicalizer.canonical(elsewhere.deletingLastPathComponent()))
         #expect(await h.service.issues.values.first?.contains("Needs access to") == true)
     }
 
@@ -616,4 +616,92 @@ struct KubeconfigExportModeTests {
         #expect(KubeconfigExportError.useSavePanel.errorDescription?.contains("can't write to ~/.kube") == true)
     }
 }
+@Suite("Moorings sandbox: review follow-ups")
+struct MooringsSandboxReviewTests {
+    private let home = URL(fileURLWithPath: "/private/tmp/claude-501/fakehome2", isDirectory: true)
+
+    @Test func aFileDirectlyInHomeIsNeverAFolderToGrantButAFileToMove() {
+        let file = home.appending(path: "ca.crt").path
+        #expect(AccessFolderPlanner.folders(forDenied: [file], accountHome: home).isEmpty)
+        #expect(AccessFolderPlanner.filesNeedingMove(forDenied: [file], accountHome: home) == [PathCanonicalizer.canonical(file)])
+        #expect(AccessFolderPlanner.moveMessage(forFile: file).contains("ca.crt is directly in your home folder"))
+        // A file above home too, and mixed lists keep the folder for the file that can be fixed.
+        let mixed = [file, home.appending(path: ".minikube/ca.crt").path]
+        #expect(AccessFolderPlanner.folders(forDenied: mixed, accountHome: home) == [PathCanonicalizer.canonical(home.appending(path: ".minikube"))])
+        #expect(AccessFolderPlanner.filesNeedingMove(forDenied: ["/etc-like.crt"], accountHome: home).count == 1)
+    }
+
+    @Test func theExecBadgeLinksToTheExecPluginAnchor() {
+        #expect(EditionNotice.learnMoreURL.absoluteString == "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html#exec-plugins")
+    }
+
+    @Test func aContextWithACertInHomeCannotBeFixedByAGrantAndSaysSo() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try SandboxHarness(scratch: s)
+        let cert = h.home.appending(path: "client.crt").path
+        h.probe.set(cert, .needsAccess)
+        h.probe.set(h.home.appending(path: "client.key").path, .needsAccess)
+        try h.writeKube("config", kubeconfigText(context: "mini", server: "https://127.0.0.1:8443",
+                                                 user: "    client-certificate: \(cert)\n    client-key: \(h.home.path)/client.key"))
+        try await h.service.grantKubeFolder(h.kube)
+        let ctx = try #require(h.state.contexts.first)
+        #expect(ctx.accessFolders.isEmpty)
+        #expect(ctx.moveFiles.count == 2)
+        guard case .blocked(let why) = await h.service.check(ctx.id) else { Issue.record("not blocked"); return }
+        #expect(why.contains("directly in your home folder"))
+    }
+
+    @Test func aSymlinkedConfigTargetDirectlyInHomeIsReportedAsToMove() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try SandboxHarness(scratch: s)
+        let target = h.home.appending(path: "kc.yaml")
+        try kubeconfigText(context: "linked").write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: h.kube.appending(path: "config"), withDestinationURL: target)
+        h.probe.set(target.resolvingSymlinksInPath().path, .needsAccess)
+        try await h.service.grantKubeFolder(h.kube)
+        #expect(h.state.contexts.isEmpty)
+        #expect(await h.service.accessNeeded.isEmpty)
+        #expect(await h.service.issues.values.first?.contains("directly in your home folder") == true)
+    }
+
+    @Test func whileGatedAFolderThatHoldsASymlinkedKubeIsRefused() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let home = try s.home()
+        try FileManager.default.removeItem(at: home.appending(path: ".kube"))
+        let dotfiles = try s.dir("home/dotfiles")
+        let real = dotfiles.appending(path: "kube", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: home.appending(path: ".kube"), withDestinationURL: real)
+        let h = try SandboxHarness(scratch: s, gate: activeGate(home: home))
+        await #expect(throws: DevSafetyError.self) { try await h.service.grantFolder(dotfiles) }
+        #expect(h.backend.events.isEmpty)
+        #expect(h.state.preferences.value.userSources.isEmpty)
+    }
+
+    @Test func aGrantThatCannotBeSavedIsNotKeptOpen() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let h = try SandboxHarness(scratch: s)
+        let folder = try s.dir("more2")
+        chmod(s.root.path, 0o500)   // the preferences file can no longer be written
+        defer { chmod(s.root.path, 0o700) }
+        await #expect(throws: (any Error).self) { try await h.service.grantFolder(folder) }
+        #expect(h.backend.events.contains("stop:\(folder.path)"))
+        await #expect(throws: (any Error).self) { try await h.service.grantAccessFolder(folder, needed: folder.path) }
+        await #expect(throws: (any Error).self) { try await h.service.grantKubeFolder(h.kube) }
+        #expect(h.backend.events.contains("stop:\(h.kube.path)"))
+    }
+
+    @Test func aSourceWithoutABookmarkEncodesExactlyAsTheBaseDid() throws {
+        // Literal strings as the code at 9c9950b encoded them (sorted keys; no bookmark key).
+        let source = #"{"kind":"userFolder","path":"\/x\/y","recursive":true}"#
+        let prefs = #"{"firstRunCompleted":false,"shellKubeconfigEnabled":true,"userSources":[{"kind":"userFolder","path":"\/x\/y","recursive":true}]}"#
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let s = try JSONDecoder().decode(MooringsSource.self, from: Data(source.utf8))
+        #expect(String(decoding: try encoder.encode(s), as: UTF8.self) == source)
+        let p = try JSONDecoder().decode(MooringsPreferences.self, from: Data(prefs.utf8))
+        #expect(String(decoding: try encoder.encode(p), as: UTF8.self) == prefs)
+    }
+}
+
 #endif

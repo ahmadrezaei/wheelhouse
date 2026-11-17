@@ -23,6 +23,8 @@ struct KubeconfigFileInliner {
         case tooLarge(String)
         /// Sandboxed edition: the file is outside every granted folder. Carries the folder to grant.
         case needsAccess(folder: String)
+        /// Sandboxed edition: the file is directly in the home folder, which is never granted. It has to be moved.
+        case needsMove(path: String)
 
         var errorDescription: String? {
             switch self {
@@ -30,6 +32,7 @@ struct KubeconfigFileInliner {
             case .unreadable(let path): "The file \(path) referenced by this kubeconfig can't be read."
             case .tooLarge(let path): "The file \(path) referenced by this kubeconfig is too large."
             case .needsAccess(let folder): "Wheelhouse needs access to \(folder) to read the files this kubeconfig refers to."
+            case .needsMove(let path): AccessFolderPlanner.moveMessage(forFile: path)
             }
         }
     }
@@ -103,7 +106,10 @@ struct KubeconfigFileInliner {
 
     private func read(_ url: URL, display: String) throws -> Data {
         if isSandboxed, probe.probe(url.path) == .needsAccess {
-            throw Failure.needsAccess(folder: AccessFolderPlanner.folders(forDenied: [url.path], accountHome: DevSafetyPolicy.accountHome)[0])
+            guard let folder = AccessFolderPlanner.folders(forDenied: [url.path], accountHome: DevSafetyPolicy.accountHome).first else {
+                throw Failure.needsMove(path: url.path)
+            }
+            throw Failure.needsAccess(folder: folder)
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else { throw Failure.unreadable(display) }
         if let size = attrs[.size] as? Int, size > Self.maxReferencedBytes { throw Failure.tooLarge(display) }

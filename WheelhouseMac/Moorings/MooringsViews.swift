@@ -172,6 +172,9 @@ private struct MooringsList: View {
                         Text(c.displayName).font(.system(.body, design: .monospaced))
                         Text(c.shadowedBy.map { "shadowed by \($0)" } ?? c.fileName).font(.caption).foregroundStyle(.secondary)
                         if controller.isSandboxed, case .exec(let command) = c.authSummary { ExecUnavailableBadge(command: command) }
+                        ForEach(c.moveFiles, id: \.self) { file in
+                            Text(AccessFolderPlanner.moveMessage(forFile: file)).font(.caption).foregroundStyle(.orange)
+                        }
                         ForEach(c.accessFolders, id: \.self) { folder in
                             HStack(spacing: 4) {
                                 Text("Needs access to \(FolderGrantPolicy.tildePath(folder, home: controller.accountHome))").font(.caption).foregroundStyle(.orange)

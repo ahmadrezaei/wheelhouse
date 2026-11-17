@@ -126,6 +126,9 @@ public struct DiscoveredContext: Sendable, Identifiable, Equatable {
     /// App Store edition: folders the user has to grant before this context's referenced files (CA, certificate, key, token file) can
     /// be read. Always empty in the GitHub edition.
     public var accessFolders: [String] = []
+    /// App Store edition: referenced files directly in the home folder. A grant can't fix these (the home folder is never granted); the
+    /// person has to move them into a folder.
+    public var moveFiles: [String] = []
 
     public var server: URL? { context.server }
     public var fileName: String { (key.definingFile as NSString).lastPathComponent }

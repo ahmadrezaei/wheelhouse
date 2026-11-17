@@ -112,3 +112,40 @@ struct ImportSandboxGateTests {
         #expect(spy.calls == 0)
     }
 }
+
+@Suite("Import in the sandboxed edition: the preflight read")
+@MainActor
+struct ImportPreflightReadTests {
+    @Test func aGatedBuildReadsNothingForAKubeShapedUrlOrItsSymlinkOrHardLink() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "wh-pre-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let kube = home.appending(path: ".kube", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: kube, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = kube.appending(path: "config")
+        try "clusters: []".write(to: config, atomically: true, encoding: .utf8)
+        let link = home.appending(path: "link.yaml")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: config)
+        let hard = home.appending(path: "hard.yaml")
+        try FileManager.default.linkItem(at: config, to: hard)
+        let gate = DevSafetyPolicy(isActive: true, home: home)
+        var reads = 0
+        for url in [config, link, hard] {
+            #expect(MacImportCoordinator.preflightText(of: url, gate: gate) { _ in reads += 1; return "x" } == nil)
+        }
+        #expect(reads == 0)
+        // An ordinary file is read once.
+        let other = home.appending(path: "other.yaml")
+        try "a: b".write(to: other, atomically: true, encoding: .utf8)
+        #expect(MacImportCoordinator.preflightText(of: other, gate: gate) { _ in reads += 1; return "x" } == "x")
+        #expect(reads == 1)
+    }
+
+    @Test func anOversizedFileIsNotReadBeforeThePolicySeesIt() throws {
+        let f = FileManager.default.temporaryDirectory.appending(path: "wh-big-\(UUID().uuidString).yaml")
+        try Data(count: MacImportPolicy.maxFileBytes + 1).write(to: f)
+        defer { try? FileManager.default.removeItem(at: f) }
+        var reads = 0
+        #expect(MacImportCoordinator.preflightText(of: f, gate: DevSafetyPolicy(isActive: false)) { _ in reads += 1; return "x" } == nil)
+        #expect(reads == 0)
+    }
+}

@@ -56,7 +56,17 @@ struct MooringsPane: View {
                             }
                         }
                         Spacer()
-                        if grant.problem != nil, grant.source.kind == .kubeFolder { Button("Grant Folder…") { Task { await controller.chooseKubeFolder() } } }
+                        if grant.problem != nil {
+                            Button("Grant Folder…") {
+                                Task {
+                                    switch grant.source.kind {
+                                    case .kubeFolder: await controller.chooseKubeFolder()
+                                    case .accessGrant: await controller.chooseAccessFolder(for: grant.source.path ?? "")
+                                    default: await controller.chooseExtraFolder()
+                                    }
+                                }
+                            }
+                        }
                         Button("Remove") { Task { await controller.removeGrant(grant.source) } }
                     }
                 }
