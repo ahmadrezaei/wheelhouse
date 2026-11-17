@@ -617,6 +617,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             do { _ = try await provider.authorization() } catch let e as ExecCredentialError {
                 switch e {
                 case .pluginMissing(let command, _, _): return finish(id, .pluginMissing((command as NSString).lastPathComponent))
+                case .unavailableInEdition: return finish(id, .blocked(e.localizedDescription))
                 case .signInRequired: return finish(id, .needsSignIn)
                 case .failed, .invalidOutput: return finish(id, .needsSignIn)
                 case .timedOut: return finish(id, .unreachable("The credential plugin timed out."))

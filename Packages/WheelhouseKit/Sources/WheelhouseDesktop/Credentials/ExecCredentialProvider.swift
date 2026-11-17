@@ -98,6 +98,7 @@ public actor ExecCredentialBroker {
     func credential(for request: ExecRequest) async throws -> ExecCredential {
         let key = request.key
         requests[key] = request
+        try Self.requireEditionAllowsPlugins(request)
         if let entry = cache[key], !needsRefresh(entry) { return entry.credential }
         if let flight = inflight[key] { return try await flight.task.value }
         if request.spec.interactiveMode == "Always" { throw ExecCredentialError.signInRequired(command: request.spec.command) }
@@ -128,7 +129,14 @@ public actor ExecCredentialBroker {
         return now() >= at
     }
 
+    /// The sandboxed edition runs no plugin. Checked before the cache, the sign-in rule and the locator, so a plugin is never reported as
+    /// "missing" or "needs sign-in" there.
+    static func requireEditionAllowsPlugins(_ request: ExecRequest) throws {
+        guard !Edition.current.isSandboxed else { throw ExecCredentialError.unavailableInEdition(command: request.spec.command) }
+    }
+
     private func fetch(_ request: ExecRequest, key: String) async throws -> ExecCredential {
+        try Self.requireEditionAllowsPlugins(request)
         try gate().requirePluginAllowed(cluster: request.cluster)
         guard let executable = locator().resolve(command: request.spec.command, baseDirectory: request.spec.baseDirectory) else {
             throw ExecCredentialError.pluginMissing(command: request.spec.command, installHint: request.spec.installHint,
@@ -196,6 +204,7 @@ public actor ExecCredentialBroker {
 
     /// The process the Sign-in sheet runs on a pseudo-terminal.
     func interactiveSpec(for request: ExecRequest) throws -> ProcessSpec {
+        try Self.requireEditionAllowsPlugins(request)
         try gate().requirePluginAllowed(cluster: request.cluster)
         guard let executable = locator().resolve(command: request.spec.command, baseDirectory: request.spec.baseDirectory) else {
             throw ExecCredentialError.pluginMissing(command: request.spec.command, installHint: request.spec.installHint,

@@ -55,6 +55,7 @@ public final class PTYProcess: Sendable {
     }
 
     public init(spec: ProcessSpec, size: (cols: Int, rows: Int), stdoutPipe: Bool = false, helper: URL = PTYProcess.bundledHelper) throws {
+        try ProcessPolicy.requireSpawnAllowed(tool: spec.executable.lastPathComponent)
         guard access(helper.path, X_OK) == 0 else { throw PTYError.spawnFailed("the helper \(helper.path) is missing") }
         guard spec.executable.path.hasPrefix("/") else { throw PTYError.spawnFailed("the program path is not absolute") }
 

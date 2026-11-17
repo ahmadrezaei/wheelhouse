@@ -107,7 +107,8 @@ public protocol BeaconCommandRunning: Sendable {
 public struct ProcessCommandRunner: BeaconCommandRunning {
     public init() {}
     public func run(_ executable: URL, arguments: [String], currentDirectory: URL?) async throws -> (status: Int32, output: String) {
-        try await withCheckedThrowingContinuation { continuation in
+        try ProcessPolicy.requireSpawnAllowed(tool: executable.lastPathComponent)
+        return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = executable

@@ -9,12 +9,26 @@ public struct AppPaths: Sendable, Equatable {
     public var isolated: Bool
     public var home: URL
     public var temporaryDirectory: URL
+    /// The bundle ID the cache folder is named after.
+    private var cacheBundleID: String
 
     public init(gateActive: Bool, bundleID: String?, home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
                 temporaryDirectory: URL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)) {
+        self.cacheBundleID = Self.cacheBundleID(for: bundleID)
         self.isolated = gateActive || (bundleID?.hasSuffix(".debug") ?? false)
         self.home = home
         self.temporaryDirectory = temporaryDirectory
+    }
+
+    /// The cache folder's bundle ID: the Mac App Store edition's own (Distribution or `.mas.debug`, whose `.debug` is added back by
+    /// ``caches``), otherwise ``releaseBundleID`` for every other ID (the GitHub edition, tests, nil), so those paths do not change.
+    static func cacheBundleID(for bundleID: String?) -> String {
+        guard let bundleID else { return releaseBundleID }
+        let base = bundleID.hasSuffix(".debug") ? String(bundleID.dropLast(".debug".count)) : bundleID
+        switch base {
+        case DevSafety.macAppStoreBundleID, DevSafety.macAppStoreBundleID + ".mas": return base
+        default: return releaseBundleID
+        }
     }
 
     /// The running app's paths.
@@ -28,7 +42,7 @@ public struct AppPaths: Sendable, Equatable {
     }
     /// `~/Library/Caches/com.ahmadrezaei.wheelhouse.mac[.debug]/`.
     public var caches: URL {
-        home.appending(path: "Library/Caches/\(Self.releaseBundleID)\(isolated ? ".debug" : "")", directoryHint: .isDirectory)
+        home.appending(path: "Library/Caches/\(cacheBundleID)\(isolated ? ".debug" : "")", directoryHint: .isDirectory)
     }
     /// `$TMPDIR/wheelhouse[-debug]/sessions/`.
     public var sessions: URL {
