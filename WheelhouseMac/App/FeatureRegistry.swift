@@ -84,8 +84,21 @@ enum FeatureRegistry {
     /// Development builds (the safety gate is active: Debug, Profile and local Release) show every feature, so each milestone is
     /// built and measured behind its flag. Distribution shows only `releaseEnabled`.
     static func isEnabled(_ id: FeatureID, gateActive: Bool = DevSafety.isActive) -> Bool {
-        gateActive || releaseEnabled.contains(id)
+        #if WH_MAS
+        if removedInAppStoreEdition.contains(id) { return false }   // never, whatever the gate says
+        #endif
+        return gateActive || releaseEnabled.contains(id)
     }
+
+    #if WH_MAS
+    /// Features the sandboxed App Store edition does not have: they need local processes, the login shell or a helper tool, which the
+    /// sandbox does not allow (design/mac/MAS-EDITION.md). Off in every configuration, Debug included.
+    static let removedInAppStoreEdition: Set<FeatureID> = [.deckTerminal, .landfall, .beacon, .rigging]
+    /// What a pane shows for a saved destination of a removed feature (a workspace or Station from the other edition).
+    static let unavailableHint = "Not available in the App Store edition."
+    #else
+    static let unavailableHint = "This view is not part of this build."
+    #endif
 
     static var enabled: [FeatureDescriptor] { all.filter { isEnabled($0.id) } }
 

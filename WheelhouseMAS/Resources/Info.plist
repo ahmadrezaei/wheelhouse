@@ -49,7 +49,7 @@
 			<string>com.ahmadrezaei.wheelhouse.mas</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>wheelhouse</string>
+				<string>wheelhouse-mas</string>
 			</array>
 		</dict>
 	</array>
@@ -119,5 +119,7 @@
 	<string>$(WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX)</string>
 	<key>WHPerfScenarioDirectory</key>
 	<string>$(WH_PERF_SCENARIOS)</string>
+	<key>WHURLScheme</key>
+	<string>wheelhouse-mas</string>
 </dict>
 </plist>

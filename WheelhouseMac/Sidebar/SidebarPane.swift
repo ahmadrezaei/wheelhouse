@@ -73,7 +73,9 @@ struct SidebarPane: View {
                 Button("Import File…") { env.importer.presentOpenPanel(whileLocked: env.lock.isLocked) }
                 Divider()
                 Button("Discover Kubeconfigs…") {}.disabled(true)
+                #if !WH_MAS   // Landfall is not in the App Store edition
                 Button("Add from Cloud…") {}.disabled(true)
+                #endif
             } label: { Label("Add Cluster", systemImage: "plus") }
                 .menuStyle(.borderlessButton).fixedSize()
                 .accessibilityIdentifier("sidebar.add")

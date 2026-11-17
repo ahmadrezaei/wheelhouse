@@ -61,7 +61,9 @@ struct MacCommands: Commands {
                 Divider()
                 Button("Add Cluster with Token…") { commandRouter?.push(.addCluster) }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!hasWindow)
                 // Landfall (M10 follow-up): opens the cloud import screen in a new tab. Off while locked with the rest of this group.
+                #if !WH_MAS   // Landfall is not in the App Store edition
                 Button("Add from Cloud…") { model?.openInNewTab(.landfall) }.disabled(!hasWindow)
+                #endif
                 Button("Import File…") { env.importer.presentOpenPanel(whileLocked: env.lock.isLocked) }
                 Button("Create from YAML…") {
                     if let id = focusedCluster?.id { commandRouter?.push(.createYAML(id, namespace: model?.focusedPane?.context.namespace ?? registry.namespace(for: id))) }

@@ -7,10 +7,10 @@ import WheelhouseKit
 public enum WidgetLinks {
     /// Same format as `DeepLink.url(for:)` in the app target: `wheelhouse://cluster/<id>[/ns/<ns>/pods/<name>][?view=logs]`.
     public static func cluster(_ id: ClusterID) -> URL? {
-        var c = URLComponents(); c.scheme = "wheelhouse"; c.host = "cluster"; c.path = "/\(id)"; return c.url
+        var c = URLComponents(); c.scheme = DeepLink.scheme; c.host = "cluster"; c.path = "/\(id)"; return c.url
     }
     public static func pod(cluster: ClusterID, namespace: String, name: String, logs: Bool = true) -> URL? {
-        var c = URLComponents(); c.scheme = "wheelhouse"; c.host = "cluster"
+        var c = URLComponents(); c.scheme = DeepLink.scheme; c.host = "cluster"
         c.path = "/\(cluster)" + (namespace.isEmpty ? "" : "/ns/\(namespace)") + "/pods/\(name)"
         if logs { c.queryItems = [URLQueryItem(name: "view", value: "logs")] }
         return c.url

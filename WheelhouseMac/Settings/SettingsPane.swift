@@ -25,8 +25,10 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     static var visible: [SettingsPane] { allCases.filter { $0.isVisible() } }
 
     #if WH_MAS
-    /// Panes the App Store edition never shows. Updates is gone with Sparkle; M5a adds .terminal, .landfall, .beacon and .rigging here.
-    static let hiddenInAppStoreEdition: Set<SettingsPane> = [.updates]
+    /// Panes the App Store edition never shows: Updates is gone with Sparkle; Landfall, Beacon and Rigging are removed features, and Chart Room is read-only there (its helm binary and
+    /// Artifact Hub settings do nothing). The
+    /// Terminal pane stays: it holds the font and scrollback of the pod shell (an exec over the API), which the edition keeps.
+    static let hiddenInAppStoreEdition: Set<SettingsPane> = [.updates, .landfall, .beacon, .rigging, .chartRoom]
     #endif
 
     func isVisible(gateActive: Bool = DevSafety.isActive) -> Bool {

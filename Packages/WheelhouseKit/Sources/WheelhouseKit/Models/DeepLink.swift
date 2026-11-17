@@ -34,19 +34,40 @@ public struct DeepLink: Equatable, Sendable {
     public var container: String?
     public var previous = false
 
-    public static let scheme = "wheelhouse"
+    /// The scheme every build understands (iOS and the GitHub edition emit it too).
+    public static let baseScheme = "wheelhouse"
 
-    /// `wheelhouse://import`: opens the kubeconfig import screen (posted by the Share extension's notification). Carries no
+    /// The scheme this build emits: the Info.plist key `WHURLScheme` (the App Store edition sets `wheelhouse-mas` so it never competes
+    /// with the GitHub edition for `wheelhouse://`), else ``baseScheme``. Read from the main bundle, so a widget extension needs the
+    /// key in its own Info.plist.
+    public static let scheme = resolveScheme(Bundle.main.object(forInfoDictionaryKey: "WHURLScheme"))
+
+    /// A configured value is used only when it is a plain lowercase URL scheme; anything else (missing, empty, an unexpanded
+    /// `$(VARIABLE)`) falls back to ``baseScheme``.
+    static func resolveScheme(_ value: Any?) -> String {
+        guard let value = value as? String, let first = value.first, first.isASCII, first.isLetter,
+              value.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }) else { return baseScheme }
+        return value
+    }
+
+    /// Whether a URL scheme is one this build parses: the base scheme or its own.
+    public static func accepts(_ urlScheme: String?) -> Bool { accepts(urlScheme, configured: scheme) }
+    static func accepts(_ urlScheme: String?, configured: String) -> Bool { urlScheme == baseScheme || urlScheme == configured }
+
+    /// `<scheme>://import`: opens the kubeconfig import screen (posted by the Share extension's notification). Carries no
     /// data: the kubeconfig itself travels through ``PendingKubeconfigStore``.
-    public static let importURL = URL(string: "wheelhouse://import")!
-    public static func isImport(_ url: URL) -> Bool {
-        url.scheme == scheme && url.host() == "import" && url.pathComponents.filter { $0 != "/" }.isEmpty
+    public static let importURL = URL(string: "\(scheme)://import")!
+    public static func isImport(_ url: URL) -> Bool { isImport(url, configured: scheme) }
+    static func isImport(_ url: URL, configured: String) -> Bool {
+        accepts(url.scheme, configured: configured) && url.host() == "import" && url.pathComponents.filter { $0 != "/" }.isEmpty
     }
     /// Views an external URL may request.
     public static let allowedViews: Set<String> = ["logs", "yaml"]
 
-    public init?(url: URL) {
-        guard url.scheme == Self.scheme, url.host() == "cluster" else { return nil }
+    public init?(url: URL) { self.init(url: url, configured: Self.scheme) }
+
+    init?(url: URL, configured: String) {
+        guard Self.accepts(url.scheme, configured: configured), url.host() == "cluster" else { return nil }
         let parts = url.pathComponents.filter { $0 != "/" }
         guard let id = parts.first, !id.isEmpty, id.count <= 128, !id.contains(where: { $0.isWhitespace || $0 == "/" }) else { return nil }
         clusterID = id
@@ -76,7 +97,9 @@ public struct DeepLink: Equatable, Sendable {
         return ResourceRef(clusterID: clusterID, kind: kind, namespace: kind.namespaced ? namespace : nil, name: name)
     }
 
-    public static func url(for ref: ResourceRef, view: String? = nil) -> URL? {
+    public static func url(for ref: ResourceRef, view: String? = nil) -> URL? { url(for: ref, view: view, scheme: scheme) }
+
+    static func url(for ref: ResourceRef, view: String?, scheme: String) -> URL? {
         var c = URLComponents()
         c.scheme = scheme
         c.host = "cluster"

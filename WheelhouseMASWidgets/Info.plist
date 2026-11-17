@@ -27,5 +27,7 @@
 	</dict>
 	<key>WHAppGroup</key>
 	<string>$(WH_APP_GROUP)</string>
+	<key>WHURLScheme</key>
+	<string>wheelhouse-mas</string>
 </dict>
 </plist>
