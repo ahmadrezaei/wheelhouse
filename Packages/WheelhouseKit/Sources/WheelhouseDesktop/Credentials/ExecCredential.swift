@@ -15,6 +15,8 @@ public enum ExecCredentialError: Error, Equatable, Sendable, LocalizedError {
     case signInRequired(command: String)
     case cancelled
     case developmentBlocked(String)
+    /// The sandboxed App Store edition never runs credential plugins.
+    case unavailableInEdition(command: String)
 
     public var errorDescription: String? {
         switch self {
@@ -29,6 +31,8 @@ public enum ExecCredentialError: Error, Equatable, Sendable, LocalizedError {
         case .signInRequired(let command): return "`\((command as NSString).lastPathComponent)` needs you to sign in."
         case .cancelled: return "Sign-in was cancelled."
         case .developmentBlocked(let why): return why
+        case .unavailableInEdition(let command):
+            return "Uses `\((command as NSString).lastPathComponent)` (exec plugin). The App Store edition can’t run credential plugins."
         }
     }
 }

@@ -223,6 +223,7 @@ final class SpawnedProcess: Sendable {
 
     init(spec: ProcessSpec, handler: @escaping @Sendable (ProcessEvent) -> Void) throws {
         self.handler = handler
+        try ProcessPolicy.requireSpawnAllowed(tool: spec.executable.lastPathComponent)
         guard spec.executable.path.hasPrefix("/") else { throw SubprocessError.launchFailed("the executable path is not absolute") }
         guard access(spec.executable.path, X_OK) == 0 else { throw SubprocessError.launchFailed("\(spec.executable.path) is not executable") }
 

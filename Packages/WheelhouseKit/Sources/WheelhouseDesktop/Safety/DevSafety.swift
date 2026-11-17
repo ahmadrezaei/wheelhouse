@@ -29,18 +29,26 @@ public enum DevSafetyError: Error, Equatable, Sendable, LocalizedError {
 /// The fail-closed development safety gate (ARCHITECTURE-MAC §13.2, decision D22).
 ///
 /// `isActive` is **false only when all three hold**: Info.plist `WHDevSafety` is exactly `NO` (only the `Distribution`
-/// configuration sets it; a missing key counts as `YES`), the bundle ID is `com.ahmadrezaei.wheelhouse.mac`, and the running
-/// app has a valid Developer ID Application signature for team JCZY58QP3L. `#if DEBUG` is never used for safety.
+/// configuration sets it; a missing key counts as `YES`), and the bundle ID and the running app's signature belong together:
+/// - GitHub edition: bundle `com.ahmadrezaei.wheelhouse.mac` with a valid Developer ID Application signature for team JCZY58QP3L;
+/// - Mac App Store edition: bundle `com.ahmadrezaei.wheelhouse` with a valid Mac App Store signature for team JCZY58QP3L.
+///
+/// The two never cross: a store signature does not open the GitHub bundle, nor a Developer ID signature the store bundle. The MAS
+/// Debug and Profile bundle (`com.ahmadrezaei.wheelhouse.mas.debug`) matches neither, so its gate is always on. `#if DEBUG` is never
+/// used for safety.
 public enum DevSafety {
     public static let teamID = "JCZY58QP3L"
     public static let distributionBundleID = "com.ahmadrezaei.wheelhouse.mac"
+    /// The Mac App Store edition's Distribution bundle ID (universal purchase with iOS). Its Debug and Profile bundle,
+    /// `com.ahmadrezaei.wheelhouse.mas.debug`, is deliberately not accepted anywhere.
+    public static let macAppStoreBundleID = "com.ahmadrezaei.wheelhouse"
 
     private static let gateState = Mutex<Bool?>(nil)       // nil = not decided yet
 
     /// A build can turn the gate off only when Info.plist says `NO` AND the bundle ID is the shipped one. Every other build
     /// (Debug, Profile, local Release) is decided right here without touching Security.
     static func isDistributionCandidate(info: [String: Any], bundleID: String?) -> Bool {
-        (info["WHDevSafety"] as? String) == "NO" && bundleID == distributionBundleID
+        (info["WHDevSafety"] as? String) == "NO" && (bundleID == distributionBundleID || bundleID == macAppStoreBundleID)
     }
 
     /// true = development safety ON (the default for every build except Distribution).
@@ -53,7 +61,7 @@ public enum DevSafety {
             if let state { return state }
             let info = Bundle.main.infoDictionary ?? [:], bundleID = Bundle.main.bundleIdentifier
             let value = isDistributionCandidate(info: info, bundleID: bundleID)
-                ? evaluate(info: info, bundleID: bundleID, signature: CodeSignature.ofRunningApp())
+                ? evaluate(info: info, bundleID: bundleID, signature: bundleID == macAppStoreBundleID ? CodeSignature.ofRunningAppMacAppStore() : CodeSignature.ofRunningApp())
                 : true
             state = value
             return value
@@ -69,9 +77,11 @@ public enum DevSafety {
     /// The pure decision (the truth table of `DevSafetyTests`).
     public static func evaluate(info: [String: Any], bundleID: String?, signature: CodeSignature) -> Bool {
         guard (info["WHDevSafety"] as? String) == "NO" else { return true }          // missing, "YES" or anything else: ON
-        guard bundleID == distributionBundleID else { return true }                  // ….mac.debug (Debug, Profile): ON
-        guard signature.isValidDeveloperID(team: teamID) else { return true }        // Apple Development, ad hoc, unsigned: ON
-        return false
+        switch bundleID {
+        case distributionBundleID: return !signature.isValidDeveloperID(team: teamID)      // Apple Development, ad hoc, unsigned: ON
+        case macAppStoreBundleID: return !signature.isValidMacAppStore(team: teamID)       // Developer ID, development, other team: ON
+        default: return true                                                                // ….mac.debug, ….mas.debug, foreign: ON
+        }
     }
 
     private static let hosts = AllowedHostsStore()
@@ -111,7 +121,9 @@ public struct DevSafetyPolicy: Sendable {
     /// The user's home directory (injected in tests).
     public var home: URL
 
-    /// The account's real home from the password database. `NSHomeDirectory()` follows `CFFIXED_USER_HOME` and `$HOME`, which a
+    /// The account's real home from the password database. In the sandboxed App Store edition `NSHomeDirectory()`, `$HOME` and
+    /// `homeDirectoryForCurrentUser` all answer the app's container, so they must never be used for the account home (the spike showed
+    /// `getpwuid_r` still gives `/Users/<user>`). `NSHomeDirectory()` follows `CFFIXED_USER_HOME` and `$HOME`, which a
     /// launching process can redirect, so it is never the only source of truth.
     public static let accountHome: URL = {
         var pwd = passwd()
