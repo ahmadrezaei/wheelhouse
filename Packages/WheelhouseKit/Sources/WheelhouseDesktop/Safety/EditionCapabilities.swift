@@ -1,12 +1,22 @@
 #if os(macOS)
 import Foundation
 
-/// What the edition lets a kept feature do (MAS-EDITION §2 point 4). Each flag is derived from ``Edition`` and can be built with any
-/// value, so views and models take it as an input and tests exercise both settings without a sandbox.
+/// Links and wording that explain what the App Store edition leaves out (one place, used by the Chart Room, Survey and Tides notes,
+/// the Moorings rows and the import sheet).
 public enum EditionNotice {
     /// The page that explains what the App Store edition leaves out and where the open-source edition is.
     public static let learnMore = URL(string: "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html")!
+    /// The same page, at the section on clusters that sign in through an exec credential plugin.
+    public static let learnMoreURL = URL(string: "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html#exec-plugins")!
+
+    /// The exec-plugin badge text.
+    public static func execPlugin(command: String) -> String {
+        ExecCredentialError.unavailableInEdition(command: (command as NSString).lastPathComponent).localizedDescription
+    }
 }
+
+// What the edition lets a kept feature do (MAS-EDITION §2 point 4). Each flag is derived from ``Edition`` and can be built with any
+// value, so views and models take it as an input and tests exercise both settings without a sandbox.
 
 /// Chart Room: reading releases through the Kubernetes API stays; anything that starts helm (install, upgrade, roll back, uninstall,
 /// repositories) needs the open-source edition.

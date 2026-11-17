@@ -286,12 +286,4 @@ public struct POSIXFileAccessProbe: FileAccessProbing {
     }
 }
 
-/// The wording of the exec-plugin badge (one place, used by the rows and the import sheet).
-public enum EditionNotice {
-    public static let learnMoreURL = URL(string: "https://ahmadrezaei.github.io/wheelhouse/mac/editions.html#exec-plugins")!
-
-    public static func execPlugin(command: String) -> String {
-        ExecCredentialError.unavailableInEdition(command: (command as NSString).lastPathComponent).localizedDescription
-    }
-}
 #endif
