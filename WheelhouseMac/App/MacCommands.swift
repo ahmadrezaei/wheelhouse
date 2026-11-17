@@ -42,9 +42,11 @@ struct MacCommands: Commands {
 
     var body: some Commands {
         // Wheelhouse
+        #if !WH_MAS   // no Sparkle in the App Store edition
         CommandGroup(after: .appInfo) {
             CheckForUpdatesCommand()
         }
+        #endif
         CommandGroup(replacing: .appSettings) {
             SettingsLink { Text("Settings…") }.keyboardShortcut(",").disabled(locked)
             Button("Lock Wheelhouse") { env.lock.lockNow() }.disabled(!env.lock.canLock)

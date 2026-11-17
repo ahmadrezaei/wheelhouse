@@ -404,6 +404,183 @@ targets:
           CODE_SIGN_ENTITLEMENTS: WheelhouseMacWidgets/WheelhouseMacWidgets-Debug.entitlements
         Profile:
           <<: *widgetDebug
+  # ---- Mac App Store edition (design/mac/MAS-EDITION.md). The WheelhouseMac and WheelhouseMacWidgets blocks above are not touched.
+  # Same sources as WheelhouseMac minus the Sparkle updater; no Sparkle, no helpers, no helm phases. Sandboxed (entitlements in WheelhouseMAS/Resources).
+  # Only the Distribution configuration signs with the shared iCloud keychain group; Debug, Profile and Release use the .mas.debug identity.
+  WheelhouseMAS:
+    type: application
+    platform: macOS
+    sources:
+      - path: Wheelhouse
+        excludes:
+          - "**/*+iOS.swift"
+          - "**/*.entitlements"
+          - "Info.plist"
+          - "Resources/**"
+      - path: WheelhouseMac
+        excludes:
+          - "**/*.entitlements"
+          - "Resources/Info.plist"
+          - "Resources/PrivacyInfo.xcprivacy"      # the MAS manifest (WheelhouseMAS/Resources) adds SystemBootTime
+          - "Resources/Distribution.xcconfig"
+          - "Updates/**"
+          - "Settings/Panes/UpdatesPane.swift"
+      - path: WheelhouseMAS
+        excludes:
+          - "**/*.entitlements"
+          - "Resources/Info.plist"
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+      - package: WheelhouseKit
+        product: WheelhouseDesktop
+      - package: SwiftTerm
+        product: SwiftTerm
+      - target: WheelhouseMASWidgets
+        embed: true
+    info:
+      path: WheelhouseMAS/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse
+        CFBundleShortVersionString: $(MAS_MARKETING_VERSION)
+        CFBundleVersion: $(MAS_BUILD_NUMBER)
+        LSMinimumSystemVersion: "27.0"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Wheelhouse connects to clusters and Prometheus servers on your local network.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.ahmadrezaei.wheelhouse.mas
+            CFBundleURLSchemes:
+              - wheelhouse
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Kubeconfig
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.yaml
+              - com.ahmadrezaei.wheelhouse.kubeconfig
+          - CFBundleTypeName: Wheelhouse Station
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.ahmadrezaei.wheelhouse.station
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.ahmadrezaei.wheelhouse.kubeconfig
+            UTTypeDescription: Kubernetes kubeconfig
+            UTTypeConformsTo: [public.yaml, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [kubeconfig]
+          - UTTypeIdentifier: com.ahmadrezaei.wheelhouse.station
+            UTTypeDescription: Wheelhouse Station
+            UTTypeConformsTo: [public.json, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [whstation]
+        WHKeychainGroupSuffix: $(WH_KEYCHAIN_GROUP_SUFFIX)
+        WHKeychainPrivateGroupSuffix: $(WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX)
+        WHAppGroup: $(WH_APP_GROUP)
+        WHDevSafety: $(WH_DEV_SAFETY)                        # fail-closed gate; the MAS identity is taught to DevSafety in M3
+        WHDefaultTestKubeconfig: $(WH_DEFAULT_TEST_KUBECONFIG)   # empty in Distribution
+        WHPerfScenarioDirectory: $(WH_PERF_SCENARIOS)            # empty in Distribution
+    settings:
+      base:
+        PRODUCT_NAME: Wheelhouse
+        PRODUCT_MODULE_NAME: WheelhouseMac       # the shared sources and WheelhouseMacTests import this module
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse
+        MAS_MARKETING_VERSION: "1.0"
+        MAS_BUILD_NUMBER: "1000"
+        ENABLE_HARDENED_RUNTIME: YES
+        ARCHS: arm64
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_ENTITLEMENTS: WheelhouseMAS/Resources/WheelhouseMAS-Debug.entitlements   # never the shared group unless Distribution
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        WH_KEYCHAIN_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mas.debug
+        WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mas.debug
+        WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug
+        WH_DEV_SAFETY: "YES"                    # every configuration except Distribution
+        WH_DEFAULT_TEST_KUBECONFIG: $(SRCROOT)/.testcluster/kubeconfig
+        WH_PERF_SCENARIOS: $(SRCROOT)/perf/scenarios
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG WH_TEST_HOOKS WH_MAS"
+        Profile:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug
+        Distribution:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse
+          CODE_SIGN_ENTITLEMENTS: WheelhouseMAS/Resources/WheelhouseMAS.entitlements
+          WH_KEYCHAIN_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.shared
+          WH_KEYCHAIN_PRIVATE_GROUP_SUFFIX: com.ahmadrezaei.wheelhouse.mas
+          WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas
+          WH_DEV_SAFETY: "NO"                   # the ONLY place this is NO
+          WH_DEFAULT_TEST_KUBECONFIG: ""
+          WH_PERF_SCENARIOS: ""
+  WheelhouseMASWidgets:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: WheelhouseMacWidgets
+        excludes: ["**/*.entitlements", "Info.plist"]
+      - path: WheelhouseWidgets
+        includes: ["Providers.swift", "ClusterIntent.swift"]
+    dependencies:
+      - package: WheelhouseKit
+        product: WheelhouseKit
+      - package: WheelhouseKit
+        product: WheelhouseUI
+    info:
+      path: WheelhouseMASWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Wheelhouse Widgets
+        CFBundleShortVersionString: $(MAS_MARKETING_VERSION)
+        CFBundleVersion: $(MAS_BUILD_NUMBER)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        WHAppGroup: $(WH_APP_GROUP)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug.widgets
+        MAS_MARKETING_VERSION: "1.0"
+        MAS_BUILD_NUMBER: "1000"
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        ARCHS: arm64
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_ENTITLEMENTS: WheelhouseMASWidgets/WheelhouseMASWidgets-Debug.entitlements
+        WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
+      configs:
+        Distribution:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.widgets
+          CODE_SIGN_ENTITLEMENTS: WheelhouseMASWidgets/WheelhouseMASWidgets.entitlements
+          WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas
+        Profile:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug.widgets
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.debug.widgets
+  WheelhouseMASTests:                    # MAS-specific safety tests, hosted by the MAS app (the GitHub tests assume its identity and helpers)
+    type: bundle.unit-test
+    platform: macOS
+    sources: [WheelhouseMASTests]
+    dependencies:
+      - target: WheelhouseMAS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.tests
+        GENERATE_INFOPLIST_FILE: YES
+        ARCHS: arm64
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Wheelhouse.app/Contents/MacOS/Wheelhouse
+        BUNDLE_LOADER: $(TEST_HOST)
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
   WheelhouseMacTests:
     type: bundle.unit-test
     platform: macOS
@@ -472,6 +649,21 @@ schemes:
         "-WHKubeconfigPath $(SRCROOT)/.testcluster/perf-kubeconfig": true
     archive:
       config: Release                    # local archives keep DevSafety ON; release-mac.sh passes -configuration Distribution
+  WheelhouseMAS:                         # Mac App Store edition; build with -derivedDataPath apart from WheelhouseMac (both products are Wheelhouse.app)
+    build:
+      targets:
+        WheelhouseMAS: all
+        WheelhouseMASTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WheelhouseMASTests
+    profile:
+      config: Profile
+    archive:
+      config: Release                    # local archives keep the Debug identity; do not archive or upload Distribution before M3 (DevSafety does not know the MAS identity yet)
   WheelhouseMacUI:                       # UI tests with a test plan that keeps no screenshots (no screen captures are retained)
     build:
       targets:

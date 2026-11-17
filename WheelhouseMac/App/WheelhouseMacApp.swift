@@ -120,7 +120,9 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor func applicationDidFinishLaunching(_ notification: Notification) {
+        #if !WH_MAS   // the App Store edition has no Sparkle updater (guideline 2.4.5(vii))
         MacUpdater.shared.start()   // starts Sparkle only when the feed is set and the safety gate is off
+        #endif
         // Performance scenarios (`-WHPerfScenario <name>`) are honoured only while the safety gate is active.
         let env = Self.environment
         env?.start()
