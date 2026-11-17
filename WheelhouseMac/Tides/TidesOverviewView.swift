@@ -128,7 +128,7 @@ struct TidesRootView: View {
         for l in loaders { await l.value }
         guard !Task.isCancelled else { return }
         let held = list.map { ($0, $0.acquire(includeSources: sources)) }
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        await Task.waitUntilCancelled()
         for (m, stores) in held { m.release(stores) }
     }
 
