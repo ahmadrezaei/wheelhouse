@@ -75,6 +75,7 @@ final class MacImportCoordinator {
             else { continue }
             // A pick that is the home folder or doesn't contain the files is not used; the import then names the folder again.
             guard (try? FolderGrantPolicy.validateAccessGrant(picked, needed: folder, home: home)) != nil else { continue }
+            guard (try? DevSafetyPolicy.current.assertReadable(picked)) != nil else { continue }
             _ = picked.startAccessingSecurityScopedResource()
         }
     }

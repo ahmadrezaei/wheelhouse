@@ -92,3 +92,23 @@ struct ImportSandboxTests {
         #expect(open.first?.unsupportedReason?.hasPrefix("Uses a credential plugin. Wheelhouse can reference this file in place") == true)
     }
 }
+
+@Suite("Import in the sandboxed edition: the gate")
+struct ImportSandboxGateTests {
+    private final class SpyProbe: FileAccessProbing, @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var calls: Int { lock.withLock { count } }
+        func probe(_ path: String) -> FileAccessResult { lock.withLock { count += 1 }; return .needsAccess }
+    }
+
+    @Test func aReferenceUnderHomeKubeIsNeverProbedWhileTheGateIsActive() {
+        let home = URL(fileURLWithPath: "/private/tmp/claude-501/gate-home", isDirectory: true)
+        let spy = SpyProbe()
+        let gate = DevSafetyPolicy(isActive: true, home: home)
+        let inliner = KubeconfigFileInliner(gate: gate, probe: spy, isSandboxed: true)
+        let text = "clusters:\n- name: c\n  cluster:\n    certificate-authority: \(home.path)/.kube/ca.crt\n"
+        #expect(inliner.foldersNeedingAccess(text, baseDirectory: home, accountHome: home).isEmpty)
+        #expect(spy.calls == 0)
+    }
+}

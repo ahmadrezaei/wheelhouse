@@ -60,7 +60,9 @@ struct KubeconfigFileInliner {
     /// the account home, or each file's own folder.
     func foldersNeedingAccess(_ text: String, baseDirectory: URL, accountHome: URL = DevSafetyPolicy.accountHome) -> [String] {
         guard isSandboxed else { return [] }
-        let denied = referencedFiles(text, baseDirectory: baseDirectory).map(\.path).filter { probe.probe($0) == .needsAccess }
+        // A path the gate refuses (~/.kube in a development build) is never probed, let alone offered for a grant.
+        let denied = referencedFiles(text, baseDirectory: baseDirectory).filter { (try? gate.assertReadable($0)) != nil }.map(\.path)
+            .filter { probe.probe($0) == .needsAccess }
         return AccessFolderPlanner.folders(forDenied: denied, accountHome: accountHome)
     }
 

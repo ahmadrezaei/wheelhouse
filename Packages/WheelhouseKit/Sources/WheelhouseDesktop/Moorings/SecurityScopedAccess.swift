@@ -110,6 +110,7 @@ enum PathCanonicalizer {
     static func canonical(_ url: URL) -> String { canonical(url.standardizedFileURL.path) }
 
     static func canonical(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
         var existing = (path as NSString).standardizingPath
         var tail: [String] = []
         while existing != "/" {

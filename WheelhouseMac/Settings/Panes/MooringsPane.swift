@@ -24,7 +24,13 @@ struct MooringsPane: View {
             Section("Sources") {
                 ForEach(controller.contexts.map(\.fileName).uniqued(), id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }
                 ForEach(controller.issues.sorted(by: { $0.key < $1.key }), id: \.key) { path, why in
-                    VStack(alignment: .leading) { Text((path as NSString).lastPathComponent); Text(why).font(.caption).foregroundStyle(.secondary) }
+                    HStack {
+                        VStack(alignment: .leading) { Text((path as NSString).lastPathComponent); Text(why).font(.caption).foregroundStyle(.secondary) }
+                        if let folder = controller.accessNeeded[path] {
+                            Spacer()
+                            Button("Grant Folder…") { Task { await controller.chooseAccessFolder(for: folder) } }
+                        }
+                    }
                 }
             }
             Section {

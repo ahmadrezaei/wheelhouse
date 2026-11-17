@@ -296,6 +296,13 @@ struct FolderGrantPolicyTests {
                 == [home.appending(path: ".config/foo").path])
     }
 
+    @Test func canonicalPathsAgreeForExistingAndMissingPartsAndNeverLoop() {
+        #expect(PathCanonicalizer.canonical("/tmp/wh-none/a") == PathCanonicalizer.canonical("/private/tmp/wh-none/a"))
+        #expect(PathCanonicalizer.canonical("") == "")
+        #expect(PathCanonicalizer.canonical("relative/x") == "relative/x")
+        #expect(PathCanonicalizer.canonical("/") == "/")
+    }
+
     @Test func plannerNeverAsksForTheHomeFolderItself() {
         let files = [home.appending(path: ".a/ca.crt").path, home.appending(path: ".b/client.crt").path]
         // Common parent is the home folder: fall back to each file's own folder.
