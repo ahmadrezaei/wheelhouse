@@ -588,6 +588,17 @@ targets:
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/WheelhouseMAS.app/Contents/MacOS/WheelhouseMAS   # Distribution (Wheelhouse.app) is never tested
         BUNDLE_LOADER: $(TEST_HOST)
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
+  WheelhouseMASUITests:                  # Store screenshots of the MAS edition (Demo mode only, window captures only)
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [WheelhouseMASUITests]
+    dependencies:
+      - target: WheelhouseMAS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.mas.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        ARCHS: arm64
   WheelhouseMacTests:
     type: bundle.unit-test
     platform: macOS
@@ -671,6 +682,15 @@ schemes:
       config: Profile
     archive:
       config: Release                    # local archives keep the Debug identity; never archive or upload Distribution except through the M6 release script (DevSafety knows the MAS identity since M3)
+  WheelhouseMASUI:                       # window screenshots of the MAS edition in Demo mode (design/mac/MAS-LISTING.md); build with its own -derivedDataPath
+    build:
+      targets:
+        WheelhouseMAS: all
+        WheelhouseMASUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - WheelhouseMASUITests
   WheelhouseMacUI:                       # UI tests with a test plan that keeps no screenshots (no screen captures are retained)
     build:
       targets:

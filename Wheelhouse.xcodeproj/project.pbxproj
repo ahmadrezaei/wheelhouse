@@ -284,6 +284,7 @@
 		73B3B3430CDE01D3989438FF /* SidebarTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D198A4A6FF5F824C488C08 /* SidebarTree.swift */; };
 		7415F1063B205B17481AC5E9 /* TidesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 808CBC0DFBDA8613A529B174 /* TidesPane.swift */; };
 		7492858EB12830BE49E823CE /* SidebarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E168121383C896A7BD3C18 /* SidebarModel.swift */; };
+		751191A44424050CE680E479 /* WheelhouseMASScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFB28CF82E52C94813FC4F2 /* WheelhouseMASScreenshots.swift */; };
 		7530D2CE52F321690788A5AD /* ICloudPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2407B72527B06CFBB50F8AE8 /* ICloudPane.swift */; };
 		75C7C56F823CBBC7C73451C6 /* MooringsFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A46A647721E3C56CE978924 /* MooringsFeature.swift */; };
 		75E3B8BBE9F8744B2F9F16B1 /* ClusterIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 376DBE56B10CEC0380A4224F /* ClusterIntent.swift */; };
@@ -667,6 +668,13 @@
 			remoteGlobalIDString = 0B00DC35634D6278CE2DE950;
 			remoteInfo = WheelhouseShare;
 		};
+		F3EC1AE4BA966ACB4D28FB67 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F4669CDB4D15A94B2CD45B8F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 40FC01DC9AB8ED21EA0CD1DB;
+			remoteInfo = WheelhouseMAS;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -793,6 +801,7 @@
 		3A46A647721E3C56CE978924 /* MooringsFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MooringsFeature.swift; sourceTree = "<group>"; };
 		3AA68348EB43F18ECB934D90 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		3AD102426EA9E7E598EAE10C /* LogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsView.swift; sourceTree = "<group>"; };
+		3AFB28CF82E52C94813FC4F2 /* WheelhouseMASScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WheelhouseMASScreenshots.swift; sourceTree = "<group>"; };
 		3CDEA2A1EB5F7A15E6FB3E30 /* ManifestEditorModel+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ManifestEditorModel+macOS.swift"; sourceTree = "<group>"; };
 		3D3C546C16695AD9E2351D6E /* Providers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Providers.swift; sourceTree = "<group>"; };
 		3D5506B87DBA2DBF03BC8DEF /* MacBeaconChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBeaconChanges.swift; sourceTree = "<group>"; };
@@ -996,6 +1005,7 @@
 		EBC6B1ACB5EC835FA4644281 /* LockCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockCoordinatorTests.swift; sourceTree = "<group>"; };
 		EBFA6AD9CDB04ECBF171BB4F /* WHTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WHTestHooks.swift; sourceTree = "<group>"; };
 		EC6650E79DA1EF2B068E30D8 /* AlertNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertNotifier.swift; sourceTree = "<group>"; };
+		ED34EF819CA124316E6DD43B /* WheelhouseMASUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WheelhouseMASUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED3E59F26DBAA34E7B0E1F8C /* WorkspaceCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommand.swift; sourceTree = "<group>"; };
 		EDCE68441C6599560C589581 /* NavigationFixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationFixTests.swift; sourceTree = "<group>"; };
 		EE1409C7CDCD5574F2BF1528 /* NotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoordinator.swift; sourceTree = "<group>"; };
@@ -1114,6 +1124,14 @@
 				418169779094CD33D1127947 /* ActivityView.swift */,
 			);
 			path = Activity;
+			sourceTree = "<group>";
+		};
+		01AD40DD47C17026F54253A3 /* WheelhouseMASUITests */ = {
+			isa = PBXGroup;
+			children = (
+				3AFB28CF82E52C94813FC4F2 /* WheelhouseMASScreenshots.swift */,
+			);
+			path = WheelhouseMASUITests;
 			sourceTree = "<group>";
 		};
 		0349A22E6C7985D8FBA0B841 /* WheelhouseMacWidgets */ = {
@@ -1604,6 +1622,7 @@
 				0349A22E6C7985D8FBA0B841 /* WheelhouseMacWidgets */,
 				CEEC51D57BB054E141F1D998 /* WheelhouseMAS */,
 				F263D180FC5236B5B425BFCD /* WheelhouseMASTests */,
+				01AD40DD47C17026F54253A3 /* WheelhouseMASUITests */,
 				FD8CA6E38FD3DE9D33182572 /* WheelhouseShare */,
 				51C97DC457D8D1396AAE250D /* WheelhouseWidgets */,
 				C01C8EAA279726A21E3BB4AC /* Products */,
@@ -1632,6 +1651,7 @@
 				A9511A09D09C905B4F324992 /* WheelhouseMacWidgets.appex */,
 				445E3ABAE1E282D466E17074 /* WheelhouseMAS.app */,
 				1E4C4843E7F0F4998D5A8F93 /* WheelhouseMASTests.xctest */,
+				ED34EF819CA124316E6DD43B /* WheelhouseMASUITests.xctest */,
 				EE99FE44DE44710A9307A477 /* WheelhouseMASWidgets.appex */,
 				CEE7C5F2FC25097D61E73CCB /* WheelhouseShare.appex */,
 				9BF4AF72C85F0C2170B79B7D /* WheelhouseWidgets.appex */,
@@ -2130,6 +2150,24 @@
 			productReference = 8DFB2CC6CF924096113E02CC /* WheelhouseMacTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		CF3257A59A9F17D2C52C5ABE /* WheelhouseMASUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AF47D6CD07784E2E4F675F6B /* Build configuration list for PBXNativeTarget "WheelhouseMASUITests" */;
+			buildPhases = (
+				ED42BC5D3DA5D5AB1E58A38C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				34E14527030CC94A540807AC /* PBXTargetDependency */,
+			);
+			name = WheelhouseMASUITests;
+			packageProductDependencies = (
+			);
+			productName = WheelhouseMASUITests;
+			productReference = ED34EF819CA124316E6DD43B /* WheelhouseMASUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -2191,6 +2229,11 @@
 						DevelopmentTeam = JCZY58QP3L;
 						ProvisioningStyle = Automatic;
 					};
+					CF3257A59A9F17D2C52C5ABE = {
+						DevelopmentTeam = JCZY58QP3L;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 40FC01DC9AB8ED21EA0CD1DB;
+					};
 				};
 			};
 			buildConfigurationList = EA85A9199D8AD73BFABF5EE3 /* Build configuration list for PBXProject "Wheelhouse" */;
@@ -2222,6 +2265,7 @@
 				40FC01DC9AB8ED21EA0CD1DB /* WheelhouseMAS */,
 				6C40A8B0B45D656FBD55AF8E /* WheelhouseMASWidgets */,
 				89D8EB96BAE6C2AC5BA441A2 /* WheelhouseMASTests */,
+				CF3257A59A9F17D2C52C5ABE /* WheelhouseMASUITests */,
 				CA49144B7BF9151B172154C9 /* WheelhouseMacTests */,
 				18232DA3F20EBB104942AF62 /* WheelhouseMacUITests */,
 				418D0FB30A59DFDE4B80C052 /* WheelhouseMacPerfTests */,
@@ -2962,6 +3006,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		ED42BC5D3DA5D5AB1E58A38C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				751191A44424050CE680E479 /* WheelhouseMASScreenshots.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -2974,6 +3026,11 @@
 			isa = PBXTargetDependency;
 			target = 84497C42EC1525C2D8674736 /* WheelhouseMac */;
 			targetProxy = 7AE746319FD87D31EB643D5A /* PBXContainerItemProxy */;
+		};
+		34E14527030CC94A540807AC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 40FC01DC9AB8ED21EA0CD1DB /* WheelhouseMAS */;
+			targetProxy = F3EC1AE4BA966ACB4D28FB67 /* PBXContainerItemProxy */;
 		};
 		4C70F4567BF2142B3D83C33F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -3018,6 +3075,24 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		03B550B11576DBA3410F8C38 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = WheelhouseMAS;
+			};
+			name = Debug;
+		};
 		0972B024F4CD17B7E532053E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -3686,6 +3761,42 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8FF1F059EF7779873C0BD986 /* Distribution */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = WheelhouseMAS;
+			};
+			name = Distribution;
+		};
+		93FC499DAC67E3B0D195E348 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = WheelhouseMAS;
 			};
 			name = Release;
 		};
@@ -4421,6 +4532,24 @@
 			};
 			name = Profile;
 		};
+		FE54EAEDAA0978C74E9A7B8B /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadrezaei.wheelhouse.mas.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = WheelhouseMAS;
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -4519,6 +4648,17 @@
 				B1741C8A818C86B4F59B5892 /* Distribution */,
 				860AB053711141F0A180D895 /* Profile */,
 				2B1CF19C3F61B818336CA250 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AF47D6CD07784E2E4F675F6B /* Build configuration list for PBXNativeTarget "WheelhouseMASUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				03B550B11576DBA3410F8C38 /* Debug */,
+				8FF1F059EF7779873C0BD986 /* Distribution */,
+				FE54EAEDAA0978C74E9A7B8B /* Profile */,
+				93FC499DAC67E3B0D195E348 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
