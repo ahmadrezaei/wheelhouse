@@ -103,6 +103,24 @@ struct MenuBarAndRailTests {
         #expect(monitor.deepChecks == 6)
     }
 
+    @Test func aClusterEvaluatedJustBeforeTheLastWindowClosedIsNotEvaluatedAgainUntilItIsDue() async {
+        let f = fixture(environments: [.production])
+        let periodic = PeriodicTaskRegistry()
+        periodic.setWindowsVisible(false)
+        let box = ClockBox(Date())
+        let monitor = MacFleetMonitor(registry: f.registry, preferences: AppPreferences(defaults: defaults()), mac: f.mac, railClusters: { [] },
+                                      process: { _, _ in }, now: { box.value }, alertSettings: { AlertSettings() }, periodicRegistry: periodic)
+        let session = f.registry.session(for: f.registry.clusters[0].id)
+        _ = await session?.refreshHealth()                          // the Fleet evaluated it while a window was open
+        #expect(session?.lastHealthRefresh != nil)
+        box.value = Date()
+        await monitor.tick()
+        #expect(monitor.deepChecks == 0)                            // a probe only: the evaluation is fresh
+        box.value.addTimeInterval(MacFleetMonitor.deepIntervalProduction + 1)
+        await monitor.tick()
+        #expect(monitor.deepChecks == 1)                            // due again after the production interval
+    }
+
     @Test func pausingStopsChecksForAnHourAndAForcedCheckStillRuns() async {
         let f = fixture()
         var clock = Date(timeIntervalSince1970: 1_800_000_000)

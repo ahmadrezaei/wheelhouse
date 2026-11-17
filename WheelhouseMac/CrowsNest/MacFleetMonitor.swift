@@ -113,10 +113,15 @@ final class MacFleetMonitor {
     /// `deepInterval` (5 minutes for Production, 15 for the others), one cluster per check and the never-checked ones first (so the first
     /// minutes after launch do not decode every cluster's lists at once): a fixture cluster with 550 pods and 430 jobs answers 3.5 MB of pods alone, and that list every minute is most of
     /// the CPU and the memory peak a menu-bar-only app is allowed (hidden budget 0.1 % and 100 MB).
+    ///
+    /// P2: an evaluation that ran elsewhere counts too (the Fleet, a window's check: the session's `lastHealthRefresh`). Closing the
+    /// last window right after the Fleet evaluated every cluster otherwise re-decoded each of them in the first minutes of menu-bar mode
+    /// (three full evaluations of an 872-pod cluster were most of the hidden scenario's CPU).
     private func menuBarCheck(_ sessions: [ClusterSession], date: Date) async {
         menuBarTicks += 1
+        func lastDeep(_ s: ClusterSession) -> Date? { [deepChecked[s.id], s.lastHealthRefresh].compactMap { $0 }.max() }
         // Production is probed every check; the others every third (3 minutes): with no window the whole budget is 0.1 % CPU.
-        let probing = sessions.filter { $0.config.environment == .production || menuBarTicks % Self.nonProductionProbeEvery == 1 || deepChecked[$0.id] == nil }
+        let probing = sessions.filter { $0.config.environment == .production || menuBarTicks % Self.nonProductionProbeEvery == 1 || lastDeep($0) == nil }
         for s in probing {
             // A failed probe, or a good one for a cluster still recorded as unreachable or stale, evaluates it now: the glyph and the
             // "unreachable" alert recover at the next check, not at the next full evaluation.
@@ -128,9 +133,9 @@ final class MacFleetMonitor {
         }
         let overdue = sessions.filter { s in
             let interval = s.config.environment == .production ? Self.deepIntervalProduction : Self.deepInterval
-            return deepChecked[s.id].map { date.timeIntervalSince($0) >= interval } ?? true
+            return lastDeep(s).map { date.timeIntervalSince($0) >= interval } ?? true
         }
-        if let oldest = overdue.min(by: { (deepChecked[$0.id] ?? .distantPast) < (deepChecked[$1.id] ?? .distantPast) }) {
+        if let oldest = overdue.min(by: { (lastDeep($0) ?? .distantPast) < (lastDeep($1) ?? .distantPast) }) {
             _ = await oldest.refreshHealth()
             deepChecked[oldest.id] = date
             deepChecks += 1
