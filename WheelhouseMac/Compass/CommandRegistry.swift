@@ -42,7 +42,7 @@ struct CommandRegistry {
                       _ perform: @escaping @MainActor (WorkspaceWindowModel) -> Void) -> CompassCommand {
             make(id, title, path, shortcut, symbol, enabled: hasWindow) { if let m = workspace.activeModel { perform(m) } }
         }
-        var base: [CompassCommand] = [
+        let all: [CompassCommand] = [
             make("file.newWindow", "New Window", "File", "⌘N", "macwindow") { workspace.newWindowOrReopenLast() },
             onWindow("file.newTab", "New Tab", "File", "⌘T", "plus.square") { $0.newTab() },
             onWindow("file.closeTab", "Close Tab", "File", "⌥⌘W", "xmark.square") { $0.closeTab($0.selectedTab.id) },
@@ -88,8 +88,9 @@ struct CommandRegistry {
             make("nest.pause", "Pause Crow's Nest Checks for 1 Hour", "Crow's Nest", nil, "pause.circle", enabled: { env.macPreferences.showsCrowsNest }) { env.fleet.pause() },
         ]
         #if WH_MAS   // Landfall is not in the App Store edition
-        base.removeAll { $0.id == "file.addFromCloud" }
+        self.base = all.filter { $0.id != "file.addFromCloud" }
+        #else
+        self.base = all
         #endif
-        self.base = base
     }
 }

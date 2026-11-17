@@ -457,9 +457,13 @@ enum BuiltInStations {
     static var release: Station {
         let chart = PaneState(showing: .chartRoom(c, .releases))
         let rollout = PaneState(showing: .route(.resourceList(c, .deployment, namespace: nil)))
-        let terminal = PaneState(showing: .deckTerminal(TerminalSpec(clusterID: c)), context: PaneContext(clusterID: c))
         let top = PaneNode.split(axis: .horizontal, fraction: 0.5, first: .leaf(chart), second: .leaf(rollout))
-        return make("release", "Release", .split(axis: .vertical, fraction: 0.6, first: top, second: .leaf(terminal)))
+        #if WH_MAS   // no Deck Terminal in the App Store edition: events take the bottom pane
+        let bottom = PaneState(showing: .route(.resourceList(c, .event, namespace: nil)))
+        #else
+        let bottom = PaneState(showing: .deckTerminal(TerminalSpec(clusterID: c)), context: PaneContext(clusterID: c))
+        #endif
+        return make("release", "Release", .split(axis: .vertical, fraction: 0.6, first: top, second: .leaf(bottom)))
     }
 
     /// Nodes table, node detail linked, pods.

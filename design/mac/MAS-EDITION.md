@@ -56,7 +56,7 @@ Living alongside the GitHub app (`…wheelhouse.mac`):
 1. **A separate XcodeGen target, `WheelhouseMAS`.** It uses the same sources as `WheelhouseMac` minus `Updates/**` and `UpdatesPane.swift`. It has no Sparkle, no `wh-pty-exec` or `wheelhouse-mcp` dependency and no helm build phases, plus its own Info.plist values, entitlements and configs. The `WheelhouseMac` block is not edited. The ~120 duplicated lines are acceptable; a templated target would mean editing the GitHub target.
 2. **The `WH_MAS` compilation condition, set only on `WheelhouseMAS`,** for short seams:
    - `WheelhouseMacApp.swift` (no `MacUpdater`);
-   - `SettingsPane.swift` (hide the Updates, Terminal, Landfall, Beacon and Rigging panes);
+   - `SettingsPane.swift` (hide the Updates, Landfall, Beacon, Rigging and Chart Room panes; the Terminal pane stays, because it holds the pod shell's font and scrollback);
    - `FeatureRegistry.releaseEnabled` (a MAS set without `deckTerminal`, `landfall`, `beacon`, `rigging`);
    - `MacAppEnvironment.make` / `startServices` (no `ShellEnvironment` probe, no `LandfallModel`, no `gangway.follow`, no `beacon.maintainHelperLink`, no `DirectKubeconfig`).
 
