@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WheelhouseDesktop
 import WheelhouseKit
 import WheelhouseUI
 
@@ -15,15 +16,30 @@ struct TidesDetailView: View {
         var id: String { rawValue }
     }
 
+    /// The tabs of one object. The Argo CD diff reads the API; only the Flux diff runs the `flux` program, so a read-only edition drops that one.
+    static func tabs(tool: GitOpsOwner.Tool, flavor: GitOpsApp.Flavor, capabilities: TidesCapabilities) -> [Tab] {
+        if tool == .argoCD { return [.resources, .diff, .history, .conditions, .manifest] }
+        if flavor == .fluxKustomization {
+            return [.status, .inventory, .dependencies] + (capabilities.fluxDiff ? [.diff] : []) + [.conditions, .manifest]
+        }
+        if flavor == .fluxHelmRelease { return [.status, .dependencies, .history, .conditions, .manifest] }
+        return [.status, .conditions, .manifest]
+    }
+
     /// nil until the person picks one: the default depends on the tool, which is known only once the object has loaded.
     @State private var picked: Tab?
-    private func tab(for app: GitOpsApp) -> Tab { picked ?? (app.tool == .argoCD ? .resources : .status) }
+    private func tab(for app: GitOpsApp) -> Tab {
+        let available = tabs(for: app)
+        if let picked, available.contains(picked) { return picked }
+        return app.tool == .argoCD ? .resources : .status
+    }
     @State private var request: ConfirmRequest?
     @State private var syncSheet = false
     @State private var connectSheet = false
     @State private var failure: String?
     @State private var undo: UndoOffer?
     @State private var connection = ArgoConnection.live
+    @Environment(\.tidesCapabilities) private var capabilities
 
     struct UndoOffer: Equatable { var message: String; var inverse: GitOpsActionPlan.Kind; var autoSync: GitOpsAutoSyncPolicy? }
     /// Bumped when the Connect sheet closes, so the Diff tab re-reads the token once.
@@ -79,12 +95,7 @@ struct TidesDetailView: View {
         .overlay(alignment: .bottom) { undoBanner }
     }
 
-    private func tabs(for app: GitOpsApp) -> [Tab] {
-        if app.tool == .argoCD { return [.resources, .diff, .history, .conditions, .manifest] }
-        if app.flavor == .fluxKustomization { return [.status, .inventory, .dependencies, .diff, .conditions, .manifest] }
-        if app.flavor == .fluxHelmRelease { return [.status, .dependencies, .history, .conditions, .manifest] }
-        return [.status, .conditions, .manifest]
-    }
+    private func tabs(for app: GitOpsApp) -> [Tab] { Self.tabs(tool: app.tool, flavor: app.flavor, capabilities: capabilities) }
 
     private func header(_ app: GitOpsApp) -> some View {
         VStack(alignment: .leading, spacing: Spacing.s) {

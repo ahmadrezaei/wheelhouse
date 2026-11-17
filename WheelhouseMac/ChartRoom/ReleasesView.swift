@@ -39,6 +39,7 @@ struct ReleasesView: View {
     @State private var scopeText = ""
     @State private var flow: HelmFlowModel?
     @Environment(MacAppEnvironment.self) private var env
+    @Environment(\.chartRoomCapabilities) private var capabilities
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,10 +69,12 @@ struct ReleasesView: View {
             if let count = model.listing?.releases.count, model.phase == .loaded {
                 Text("\(count) release\(count == 1 ? "" : "s")").font(.footnote).foregroundStyle(.secondary)
             }
-            Button("Install…") {
-                flow = HelmFlowModel(kind: .install, session: model.session, services: model.services, namespace: model.scope ?? "default", makeRunner: HelmToolbox.liveRunner(env))
+            if capabilities.offers(.install) {
+                Button("Install…") {
+                    flow = HelmFlowModel(kind: .install, session: model.session, services: model.services, namespace: model.scope ?? "default", makeRunner: HelmToolbox.liveRunner(env))
+                }
+                .help("Install a chart from a repository, a path or an OCI reference")
             }
-            .help("Install a chart from a repository, a path or an OCI reference")
             Button { Task { await model.load() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                 .keyboardShortcut("r", modifiers: .command)
                 .help("Refresh the list (metadata only)")
@@ -113,8 +116,9 @@ struct ReleasesView: View {
                 EmptyState(.filteredEmpty(filter: text))
             } else {
                 EmptyState(.empty(title: model.scope.map { "No Helm releases in \($0)" } ?? "No Helm releases", systemImage: "shippingbox",
-                                  hint: "Releases installed with Helm appear here. Installing arrives with the write path (M6b).")) {
-                    Button("Install a Chart…") {}.disabled(true).help("Arrives with the write path (M6b)")
+                                  hint: capabilities.writes ? "Releases installed with Helm appear here. Installing arrives with the write path (M6b)."
+                                                            : "Releases installed with Helm appear here.")) {
+                    if capabilities.offers(.install) { Button("Install a Chart…") {}.disabled(true).help("Arrives with the write path (M6b)") }
                 }
             }
         }
@@ -199,12 +203,14 @@ struct ReleasesView: View {
         Divider()
         Button("Copy helm status Command") { Pasteboard.copy("helm status \(r.name) -n \(r.namespace)") }
         Divider()
-        Button("Upgrade…") {}.disabled(true)
-        Button("Roll Back…") {}.disabled(true)
-        Button("Uninstall…") {}.disabled(true)
-        Text("Changes arrive with the write path (M6b)")
-        Divider()
-        Button("Open in Deck Terminal") {}.disabled(true)
+        if capabilities.offers(.upgrade) {
+            Button("Upgrade…") {}.disabled(true)
+            Button("Roll Back…") {}.disabled(true)
+            Button("Uninstall…") {}.disabled(true)
+            Text("Changes arrive with the write path (M6b)")
+            Divider()
+        }
+        if capabilities.offers(.openInTerminal) { Button("Open in Deck Terminal") {}.disabled(true) }
         Button("Ask First Mate") {}.disabled(true)
     }
 }

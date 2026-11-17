@@ -102,6 +102,8 @@ final class ScanCoordinator {
     /// Test seams.
     @ObservationIgnored private let conditions: @Sendable () -> ScanConditions
     @ObservationIgnored private let managedDownloader: any TrivyDownloader
+    /// Without `localScans` no trivy is looked for, downloaded or started: the coordinator only keeps the database open.
+    @ObservationIgnored private let capabilities: SurveyCapabilities
     @ObservationIgnored private var storeURL: URL
     @ObservationIgnored private var lastReloadedScanned = 0
     @ObservationIgnored private var preparing: Task<Void, Never>?
@@ -110,8 +112,10 @@ final class ScanCoordinator {
     @ObservationIgnored private weak var hub: SurveyHub?
 
     init(paths: AppPaths = .current, conditions: @escaping @Sendable () -> ScanConditions = { SystemScanConditionsObserver.current() },
-         managedDownloader: any TrivyDownloader = URLSessionTrivyDownloader(), pin: TrivyPin.State = TrivyPin.bundled, hub: SurveyHub? = nil) {
+         managedDownloader: any TrivyDownloader = URLSessionTrivyDownloader(), pin: TrivyPin.State = TrivyPin.bundled, hub: SurveyHub? = nil,
+         capabilities: SurveyCapabilities = .current) {
         self.hub = hub
+        self.capabilities = capabilities
         self.paths = paths
         self.conditions = conditions
         self.managedDownloader = managedDownloader
@@ -160,6 +164,7 @@ final class ScanCoordinator {
     // MARK: Source
 
     func resolveSource() async {
+        guard capabilities.localScans else { source = .none; return }
         let before = source
         await locateSource()
         // A new trivy (or none) means a new runner; a running queue is left alone until it ends.
@@ -183,6 +188,7 @@ final class ScanCoordinator {
 
     /// The user accepted the consent sheet: download, verify, install.
     func installManaged() async {
+        guard capabilities.localScans else { return }
         do {
             _ = try await managed.install()
             message = nil
@@ -229,6 +235,7 @@ final class ScanCoordinator {
 
     /// Reads the running pods of `sessions`, queues their images and starts. `.manual` overrides the energy rules.
     func scan(sessions: [ClusterSession], trigger: ScanTrigger) async {
+        guard capabilities.localScans else { message = SurveyCapabilities.notice; return }
         await prepare()
         guard let queue, source.url != nil else { message = "No trivy is available. Set one up first."; return }
         message = nil

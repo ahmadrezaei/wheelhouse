@@ -15,8 +15,18 @@ struct ScanSettingsSection: View {
     @State private var coordinator = ScanCoordinator.shared
     @State private var optIn: [ClusterID: Bool] = [:]
     @State private var showSetup = false
+    @Environment(\.surveyCapabilities) private var capabilities
 
     var body: some View {
+        if capabilities.localScans { scanning } else { unavailable }
+    }
+
+    /// The App Store edition reads Trivy Operator reports only: no trivy to find, download or run, and no registry sign-in to share.
+    private var unavailable: some View {
+        Section("Vulnerability scanning") { OpenSourceEditionNote(message: SurveyCapabilities.notice) }
+    }
+
+    @ViewBuilder private var scanning: some View {
         Section("Vulnerability scanning") {
             LabeledContent("Trivy") { Text(coordinator.source.title).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.trailing) }
             TextField("Path to your trivy (optional)", text: $trivyPath)

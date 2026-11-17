@@ -1,4 +1,5 @@
 import SwiftUI
+import WheelhouseDesktop
 import WheelhouseKit
 import WheelhouseUI
 
@@ -30,6 +31,7 @@ private struct ChartRoomContent: View {
     @State private var releases: ReleasesModel
     @State private var repositories: RepositoriesModel
     @Environment(AppLockController.self) private var lock: AppLockController?
+    @Environment(\.chartRoomCapabilities) private var capabilities
 
     init(session: ClusterSession, services: ChartRoomServices, section: Binding<ChartRoomSection>) {
         self.session = session
@@ -44,16 +46,20 @@ private struct ChartRoomContent: View {
                 Label("Chart Room", systemImage: "shippingbox").font(.headline)
                 EnvBadge(session.config.environment)
                 Spacer()
-                Picker("Section", selection: $section) {
-                    Text("Releases").tag(ChartRoomSection.releases)
-                    Text("Charts").tag(ChartRoomSection.charts)
-                    Text("Repositories").tag(ChartRoomSection.repositories)
+                if capabilities.writes {
+                    Picker("Section", selection: $section) {
+                        Text("Releases").tag(ChartRoomSection.releases)
+                        Text("Charts").tag(ChartRoomSection.charts)
+                        Text("Repositories").tag(ChartRoomSection.repositories)
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
+                } else {
+                    OpenSourceEditionNote(message: ChartRoomCapabilities.notice)
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
             }
             .padding(.horizontal, Spacing.l).padding(.vertical, Spacing.s)
             Divider()
-            switch section {
+            switch capabilities.resolve(section) {
             case .releases: ReleasesView(model: releases)
             case .charts: ChartsView(model: repositories, session: session)
             case .repositories: RepositoriesView(model: repositories)
