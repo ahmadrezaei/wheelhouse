@@ -20,11 +20,11 @@ Mac 1.0 ships every feature except Rigging (M13). Rigging is built on its own br
 - [ ] The Developer ID Application certificate (team JCZY58QP3L) is already in the keychain.
 
 ### 2. Decisions still open
-- [ ] **Pricing and support:** decision 24. Fill in the `.todo` placeholders in `docs/mac/getting-started.html` and `docs/mac/support.html`.
-- [ ] **Languages:** decision 23 (same set as iOS).
-- [ ] **Privacy page:** the effective date and contact in `docs/mac/privacy.html`.
+- [x] **Pricing and support:** decision 24. Fill in the `.todo` placeholders in `docs/mac/getting-started.html` and `docs/mac/support.html`. Free and open source (MIT); support through GitHub Issues, best effort (2026-11-17).
+- [x] **Languages:** decision 23 (same set as iOS). English only for 1.0 (2026-11-17).
+- [x] **Privacy page:** the effective date and contact in `docs/mac/privacy.html`. Effective 2026-11-17, contact through GitHub Issues.
 - [ ] **Trivy download:** `Packages/WheelhouseKit/Sources/WheelhouseDesktop/Resources/trivy/pin.json` has `"version": null`, so the app offers no Trivy download, only a Trivy you install yourself. Either pin a release (every field, from its checksums after checking the signature) or ship as is.
-- [ ] **GitHub private vulnerability reporting:** turn it on for the repo. `docs/mac/support.html` points security reports there.
+- [x] **GitHub private vulnerability reporting:** turn it on for the repo. `docs/mac/support.html` points security reports there. Enabled 2026-11-17.
 
 ### 3. Build the release candidate
 - [x] Signed dry run on 2026-11-13: `scripts/release-mac.sh 1.0.0 1 --local --no-notarize --skip-tests` passed. Archive and Developer ID export succeeded, every Mach-O has the hardened runtime, a timestamp and the Developer ID signature, `mac-entitlement-check` passed for Distribution, and the signed DMG was built. Gatekeeper accepted it before notarization.
