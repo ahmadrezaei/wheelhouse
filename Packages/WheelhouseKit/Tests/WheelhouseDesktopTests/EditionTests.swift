@@ -71,6 +71,18 @@ struct EditionProcessTests {
         }
     }
 
+    @Test func aSystemToolNeverTouchesTheFileSystemInTheSandboxedEdition() async throws {
+        let s = try Scratch(); defer { s.cleanup() }
+        let target = s.root.appending(path: "touched-by-system-tool")
+        await #expect(throws: ProcessPolicyError.unavailableInAppStoreEdition(tool: "touch")) {
+            try await Edition.withEdition(sandboxed) { try await Subprocess.run(spec("/usr/bin/touch", [target.path])) }
+        }
+        #expect(!FileManager.default.fileExists(atPath: target.path))
+        // Control: the same call outside the sandboxed edition does create it, so the assertion above means something.
+        _ = try await Edition.withEdition(open) { try await Subprocess.run(spec("/usr/bin/touch", [target.path])) }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
     @Test func streamFinishesWithTheTypedError() async {
         await #expect(throws: ProcessPolicyError.unavailableInAppStoreEdition(tool: "kubectl")) {
             try await Edition.withEdition(sandboxed) {

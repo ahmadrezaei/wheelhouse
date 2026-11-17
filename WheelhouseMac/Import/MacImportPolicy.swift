@@ -19,6 +19,7 @@ struct MacImportPolicy: KubeconfigImportPolicy {
     let defaultICloud = false
     var gate: DevSafetyPolicy = .current
     var moorings: any MooringsSourceAdding = UnavailableMooringsSourceAdder()
+    var isSandboxed: Bool = Edition.current.isSandboxed
 
     /// Larger than any real kubeconfig (a flattened file with a dozen clusters is under 100 KB).
     static let maxFileBytes = 2 * 1024 * 1024
@@ -56,7 +57,7 @@ struct MacImportPolicy: KubeconfigImportPolicy {
         if let size = (try? FileManager.default.attributesOfItem(atPath: real.path))?[.size] as? Int, size > Self.maxFileBytes { throw ImportPolicyError.tooLarge }
         guard let text = try? String(contentsOf: real, encoding: .utf8) else { throw ImportPolicyError.unreadable }
         do {
-            return (try KubeconfigFileInliner(gate: gate).inline(text, baseDirectory: real.deletingLastPathComponent()), url.lastPathComponent)
+            return (try KubeconfigFileInliner(gate: gate, isSandboxed: isSandboxed).inline(text, baseDirectory: real.deletingLastPathComponent()), url.lastPathComponent)
         } catch {
             throw ImportPolicyError.message(error.localizedDescription)
         }
@@ -71,6 +72,12 @@ struct MacImportPolicy: KubeconfigImportPolicy {
             case .local:
                 c.status = .ready
                 c.unsupportedReason = nil
+            case .exec where isSandboxed:
+                if case .exec(let command, _) = c.auth {
+                    c.unsupportedReason = EditionNotice.execPlugin(command: command)
+                } else {
+                    c.unsupportedReason = "Uses a credential plugin. The App Store edition can’t run credential plugins."
+                }
             case .exec:
                 c.unsupportedReason = "Uses a credential plugin. Wheelhouse can reference this file in place and run the plugin for you (Moorings). It is never copied into the Keychain."
             default: break

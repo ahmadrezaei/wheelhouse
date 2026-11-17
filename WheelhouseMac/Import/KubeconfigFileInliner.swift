@@ -11,6 +11,9 @@ import WheelhouseDesktop
 /// itself. Only metadata is read for that check.
 struct KubeconfigFileInliner {
     var gate: DevSafetyPolicy = .current
+    /// Sandboxed edition only: tells a file the sandbox refuses (EPERM) from a missing or unreadable one.
+    var probe: any FileAccessProbing = POSIXFileAccessProbe()
+    var isSandboxed: Bool = Edition.current.isSandboxed
     /// Referenced files are certificates, keys and tokens; nothing legitimate is large.
     static let maxReferencedBytes = 256 * 1024
 
@@ -18,12 +21,15 @@ struct KubeconfigFileInliner {
         case homeKube(String)
         case unreadable(String)
         case tooLarge(String)
+        /// Sandboxed edition: the file is outside every granted folder. Carries the folder to grant.
+        case needsAccess(folder: String)
 
         var errorDescription: String? {
             switch self {
             case .homeKube: "Development builds can't read ~/.kube."
             case .unreadable(let path): "The file \(path) referenced by this kubeconfig can't be read."
             case .tooLarge(let path): "The file \(path) referenced by this kubeconfig is too large."
+            case .needsAccess(let folder): "Wheelhouse needs access to \(folder) to read the files this kubeconfig refers to."
             }
         }
     }
@@ -43,17 +49,37 @@ struct KubeconfigFileInliner {
         return out.joined(separator: "\n")
     }
 
-    private func rewrite(_ line: String, baseDirectory: URL) throws -> String {
-        // `<indent>[- ]key: value`
-        guard let colon = line.firstIndex(of: ":") else { return line }
+    /// The files this kubeconfig refers to (certificate authority, client certificate and key, token file), as absolute URLs.
+    func referencedFiles(_ text: String, baseDirectory: URL) -> [URL] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { Self.reference(in: String($0)) }.map {
+            $0.value.hasPrefix("/") ? URL(fileURLWithPath: $0.value) : baseDirectory.appending(path: $0.value)
+        }
+    }
+
+    /// The folders to grant before this kubeconfig can be inlined in the sandboxed edition: the common parent of the refused files under
+    /// the account home, or each file's own folder.
+    func foldersNeedingAccess(_ text: String, baseDirectory: URL, accountHome: URL = DevSafetyPolicy.accountHome) -> [String] {
+        guard isSandboxed else { return [] }
+        let denied = referencedFiles(text, baseDirectory: baseDirectory).map(\.path).filter { probe.probe($0) == .needsAccess }
+        return AccessFolderPlanner.folders(forDenied: denied, accountHome: accountHome)
+    }
+
+    /// `<indent>[- ]key: value` for the keys that name a file.
+    private static func reference(in line: String) -> (key: String, head: Substring, value: String)? {
+        guard let colon = line.firstIndex(of: ":") else { return nil }
         let head = line[..<colon]
         let key = head.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "- "))
-        let isTokenFile = key == "tokenFile"
-        guard Self.keyMap[key] != nil || isTokenFile else { return line }
+        guard keyMap[key] != nil || key == "tokenFile" else { return nil }
         var value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         if let hash = value.range(of: " #") { value = String(value[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
         if value.count >= 2, (value.first == "\"" && value.last == "\"") || (value.first == "'" && value.last == "'") { value = String(value.dropFirst().dropLast()) }
-        guard !value.isEmpty else { return line }
+        return value.isEmpty ? nil : (key, head, value)
+    }
+
+    private func rewrite(_ line: String, baseDirectory: URL) throws -> String {
+        guard let ref = Self.reference(in: line) else { return line }
+        let (key, head, value) = ref
+        let isTokenFile = key == "tokenFile"
 
         let url = value.hasPrefix("/") ? URL(fileURLWithPath: value) : baseDirectory.appending(path: value)
         try assertAllowed(url)
@@ -74,6 +100,9 @@ struct KubeconfigFileInliner {
     }
 
     private func read(_ url: URL, display: String) throws -> Data {
+        if isSandboxed, probe.probe(url.path) == .needsAccess {
+            throw Failure.needsAccess(folder: AccessFolderPlanner.folders(forDenied: [url.path], accountHome: DevSafetyPolicy.accountHome)[0])
+        }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else { throw Failure.unreadable(display) }
         if let size = attrs[.size] as? Int, size > Self.maxReferencedBytes { throw Failure.tooLarge(display) }
         guard let data = try? Data(contentsOf: url) else { throw Failure.unreadable(display) }

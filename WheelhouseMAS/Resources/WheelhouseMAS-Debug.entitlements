@@ -20,6 +20,10 @@
 	<array>
 		<string>JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug</string>
 	</array>
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/Users/ahmad/Documents/xcode/k8s/.testcluster/</string>
+	</array>
 	<key>com.apple.security.get-task-allow</key>
 	<true/>
 </dict>

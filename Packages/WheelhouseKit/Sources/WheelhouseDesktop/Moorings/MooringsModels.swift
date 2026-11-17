@@ -48,18 +48,27 @@ public struct MooringsSource: Codable, Hashable, Sendable, Identifiable {
         case landfall
         /// The explicit test file (development builds).
         case explicitTest
+        /// The App Store edition: the granted `.kube` folder (`config` is the default set; `*.yaml` and `configs/*` are home files).
+        case kubeFolder
+        /// The App Store edition: a folder granted only so the certificates, keys and token files a kubeconfig refers to can be read.
+        /// Never scanned for kubeconfigs.
+        case accessGrant
     }
     public var kind: Kind
     /// For folders and files.
     public var path: String?
     public var recursive: Bool = false
+    /// App Store edition: an app-scoped, read-only security-scoped bookmark of a granted folder. Optional on purpose: old files decode
+    /// with nil and a source without one encodes exactly as before.
+    public var bookmark: Data?
 
     public var id: String { path.map { "\(kind.rawValue):\($0)" } ?? kind.rawValue }
 
-    public init(kind: Kind, path: String? = nil, recursive: Bool = false) {
+    public init(kind: Kind, path: String? = nil, recursive: Bool = false, bookmark: Data? = nil) {
         self.kind = kind
         self.path = path
         self.recursive = recursive
+        self.bookmark = bookmark
     }
 }
 
@@ -114,6 +123,9 @@ public struct DiscoveredContext: Sendable, Identifiable, Equatable {
     public var authSummary: AuthSummary
     /// A hash of the exec stanza, for duplicate detection.
     public var execSpecHash: String?
+    /// App Store edition: folders the user has to grant before this context's referenced files (CA, certificate, key, token file) can
+    /// be read. Always empty in the GitHub edition.
+    public var accessFolders: [String] = []
 
     public var server: URL? { context.server }
     public var fileName: String { (key.definingFile as NSString).lastPathComponent }
@@ -189,6 +201,10 @@ public enum ClusterCheckResult: Sendable, Equatable {
     case unreachable(String)
     case pluginMissing(String)
     case blocked(String)
+    /// App Store edition: the context uses an exec credential plugin, which the sandboxed app can't run.
+    case unavailableInEdition(command: String)
+    /// App Store edition: files the context refers to are in a folder that was not granted.
+    case needsAccess(folder: String)
 }
 
 public enum ClusterCheckState: Sendable, Equatable {

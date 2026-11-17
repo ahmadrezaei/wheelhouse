@@ -164,6 +164,8 @@ private struct LandfallRowAction: View {
                 case .result(.unreachable(let why)):
                     Text(cluster.access == .privateEndpoint ? "Unreachable: needs VPN or bastion" : "Unreachable").foregroundStyle(.red).help(why)
                 case .result(.blocked(let why)): Text(why).foregroundStyle(.secondary)
+                case .result(.unavailableInEdition(let command)): Text(EditionNotice.execPlugin(command: command)).foregroundStyle(.secondary)
+                case .result(.needsAccess(let folder)): Text("Needs access to \(folder)").foregroundStyle(.orange)
                 }
             }
         case .available:

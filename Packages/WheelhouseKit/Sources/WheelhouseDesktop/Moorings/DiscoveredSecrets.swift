@@ -6,10 +6,13 @@ import WheelhouseKit
 public enum CredentialResolveError: Error, Equatable, Sendable, LocalizedError {
     case fileRefused(path: String, reason: String)
     case missingFile(String)
+    /// App Store edition: the sandbox refused the file; granting this folder fixes it.
+    case needsAccess(folder: String)
     public var errorDescription: String? {
         switch self {
         case .fileRefused(let p, let why): "\((p as NSString).lastPathComponent) was not read: \(why)"
         case .missingFile(let p): "\(p) does not exist."
+        case .needsAccess(let folder): "Needs access to \(folder)."
         }
     }
 }
@@ -29,9 +32,15 @@ public enum DiscoveredSecrets {
         guard (st.st_mode & S_IFMT) == S_IFREG else { throw CredentialResolveError.fileRefused(path: path, reason: "it is not a regular file") }
         guard st.st_uid == uid else { throw CredentialResolveError.fileRefused(path: path, reason: "it is not owned by you") }
         guard st.st_size <= maxFileSize else { throw CredentialResolveError.fileRefused(path: path, reason: "it is larger than 1 MB") }
-        guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch {
+            // Sandboxed edition only: the OS refusal of a file outside every grant is not "not readable text".
+            if Edition.current.isSandboxed, POSIXFileAccessProbe.classify(error: error) == .needsAccess {
+                throw CredentialResolveError.needsAccess(folder: (path as NSString).deletingLastPathComponent)
+            }
             throw CredentialResolveError.fileRefused(path: path, reason: "it is not readable text")
         }
+        guard let text = String(data: data, encoding: .utf8) else { throw CredentialResolveError.fileRefused(path: path, reason: "it is not readable text") }
         return text
     }
 

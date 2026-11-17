@@ -20,6 +20,7 @@ struct MooringsPane: View {
                     ForEach(controller.serverNotices.sorted(by: { $0.key < $1.key }), id: \.key) { _, text in Label(text, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
                 }
             }
+            if controller.isSandboxed { FolderAccessSection(controller: controller) }
             Section("Sources") {
                 ForEach(controller.contexts.map(\.fileName).uniqued(), id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }
                 ForEach(controller.issues.sorted(by: { $0.key < $1.key }), id: \.key) { path, why in
@@ -27,9 +28,42 @@ struct MooringsPane: View {
                 }
             }
             Section {
-                Button("Reload Shell Environment") { Task { await controller.reloadShellEnvironment() } }
+                if !controller.isSandboxed { Button("Reload Shell Environment") { Task { await controller.reloadShellEnvironment() } } }
             } footer: {
                 Text("Wheelhouse reads these files where they are and never changes them.")
+            }
+        }
+    }
+
+    /// The App Store edition reads only folders the person granted.
+    private struct FolderAccessSection: View {
+        let controller: MooringsController
+        var body: some View {
+            Section {
+                ForEach(controller.grantedFolders) { grant in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(FolderGrantPolicy.tildePath(grant.source.path ?? "", home: controller.accountHome)).font(.system(.body, design: .monospaced))
+                            if let problem = grant.problem {
+                                Text(problem == .folderGone ? "This folder was moved or deleted. Grant it again." : "macOS didn’t allow access. Grant it again.")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                        Spacer()
+                        if grant.problem != nil, grant.source.kind == .kubeFolder { Button("Grant Folder…") { Task { await controller.chooseKubeFolder() } } }
+                        Button("Remove") { Task { await controller.removeGrant(grant.source) } }
+                    }
+                }
+                if let error = controller.grantError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                HStack {
+                    Button("Grant .kube Folder…") { Task { await controller.chooseKubeFolder() } }.disabled(controller.gateActive)
+                        .help(controller.gateActive ? "Development builds never open ~/.kube." : "Choose your .kube folder.")
+                    Button("Add Folder…") { Task { await controller.chooseExtraFolder() } }
+                }
+            } header: {
+                Text("Folder access")
+            } footer: {
+                Text("The App Store edition can only read folders you grant. Grant folders, not single files: tools replace kubeconfig files when they save.")
             }
         }
     }
