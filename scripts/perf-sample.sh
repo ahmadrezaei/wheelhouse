@@ -109,7 +109,10 @@ EXE="$APP/Contents/MacOS/Wheelhouse"
 # Never start a second instance on top of a running one: the pid would be ambiguous (and a second instance of the same bundle ID
 # hangs Mac test hosts).
 # A stopped instance (state T, e.g. left behind by a debugger or an aborted `xctrace --launch`) does no work and is only reported.
+# A release copy installed in /Applications is another bundle ID and executable (the pid below is matched by this app's path), and it
+# may be the owner's own running app: it is ignored, never quit or inspected.
 for other in $(pgrep -f 'Wheelhouse[.]app/Contents/MacOS/Wheelhouse' || true); do
+  case "$(ps -o command= -p "$other" 2>/dev/null)" in "$EXE"*) ;; /Applications/*) continue ;; esac
   case "$(ps -o stat= -p "$other" 2>/dev/null)" in
     T*) echo "note: ignoring stopped Wheelhouse instance $other" >&2 ;;
     "") ;;

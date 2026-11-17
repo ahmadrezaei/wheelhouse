@@ -72,7 +72,7 @@ public final class ResourceStore<T: KubeObject> {
     public func run() async {
         start()
         defer { stop() }
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        await Task.waitUntilCancelled()
     }
 
     /// Forces a fresh list + watch (pull to refresh). Returns once the first list has completed or failed.

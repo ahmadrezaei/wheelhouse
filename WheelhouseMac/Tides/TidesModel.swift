@@ -54,7 +54,7 @@ final class TidesClusterModel: Identifiable {
         guard !Task.isCancelled else { return }
         let stores = acquire(includeSources: includeSources)
         // Hold the watches until this task is cancelled (the view went away, or its window was hidden), then release them.
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        await Task.waitUntilCancelled()
         release(stores)
     }
 

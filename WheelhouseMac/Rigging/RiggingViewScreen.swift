@@ -104,7 +104,7 @@ struct RiggingViewScreen: View {
         guard let k else { return }
         let store = session.unstructuredStore(kind: k, namespace: ref.namespace)
         store.start()
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        await Task.waitUntilCancelled()
         store.stop()
     }
 

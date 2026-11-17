@@ -65,7 +65,7 @@ struct NamespaceTypedStores<T: KubeObject> {
     func run() async {
         for store in stores { store.start() }
         defer { for store in stores { store.stop() } }
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        await Task.waitUntilCancelled()
     }
 }
 
