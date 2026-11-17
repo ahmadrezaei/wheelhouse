@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two editions of Wheelhouse for Mac</title>
+<meta name="description" content="How the open-source and App Store editions of Wheelhouse for Mac differ, and why.">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <header><a href="./"><img src="../icon.svg" alt="Wheelhouse"></a><div><span class="tag">Wheelhouse for Mac</span><h1>Two editions of Wheelhouse for Mac</h1></div></header>
+  <p>Wheelhouse for Mac comes in two editions. Both are free, both talk directly to your clusters with no account, no backend and no analytics, and both are built from the same source code.</p>
+  <ul>
+    <li><strong>Open-source edition.</strong> A signed, notarized disk image from <a href="https://github.com/ahmadrezaei/wheelhouse/releases">GitHub</a>. It has all the features in the table below and updates itself.</li>
+    <li><strong>App Store edition.</strong> Coming to the Mac App Store. It runs inside the macOS App Sandbox, so a few features that need to start other programs are left out. The App Store updates it.</li>
+  </ul>
+  <p>Pick the open-source edition if you use EKS, GKE or AKS with their command-line sign-in, want a terminal, or install Helm charts from Wheelhouse. Pick the App Store edition if you prefer a sandboxed app with App Store updates and your clusters use tokens or certificates.</p>
+  <ul>
+    <li><a href="#comparison">Comparison</a></li>
+    <li><a href="#sandbox">Why the App Store edition does less</a></li>
+    <li><a href="#kube-folder">Granting access to your .kube folder</a></li>
+    <li><a href="#exec-plugins">Clusters that sign in with a command-line plugin</a></li>
+    <li><a href="#helm">Helm in the App Store edition</a></li>
+    <li><a href="#side-by-side">Using both editions</a></li>
+  </ul>
+
+  <h2 id="comparison">Comparison</h2>
+  <table>
+    <tr><th>Feature</th><th>Open-source edition</th><th>App Store edition</th></tr>
+    <tr><td>Fleet overview, resources, YAML, metrics, alerts</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Logs, pod exec, port-forward with preview</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Workspace, Compass, the Rail, Crow&rsquo;s Nest, widgets</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>iCloud Keychain sync with the iPhone and iPad app</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>First Mate (your own Anthropic key)</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Demo mode</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Finding kubeconfig files</td><td>Automatic: <code>~/.kube</code>, <code>$KUBECONFIG</code>, minikube and more</td><td>From folders you grant. One-time grant of <code>~/.kube</code>. No <code>$KUBECONFIG</code></td></tr>
+    <tr><td>Token and client-certificate kubeconfigs</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Sign-in with an exec plugin (EKS, GKE, AKS)</td><td>Yes</td><td>No. <a href="#exec-plugins">See below</a></td></tr>
+    <tr><td>Deck Terminal and Gangway</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Landfall (cloud cluster discovery)</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Chart Room: Helm releases, history, values, manifests, diffs between revisions</td><td>Yes</td><td>Yes, read-only</td></tr>
+    <tr><td>Chart Room: install, upgrade, roll back, uninstall, repositories</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Survey: Trivy Operator reports, RBAC and pod-security rules</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Survey: scanning images on your Mac with Trivy</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Tides (Flux and Argo CD status)</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Tides: Flux diff</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Beacon (MCP server for Claude and other AI clients)</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Rigging</td><td>Coming later</td><td>No</td></tr>
+    <tr><td>Updates</td><td>Inside the app</td><td>Through the App Store</td></tr>
+    <tr><td>Where to get it</td><td><a href="https://github.com/ahmadrezaei/wheelhouse/releases">GitHub releases</a></td><td>Coming to the Mac App Store</td></tr>
+  </table>
+
+  <h2 id="sandbox">Why the App Store edition does less</h2>
+  <p>Every app on the Mac App Store must run in the App Sandbox. The sandbox keeps an app inside its own container. By default it cannot read your home folder, and it cannot run programs that are not part of macOS or the app itself.</p>
+  <p>Several Wheelhouse features rely on exactly that: the terminal runs your shell, Helm and Trivy are separate programs, Landfall and exec-plugin sign-in call <code>aws</code>, <code>gcloud</code> and <code>az</code>, and Beacon is a helper that other tools start. In the sandbox these cannot work, so the App Store edition does not include them, and says so where they would be. It does not download or run extra code to get around this.</p>
+  <p>The open-source edition is not sandboxed. It is protected by the same guards (read-only clusters, confirmation for Production) described on the <a href="security.html">security model</a> page.</p>
+
+  <h2 id="kube-folder">Granting access to your .kube folder</h2>
+  <p>The sandbox hides <code>~/.kube</code> until you say otherwise. In the App Store edition, open Settings, Moorings and choose <em>Grant .kube Folder&hellip;</em>. Wheelhouse shows a standard macOS open panel to choose your <code>.kube</code> folder. You can also import a single kubeconfig file from the Welcome screen or the File menu. It remembers the choice and only reads inside that folder. It will not accept your whole home folder.</p>
+  <p>Other folders work the same way. If a kubeconfig refers to files in another folder (for example <code>~/.minikube</code>), the cluster shows <em>Needs access</em>, and <em>Grant Folder&hellip;</em> lets you allow that folder. You can add or remove folders at any time in Settings, Moorings.</p>
+
+  <h2 id="exec-plugins">Clusters that sign in with a command-line plugin</h2>
+  <p>Many EKS, GKE and AKS kubeconfigs do not hold a token. They name a program (<code>aws</code>, <code>gke-gcloud-auth-plugin</code>, <code>kubelogin</code>) that Wheelhouse is expected to run to get a short-lived credential. The sandbox does not allow the App Store edition to run those programs. A context like that shows this message and cannot be added:</p>
+  <div class="card"><p style="margin:0"><strong>Uses <code>aws</code> (exec plugin). The App Store edition can&rsquo;t run credential plugins.</strong></p></div>
+  <p>The message names the program from your kubeconfig, so it may say <code>gke-gcloud-auth-plugin</code> or <code>kubelogin</code> instead. You have two options:</p>
+  <ul>
+    <li><strong>Use a kubeconfig with a service-account token.</strong> Create a service account for Wheelhouse, give it the role you want (a read-only <code>view</code> role is a good start), create a token for it and put the token in a kubeconfig user. A token kubeconfig works fully in the App Store edition. Prefer a short-lived token and rotate it.</li>
+    <li><strong>Use the <a href="https://github.com/ahmadrezaei/wheelhouse/releases">open-source edition</a>.</strong> It runs credential plugins as before.</li>
+  </ul>
+
+  <h2 id="helm">Helm in the App Store edition</h2>
+  <p>Chart Room reads Helm releases straight from the cluster, so you can browse releases, their history, values and manifests, and compare two revisions. It does not install, upgrade, roll back or uninstall, and it has no repository list, because those actions run the <code>helm</code> program. Where a button would be, Chart Room shows a short note and a link to this page.</p>
+
+  <h2 id="side-by-side">Using both editions</h2>
+  <p>You can install both on the same Mac. They have different bundle identifiers, and each keeps its own settings, its own Anthropic key and its own list of folders. They do not interfere with each other. Widgets and links open the edition they belong to.</p>
+  <p>Clusters can sync through iCloud Keychain, like the iPhone and iPad app, if you turn it on for them. Clusters found in kubeconfig files are found separately by each edition.</p>
+  <p>Questions or problems? See <a href="support.html">support</a>.</p>
+
+  <nav>
+    <a href="./">Wheelhouse for Mac</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="features.html">Features</a>
+    <a href="security.html">Security</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="support.html">Support</a>
+  </nav>
+</main>
+</body>
+</html>
