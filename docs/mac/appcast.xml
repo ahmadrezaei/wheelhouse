@@ -1,9 +1,23 @@
-<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Wheelhouse for Mac</title>
         <link>https://ahmadrezaei.github.io/wheelhouse/mac/</link>
         <description>Updates for Wheelhouse for Mac. scripts/release-mac.sh regenerates this file with Sparkle's generate_appcast.</description>
         <language>en</language>
+        <item>
+            <title>1.0.0</title>
+            <pubDate>Tue, 17 Nov 2026 00:56:46 -0800</pubDate>
+            <link>https://ahmadrezaei.github.io/wheelhouse/mac/</link>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink sparkle:edSignature="Dtk6v4Uhga46lIhz7KCFn3qWN1MIosc/RSFOd0jHvSwOjGC0Z7GfxIXOzKdsGgh/r+mu9qzgNEA7QxDZ644eAg==" sparkle:length="3134">https://ahmadrezaei.github.io/wheelhouse/mac/notes/Wheelhouse-1.0.0.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/ahmadrezaei/wheelhouse/releases/download/mac-v1.0.0/Wheelhouse-1.0.0.dmg" length="36113458" type="application/octet-stream" sparkle:edSignature="fj6R15wWxNC4Ol2eMI+5B9OoiRIxErsUImE1IUJd1BCmo616iE1HmoDmM/CZ74kqM6ajEZ3BSw2P3cHEH7wSAA=="></enclosure>
+        </item>
     </channel>
-</rss>
+</rss><!-- sparkle-signatures:
+edSignature: 56kRGc9/Fr2YCaS5iWjnN+W3+WhX0qi6V+ATEyyn2D6JZLL2tbIJ3z7U7MXBJhG3rjtxzet//2n912LrPjohDg==
+length: 1649
+-->
