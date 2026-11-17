@@ -12,9 +12,19 @@ public enum JSONValue: Hashable, Sendable {
 }
 
 extension JSONValue: Codable {
+    /// Set to `true` in a `JSONDecoder`'s `userInfo` (``KubeJSON/decoder`` does) to decode strings and objects without first trying the
+    /// other types. JSON keeps its types apart (a string never decodes as a number or a Bool, an object never as an array), so the
+    /// order of the attempts cannot change the result there. It can in YAML, where the scalar `3` is also the string "3", so other
+    /// decoders keep the original order. Every failed attempt throws a `DecodingError` that builds its full coding path, and in the
+    /// original order each object tries five types and each string three before the one that fits: decoding a pod list spent most of
+    /// its time on the service-account token volume's object tree (P2 profile of a menu-bar health check). Only set it on a decoder
+    /// that keeps `nonConformingFloatDecodingStrategy` at `.throw`: with `.convertFromString` the string "NaN" is also a Double.
+    public static let typedSourceKey = CodingUserInfoKey(rawValue: "com.ahmadrezaei.wheelhouse.jsonvalue.typed-source")!
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
+        else if decoder.userInfo[Self.typedSourceKey] as? Bool == true { self = try Self.decodeTyped(c) }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
         else if let v = try? c.decode(Int.self) { self = .int(v) }
         else if let v = try? c.decode(Double.self) { self = .double(v) }
@@ -22,6 +32,17 @@ extension JSONValue: Codable {
         else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
         else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
         else { throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unsupported JSON value") }
+    }
+
+    /// The same attempts for a JSON source, most frequent first; numbers keep Int before Double.
+    private static func decodeTyped(_ c: any SingleValueDecodingContainer) throws -> JSONValue {
+        if let v = try? c.decode(String.self) { return .string(v) }
+        if let v = try? c.decode([String: JSONValue].self) { return .object(v) }
+        if let v = try? c.decode([JSONValue].self) { return .array(v) }
+        if let v = try? c.decode(Bool.self) { return .bool(v) }
+        if let v = try? c.decode(Int.self) { return .int(v) }
+        if let v = try? c.decode(Double.self) { return .double(v) }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unsupported JSON value")
     }
 
     public func encode(to encoder: Encoder) throws {

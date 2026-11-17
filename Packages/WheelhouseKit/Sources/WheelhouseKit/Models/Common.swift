@@ -21,6 +21,8 @@ public enum KubeJSON {
             }
             return date
         }
+        // Kubernetes API responses are JSON: JSONValue may skip the attempts that cannot fit (see JSONValue.typedSourceKey).
+        d.userInfo[JSONValue.typedSourceKey] = true
         return d
     }
 
