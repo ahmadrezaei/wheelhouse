@@ -1,6 +1,7 @@
 import Foundation
 import LocalAuthentication
 import Observation
+import os
 import WheelhouseDesktop
 import WheelhouseKit
 
@@ -35,6 +36,18 @@ final class MooringsController {
     private(set) var issues: [String: String] = [:]
     /// Clusters whose context now points at another server.
     private(set) var serverNotices: [ClusterID: String] = [:]
+    /// App Store edition: granted folders with their state, the issues a folder grant fixes, and whether the `.kube` grant is due.
+    private(set) var grantedFolders: [GrantedFolder] = []
+    private(set) var accessNeeded: [String: String] = [:]
+    private(set) var needsKubeGrant = false
+    /// The last grant error, for the sheet and the pane.
+    private(set) var grantError: String?
+    var isSandboxed: Bool { Edition.current.isSandboxed }
+    /// The ACCOUNT's home, never the container's.
+    var accountHome: URL { service.accountHome }
+    /// A gated (development) build never opens or grants `~/.kube`.
+    var gateActive: Bool { DevSafetyPolicy.current.isActive }
+    @ObservationIgnored private let dumpURL: URL
     var needsFirstRun: Bool { !state.preferences.value.firstRunCompleted && !firstRunRows.isEmpty }
     weak var registry: ClusterRegistry?
 
@@ -47,6 +60,7 @@ final class MooringsController {
          shell: ShellEnvironment, activity: any ActivityLogging = NoopActivityLog()) {
         // Stores only use `isActive` and the home folder of the gate, which never change; only the allowed hosts do.
         let fixedGate = gate()
+        self.dumpURL = paths.root.appending(path: "moorings-dump.json")
         let snapshotBox = SnapshotBox()
         self.snapshotBox = snapshotBox
         let overrides = DiscoveredClusterStore(fileURL: paths.discoveredClustersFile)
@@ -90,10 +104,15 @@ final class MooringsController {
 
     func start() async {
         MooringsController.shared = self
-        let snapshot = await shellEnvironment.current()
-        snapshotBox.value = snapshot
-        shellBanner = snapshot.failure
+        // The sandboxed edition starts no login shell (nothing may be spawned there, and it has no shell KUBECONFIG to read).
+        if !isSandboxed {
+            let snapshot = await shellEnvironment.current()
+            snapshotBox.value = snapshot
+            shellBanner = snapshot.failure
+        }
         await service.start()
+        await refresh()
+        writeDumpIfRequested()
         // The registry was built in App.init, before any scan: every added cluster was listed as "Source removed" (read-only, grey,
         // no secrets, no token source). Now that the contexts exist, reload so those clusters become real and their sessions are rebuilt.
         registry?.reloadFromStore(invalidating: Set(state.listedConfigs().map(\.id)))
@@ -105,10 +124,65 @@ final class MooringsController {
         firstRunRows = await service.firstRunRows()
         issues = await service.issues
         serverNotices = await service.changeNotices
+        grantedFolders = await service.grantedFolders()
+        accessNeeded = await service.accessNeeded
+        needsKubeGrant = await service.needsKubeGrant()
+    }
+
+    // MARK: Folder grants (App Store edition)
+
+    /// The first-run grant: an open panel at the account's `.kube` (never `NSHomeDirectory()`).
+    func chooseKubeFolder() async {
+        guard let url = await FolderGrantPanel.choose(
+            startingAt: service.kubeFolderForPanel, title: "Grant access to your .kube folder",
+            message: "Choose your .kube folder. Wheelhouse reads the kubeconfig files in it and never changes them.", prompt: "Grant Access")
+        else { return }
+        await perform { try await self.service.grantKubeFolder(url) }
+    }
+
+    /// Add Folder…: another folder of kubeconfigs.
+    func chooseExtraFolder() async {
+        guard let url = await FolderGrantPanel.choose(
+            startingAt: service.accountHome, title: "Add Folder", message: "Choose a folder that contains kubeconfig files.", prompt: "Add Folder")
+        else { return }
+        await perform { try await self.service.grantFolder(url) }
+    }
+
+    /// Grant Folder… on a row that needs access to the folder of its certificates, keys or token file.
+    func chooseAccessFolder(for folder: String) async {
+        let shown = FolderGrantPolicy.tildePath(folder, home: accountHome)
+        guard let url = await FolderGrantPanel.choose(
+            startingAt: URL(fileURLWithPath: folder, isDirectory: true), title: "Grant access to \(shown)",
+            message: "Choose \(shown). The kubeconfig refers to certificates or keys in it.", prompt: "Grant Access")
+        else { return }
+        await perform { try await self.service.grantAccessFolder(url, needed: folder) }
+    }
+
+    func removeGrant(_ source: MooringsSource) async {
+        await perform { try await self.service.removeSource(source) }
+    }
+
+    private func perform(_ work: () async throws -> Void) async {
+        do { try await work(); grantError = nil } catch { grantError = error.localizedDescription }
+        await refresh()
+    }
+
+    // MARK: Development dump
+
+    /// `-WHMooringsDump` (only while the safety gate is active): writes a secret-free picture of the scan into the app's own folder, for
+    /// runs that read state without a screen.
+    private func writeDumpIfRequested() {
+        guard DevSafetyPolicy.current.isActive, ProcessInfo.processInfo.arguments.contains("-WHMooringsDump") else { return }
+        let dump = MooringsDump.make(sandboxed: isSandboxed, contexts: contexts, issues: issues, accessNeeded: accessNeeded, grants: grantedFolders)
+        guard let data = try? dump.json() else { return }
+        try? data.write(to: dumpURL, options: .atomic)
+        // The container of a sandboxed run can't be read from outside, so the (secret-free) dump is also logged.
+        Logger(subsystem: "app.wheelhouse.moorings-dump", category: "dump").notice("\(String(decoding: data, as: UTF8.self), privacy: .public)")
     }
 
     /// Reload Shell Environment: probes the login shell again, then re-reads every source.
     func reloadShellEnvironment() async {
+        guard !isSandboxed else { return }
         let snapshot = await shellEnvironment.reload()
         snapshotBox.value = snapshot
         shellBanner = snapshot.failure

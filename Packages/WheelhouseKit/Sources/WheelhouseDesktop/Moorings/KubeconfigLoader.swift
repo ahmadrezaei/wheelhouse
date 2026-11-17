@@ -6,12 +6,18 @@ public enum KubeconfigLoadError: Error, Equatable, Sendable, LocalizedError {
     case tooLarge(String)
     case unreadable(String)
     case invalid(String, String)
+    /// App Store edition: the file (or what its symlink points at) is outside every granted folder. Carries the folder to grant.
+    case needsAccess(path: String, folder: String)
+    /// App Store edition: the file is directly in the home folder, which can't be granted. It has to be moved.
+    case needsMove(path: String)
 
     public var errorDescription: String? {
         switch self {
         case .tooLarge(let p): "This file is unusually large: \((p as NSString).lastPathComponent)."
         case .unreadable(let p): "\((p as NSString).lastPathComponent) could not be read."
         case .invalid(let p, let why): "\((p as NSString).lastPathComponent) is not a usable kubeconfig: \(why)"
+        case .needsAccess(let p, let folder): "Needs access to \(folder) to read \((p as NSString).lastPathComponent)."
+        case .needsMove(let p): AccessFolderPlanner.moveMessage(forFile: p)
         }
     }
 }
@@ -23,6 +29,13 @@ public struct LoadedFile: Sendable {
     public var canonicalPath: String
     public var contentHash: String
     var document: KubeconfigParser.Document
+}
+
+extension LoadedSet {
+    mutating func record(_ error: Error, for url: URL) {
+        issues[url.path] = error.localizedDescription
+        if case KubeconfigLoadError.needsAccess(_, let folder) = error { accessNeeded[url.path] = folder }
+    }
 }
 
 public struct LoadedContext: Sendable {
@@ -39,6 +52,8 @@ public struct LoadedSet: Sendable {
     public var fileHashes: [String: String] = [:]
     /// Files that exist but could not be used (too large, not a kubeconfig). Missing files are skipped silently, like kubectl.
     public var issues: [String: String] = [:]
+    /// App Store edition: the issues that a folder grant fixes, by file path -> the folder to grant.
+    public var accessNeeded: [String: String] = [:]
 }
 
 /// Emulates client-go's kubeconfig loading so the app sees what kubectl sees (ARCHITECTURE-MAC §4.2).
@@ -48,8 +63,16 @@ public struct LoadedSet: Sendable {
 public struct KubeconfigLoader: Sendable {
     public static let maxFileSize = 4 << 20
     public var gate: DevSafetyPolicy
+    /// App Store edition only (nil elsewhere, so nothing changes): finds a file the sandbox refuses to open, which is then reported as
+    /// needing access to its folder instead of "could not be read".
+    var probe: (any FileAccessProbing)?
 
     public init(gate: DevSafetyPolicy = .current) { self.gate = gate }
+
+    init(gate: DevSafetyPolicy, probe: (any FileAccessProbing)?) {
+        self.gate = gate
+        self.probe = probe
+    }
 
     /// Reads one file. Returns nil when it does not exist.
     func readFile(_ url: URL) throws -> LoadedFile? {
@@ -61,6 +84,13 @@ public struct KubeconfigLoader: Sendable {
         guard stat(canonical.path, &st) == 0 else { return nil }
         guard (st.st_mode & S_IFMT) == S_IFREG else { throw KubeconfigLoadError.unreadable(url.path) }
         guard st.st_size <= Self.maxFileSize else { throw KubeconfigLoadError.tooLarge(url.path) }
+        if let probe, probe.probe(canonical.path) == .needsAccess {
+            // The folder to grant is never the home folder: a file directly in it has to be moved.
+            guard let folder = AccessFolderPlanner.folders(forDenied: [canonical.path], accountHome: gate.home).first else {
+                throw KubeconfigLoadError.needsMove(path: canonical.path)
+            }
+            throw KubeconfigLoadError.needsAccess(path: url.path, folder: folder)
+        }
         guard let data = try? Data(contentsOf: canonical) else { throw KubeconfigLoadError.unreadable(url.path) }
         guard let text = String(data: data, encoding: .utf8) else { throw KubeconfigLoadError.invalid(url.path, "it is not UTF-8 text") }
         do {
@@ -82,7 +112,7 @@ public struct KubeconfigLoader: Sendable {
             } catch let e as DevSafetyError {
                 throw e
             } catch {
-                set.issues[url.path] = error.localizedDescription
+                set.record(error, for: url)
             }
         }
         // Entries naming the same file twice are merged once.
@@ -120,7 +150,7 @@ public struct KubeconfigLoader: Sendable {
         } catch let e as DevSafetyError {
             throw e
         } catch {
-            set.issues[url.path] = error.localizedDescription
+            set.record(error, for: url)
         }
         return set
     }
@@ -135,6 +165,7 @@ public struct KubeconfigLoader: Sendable {
             combined.contexts += s.contexts
             combined.fileHashes.merge(s.fileHashes) { a, _ in a }
             combined.issues.merge(s.issues) { a, _ in a }
+            combined.accessNeeded.merge(s.accessNeeded) { a, _ in a }
         }
         return combined
     }

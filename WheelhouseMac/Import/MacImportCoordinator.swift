@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import UniformTypeIdentifiers
+import WheelhouseDesktop
 import WheelhouseKit
 
 /// The one entry point for importing a kubeconfig on the Mac (ARCHITECTURE-MAC section 4.8). All four entry points call
@@ -46,14 +47,54 @@ final class MacImportCoordinator {
 
     func `import`(url: URL, whileLocked locked: Bool = false) {
         let request = Request(url: url)
-        if locked { deferred = request } else { presented = request }
+        if locked { deferred = request } else { present(request) }
+    }
+
+    /// Shows the import. In the sandboxed edition the folders of the files the kubeconfig refers to are asked for first (never while
+    /// locked, because the deferred request goes through here on unlock); elsewhere it is shown at once, as before.
+    private func present(_ request: Request) {
+        guard Edition.current.isSandboxed else { presented = request; return }
+        Task { @MainActor in
+            await askForReferencedFolders(of: request.url)
+            presented = request
+        }
+    }
+
+    /// The text of the file for the preflight, or nil. The gate and the size cap come BEFORE anything is read, so a development build
+    /// never reads `~/.kube` (not even through a symlink or a hard link) and an oversized file is not pulled into memory; the import
+    /// policy then shows its own error.
+    static func preflightText(of url: URL, gate: DevSafetyPolicy, read: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> String? {
+        let real = url.resolvingSymlinksInPath()
+        guard (try? gate.assertReadable(url)) != nil, (try? gate.assertReadable(real)) != nil else { return nil }
+        if let size = (try? FileManager.default.attributesOfItem(atPath: real.path))?[.size] as? Int, size > MacImportPolicy.maxFileBytes { return nil }
+        return read(real)
+    }
+
+    /// The panel's own grant lasts for this run, and the inliner copies the data in at once: nothing is stored for a one-off import.
+    private func askForReferencedFolders(of url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let text = Self.preflightText(of: url, gate: .current) else { return }
+        let inliner = KubeconfigFileInliner()
+        let home = DevSafetyPolicy.accountHome
+        for folder in inliner.foldersNeedingAccess(text, baseDirectory: url.resolvingSymlinksInPath().deletingLastPathComponent(), accountHome: home) {
+            let shown = FolderGrantPolicy.tildePath(folder, home: home)
+            guard let picked = await FolderGrantPanel.choose(
+                startingAt: URL(fileURLWithPath: folder, isDirectory: true), title: "Grant access to \(shown)",
+                message: "This kubeconfig refers to certificates or keys in \(shown). Choose it so they can be read.", prompt: "Grant Access")
+            else { continue }
+            // A pick that is the home folder or doesn't contain the files is not used; the import then names the folder again.
+            guard (try? FolderGrantPolicy.validateAccessGrant(picked, needed: folder, home: home)) != nil else { continue }
+            guard (try? DevSafetyPolicy.current.assertReadable(picked)) != nil else { continue }
+            _ = picked.startAccessingSecurityScopedResource()
+        }
     }
 
     /// Shows what arrived while locked (called on unlock).
     func presentDeferred() {
         guard let d = deferred else { return }
         deferred = nil
-        presented = d
+        present(d)
     }
 
     func dismiss() { presented = nil }

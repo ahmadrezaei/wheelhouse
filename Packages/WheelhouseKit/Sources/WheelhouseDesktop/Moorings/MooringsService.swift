@@ -73,17 +73,29 @@ public struct MooringsConfiguration: Sendable {
     public var safetyRescanInterval: TimeInterval
     /// Where the safety rescan registers (tests use their own).
     public var registry: PeriodicTaskRegistry
+    /// True in the sandboxed App Store edition. Read on every use, so `Edition.withEdition` applies to tests.
+    public var isSandboxed: @Sendable () -> Bool
+    /// The ACCOUNT's home (never the container): where `.kube` and the folders of referenced files live. Only the sandboxed branches use it.
+    public var accountHome: URL
+    public var accessBackend: any ScopedAccessBackend
+    public var fileProbe: any FileAccessProbing
 
     public init(gate fixedGate: DevSafetyPolicy? = nil, gateProvider: (@Sendable () -> DevSafetyPolicy)? = nil, home: URL = DevSafetyPolicy.accountHome,
                 explicitTestKubeconfig: URL? = KubeconfigDiscoveryPolicy.explicitTestKubeconfig(),
                 shellKubeconfig: @escaping @Sendable () async -> String? = { nil }, safetyRescanInterval: TimeInterval = 600,
-                registry: PeriodicTaskRegistry = .shared) {
+                registry: PeriodicTaskRegistry = .shared, isSandboxed: @escaping @Sendable () -> Bool = { Edition.current.isSandboxed },
+                accountHome: URL = DevSafetyPolicy.accountHome, accessBackend: any ScopedAccessBackend = SystemScopedAccessBackend(),
+                fileProbe: any FileAccessProbing = POSIXFileAccessProbe()) {
         self.gateProvider = DevSafetyPolicy.provider(fixed: fixedGate, provider: gateProvider)
         self.home = home
         self.explicitTestKubeconfig = explicitTestKubeconfig
         self.shellKubeconfig = shellKubeconfig
         self.safetyRescanInterval = safetyRescanInterval
         self.registry = registry
+        self.isSandboxed = isSandboxed
+        self.accountHome = accountHome
+        self.accessBackend = accessBackend
+        self.fileProbe = fileProbe
     }
 }
 
@@ -92,10 +104,24 @@ public struct MooringsConfiguration: Sendable {
 /// - Sources: while the gate is active the ONLY source is the explicit test file (plus user files that are not under `~/.kube`).
 /// - Watching is FSEvents only; the 10-minute safety rescan is a `PeriodicTask` that stops while no window is visible.
 /// - A context found later that is suggested as Production is NOT probed until the user clicks Check.
+public enum GrantProblem: Sendable, Equatable {
+    /// Deleted, moved to the Trash or no longer resolvable: ask again.
+    case folderGone
+    /// Resolved, but macOS refused access: ask again.
+    case needsAccess
+}
+
+/// A folder the user granted, with its state (Settings → Moorings).
+public struct GrantedFolder: Sendable, Equatable, Identifiable {
+    public var source: MooringsSource
+    public var problem: GrantProblem?
+    public var id: String { source.id }
+}
+
 public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public nonisolated let state: MooringsState
     private let config: MooringsConfiguration
-    private let loader: KubeconfigLoader
+    private let access: SecurityScopedAccess
     private let broker: ExecCredentialBroker?
     private let clients: any MooringsClientMaking
     private let authorizer: any ChangeAuthorizing
@@ -115,6 +141,10 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     static let grantLifetime: TimeInterval = 60
     /// Files that could not be read or are refused, by path (shown in Settings → Moorings).
     public private(set) var issues: [String: String] = [:]
+    /// App Store edition: the issues a folder grant fixes, by file path -> the folder to grant.
+    public private(set) var accessNeeded: [String: String] = [:]
+    /// App Store edition: granted folders whose access could not be restored (gone, or refused), by source id.
+    public private(set) var grantProblems: [String: GrantProblem] = [:]
     public private(set) var scanCount = 0
     /// Added clusters whose context now points at another server (shown with the file issues until the cluster is checked or opened).
     private var serverNotices: [ClusterID: String] = [:]
@@ -126,7 +156,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                 onChange: @escaping @Sendable (MooringsChange) -> Void = { _ in }) {
         self.config = config
         self.state = state
-        self.loader = KubeconfigLoader(gate: config.gate)
+        self.access = SecurityScopedAccess(backend: config.accessBackend)
         self.clients = clients
         self.broker = broker
         self.authorizer = authorizer
@@ -136,7 +166,9 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
 
     // MARK: MooringsSourceAdding
 
-    public nonisolated var isAvailable: Bool { true }
+    /// "Add File as Moorings Source" is not offered in the sandbox: a single-file grant doesn't survive an atomic replace, and the exec
+    /// contexts it exists for can't run there anyway.
+    public nonisolated var isAvailable: Bool { !config.isSandboxed() }
 
     /// Adds the file (by realpath) as a user file source. Refused under `~/.kube` while the gate is active.
     public func addFileSource(_ url: URL) async throws {
@@ -144,28 +176,139 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         let real = url.resolvingSymlinksInPath().standardizedFileURL
         try config.gate.assertReadable(real)
         let source = MooringsSource(kind: .userFile, path: real.path)
-        try state.preferences.update { if !$0.userSources.contains(source) { $0.userSources.append(source) } }
+        try state.preferences.update { if !$0.userSources.contains(where: { Self.sameSource($0, source) }) { $0.userSources.append(source) } }
         await rescan()
     }
 
     public func addFolderSource(_ url: URL, recursive: Bool = false) async throws {
+        if config.isSandboxed() { return try await grantFolder(url, recursive: recursive) }
         try config.gate.assertReadable(url)
         let real = url.resolvingSymlinksInPath().standardizedFileURL
         try config.gate.assertReadable(real)
         let source = MooringsSource(kind: .userFolder, path: real.path, recursive: recursive)
-        try state.preferences.update { if !$0.userSources.contains(source) { $0.userSources.append(source) } }
+        try state.preferences.update { if !$0.userSources.contains(where: { Self.sameSource($0, source) }) { $0.userSources.append(source) } }
         await rescan()
     }
 
+    /// Two sources are the same when kind, path and recursion agree: a refreshed bookmark does not make a new source.
+    nonisolated static func sameSource(_ a: MooringsSource, _ b: MooringsSource) -> Bool { a.id == b.id && a.recursive == b.recursive }
+
     public func removeSource(_ source: MooringsSource) async throws {
-        try state.preferences.update { $0.userSources.removeAll { $0 == source } }
+        try state.preferences.update { $0.userSources.removeAll { Self.sameSource($0, source) } }
+        access.release(source.id)
+        grantProblems[source.id] = nil
         await rescan()
+    }
+
+    // MARK: Folder grants (App Store edition)
+
+    /// Restores every stored grant (resolve, refresh, hold access). Runs before the first scan. A folder that is gone or refused is
+    /// remembered in ``grantProblems`` and offered again; it is never read.
+    func restoreGrants() {
+        guard config.isSandboxed() else { return }
+        var problems: [String: GrantProblem] = [:]
+        for source in state.preferences.value.userSources where source.bookmark != nil {
+            switch access.restore(source) {
+            case .active(let refreshed, let replacing):
+                guard let old = replacing else { continue }
+                try? state.preferences.update { prefs in
+                    // The folder moved: its new id may already exist, then the old entry simply goes.
+                    let exists = old != refreshed.id && prefs.userSources.contains { $0.id == refreshed.id }
+                    if let i = prefs.userSources.firstIndex(where: { $0.id == old }) {
+                        if exists { prefs.userSources.remove(at: i) } else { prefs.userSources[i] = refreshed }
+                    }
+                }
+            case .folderGone(let s): problems[s.id] = .folderGone
+            case .needsAccess(let s): problems[s.id] = .needsAccess
+            }
+        }
+        grantProblems = problems
+    }
+
+    /// Every granted folder with its state.
+    public func grantedFolders() -> [GrantedFolder] {
+        state.preferences.value.userSources.filter { $0.bookmark != nil }.map { GrantedFolder(source: $0, problem: grantProblems[$0.id]) }
+    }
+
+    /// True when the first-run "Grant access to your .kube folder" sheet is due (a pure rule, see ``FolderGrantPolicy``).
+    public func needsKubeGrant() -> Bool {
+        let working = state.preferences.value.userSources.contains { $0.kind == .kubeFolder && grantProblems[$0.id] == nil }
+        return FolderGrantPolicy.shouldOfferKubeGrant(sandboxed: config.isSandboxed(), gateActive: config.gate.isActive, hasWorkingKubeFolder: working)
+    }
+
+    /// Where the panel for the `.kube` grant opens: the ACCOUNT's `.kube` (never `NSHomeDirectory()`, which is the container).
+    public nonisolated var kubeFolderForPanel: URL { config.accountHome.appending(path: ".kube", directoryHint: .isDirectory) }
+    public nonisolated var accountHome: URL { config.accountHome }
+
+    /// The first-run grant. Refused for the home folder; refused while the gate is active (a development build never opens `~/.kube`).
+    public func grantKubeFolder(_ picked: URL) async throws {
+        guard config.isSandboxed(), !config.gate.isActive else { throw GrantError.notAvailable }
+        try FolderGrantPolicy.validateKubeFolder(picked, home: config.accountHome)
+        let source = try access.grant(picked, kind: .kubeFolder)
+        let previous = state.preferences.value.userSources.filter { $0.kind == .kubeFolder }.map(\.id)
+        do {
+            try state.preferences.update { prefs in
+                prefs.userSources.removeAll { $0.kind == .kubeFolder }
+                prefs.userSources.append(source)
+            }
+        } catch {
+            access.release(source.id)   // a grant that could not be saved is not kept open
+            throw error
+        }
+        for id in previous where id != source.id { access.release(id) }
+        for id in previous { grantProblems[id] = nil }
+        await rescan()
+    }
+
+    /// Add Folder… (sandboxed): another folder of kubeconfigs, bookmarked.
+    public func grantFolder(_ picked: URL, recursive: Bool = false) async throws {
+        try FolderGrantPolicy.validateFolder(picked, home: config.accountHome)
+        try assertDoesNotContainKube(picked)
+        try config.gate.assertReadable(picked)
+        try config.gate.assertReadable(picked.resolvingSymlinksInPath())
+        try store(try access.grant(picked, kind: .userFolder, recursive: recursive))
+        await rescan()
+    }
+
+    /// Grant Folder… for files a kubeconfig refers to. `needed` is the folder the row asked for; the account's `.kube` goes to its own kind.
+    public func grantAccessFolder(_ picked: URL, needed: String) async throws {
+        guard config.isSandboxed() else { throw GrantError.notAvailable }
+        if FolderGrantPolicy.isAccountKubeFolder(picked, home: config.accountHome) { return try await grantKubeFolder(picked) }
+        try FolderGrantPolicy.validateAccessGrant(picked, needed: needed, home: config.accountHome)
+        try assertDoesNotContainKube(picked)
+        try config.gate.assertReadable(picked)
+        try config.gate.assertReadable(picked.resolvingSymlinksInPath())
+        try store(try access.grant(picked, kind: .accessGrant))
+        await rescan()
+    }
+
+    /// While the gate is active a folder that contains the real `.kube` (even through a symlink, e.g. `~/dotfiles` holding it) is refused.
+    private func assertDoesNotContainKube(_ picked: URL) throws {
+        guard config.gate.isActive else { return }
+        let p = PathCanonicalizer.canonical(picked)
+        for home in [config.gate.home, config.accountHome] {
+            let kube = PathCanonicalizer.canonical(home.appending(path: ".kube", directoryHint: .isDirectory).resolvingSymlinksInPath())
+            if kube == p || kube.hasPrefix(p + "/") { throw DevSafetyError.homeKubeconfig(picked.path) }
+        }
+    }
+
+    private func store(_ source: MooringsSource) throws {
+        do {
+            try state.preferences.update { prefs in
+                if let i = prefs.userSources.firstIndex(where: { $0.id == source.id }) { prefs.userSources[i] = source } else { prefs.userSources.append(source) }
+            }
+        } catch {
+            access.release(source.id)   // a grant that could not be saved is not kept open
+            throw error
+        }
+        grantProblems[source.id] = nil
     }
 
     // MARK: Lifecycle
 
     /// First scan, then watching. Safe to call once.
     public func start() async {
+        restoreGrants()
         await rescan()
         let watcher = FileWatcher { [weak self] change in
             guard let self else { return }
@@ -203,15 +346,26 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         let prefs = state.preferences.value
         let policy = KubeconfigDiscoveryPolicy(gate: config.gate)
         var out: [(MooringsSource, [URL])] = []
-        let shell = policy.sanitizedShellKubeconfig(await config.shellKubeconfig())
+        let sandboxed = config.isSandboxed()
+        let shell = sandboxed ? nil : policy.sanitizedShellKubeconfig(await config.shellKubeconfig())
         if config.gate.isActive {
             if let files = try? policy.defaultSources(explicitTest: config.explicitTestKubeconfig, shellKubeconfig: shell), !files.isEmpty {
                 out.append((MooringsSource(kind: .explicitTest, path: files[0].path), files))
             }
+        } else if sandboxed {
+            // No shell KUBECONFIG here. `config` inside a granted `.kube` folder is the default set; its other files are home files.
+            for grant in prefs.userSources where grant.kind == .kubeFolder && grantProblems[grant.id] == nil {
+                guard let p = grant.path else { continue }
+                let kube = URL(fileURLWithPath: p, isDirectory: true)
+                out.append((MooringsSource(kind: .defaultSet, path: p), [kube.appending(path: "config")]))
+                let files = KubeconfigLoader.candidateFiles(in: kube, recursive: false).filter { $0.lastPathComponent != "config" }
+                    + KubeconfigLoader.candidateFiles(in: kube.appending(path: "configs", directoryHint: .isDirectory), recursive: false)
+                out.append((MooringsSource(kind: .homeFiles, path: p), files))
+            }
         } else if prefs.shellKubeconfigEnabled, let files = try? policy.defaultSources(explicitTest: nil, shellKubeconfig: shell) {
             out.append((MooringsSource(kind: .defaultSet), files))
         }
-        if !config.gate.isActive {
+        if !config.gate.isActive, !sandboxed {
             if prefs.homeFilesEnabled == true {
                 let kube = config.home.appending(path: ".kube", directoryHint: .isDirectory)
                 let files = KubeconfigLoader.candidateFiles(in: kube, recursive: false).filter { $0.lastPathComponent != "config" }
@@ -223,6 +377,9 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         }
         for s in prefs.userSources {
             guard let p = s.path else { continue }
+            // The grants of the sandboxed edition are only read there, and only while access is working.
+            if s.kind == .kubeFolder || s.kind == .accessGrant { continue }
+            if s.bookmark != nil, !sandboxed || grantProblems[s.id] != nil { continue }
             out.append((s, [URL(fileURLWithPath: p)]))
         }
         return out
@@ -232,25 +389,32 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         var contexts: [DiscoveredContext] = []
         var hashes: [String: String] = [:]
         var issues: [String: String] = [:]
+        var accessNeeded: [String: String] = [:]
         var files: Set<String> = []
         var folders: [String: Bool] = [:]
     }
 
     private func scan() async -> ScanOutcome {
         var outcome = ScanOutcome()
+        let sandboxed = config.isSandboxed()
+        // Only the sandboxed edition looks for files the sandbox refuses; elsewhere the loader behaves exactly as before.
+        let loader = KubeconfigLoader(gate: config.gate, probe: sandboxed ? config.fileProbe : nil)
         var byID: [ClusterID: DiscoveredContext] = [:]
         var order: [ClusterID] = []
         func absorb(_ set: LoadedSet, sourceID: String) {
             outcome.hashes.merge(set.fileHashes) { a, _ in a }
             outcome.issues.merge(set.issues) { a, _ in a }
+            outcome.accessNeeded.merge(set.accessNeeded) { a, _ in a }
             for lc in set.contexts {
                 let key = DiscoveredContextKey(definingFile: lc.definingFile, contextName: lc.context.name)
                 if var existing = byID[key.clusterID] {
                     if !existing.sourceIDs.contains(sourceID) { existing.sourceIDs.append(sourceID); byID[key.clusterID] = existing }
                     continue
                 }
-                byID[key.clusterID] = DiscoveredContext.make(key: key, sourceID: sourceID, context: lc.context, isCurrent: lc.isCurrent,
-                                                             shadowedBy: lc.shadowedBy, gate: config.gate)
+                var made = DiscoveredContext.make(key: key, sourceID: sourceID, context: lc.context, isCurrent: lc.isCurrent,
+                                                  shadowedBy: lc.shadowedBy, gate: config.gate)
+                if sandboxed { (made.accessFolders, made.moveFiles) = deniedFolders(of: lc.context) }
+                byID[key.clusterID] = made
                 order.append(key.clusterID)
             }
         }
@@ -263,7 +427,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                 case .homeFiles, .landfall, .userFile:
                     for u in urls { absorb(try loader.loadStandalone(u), sourceID: source.id); outcome.files.insert(u.path) }
                     if source.kind == .homeFiles {
-                        let kube = config.home.appending(path: ".kube", directoryHint: .isDirectory)
+                        let kube = source.path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? config.home.appending(path: ".kube", directoryHint: .isDirectory)
                         outcome.folders[kube.path] = false
                         outcome.folders[kube.appending(path: "configs", directoryHint: .isDirectory).path] = false
                     }
@@ -272,6 +436,8 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                         absorb(try loader.loadFolder(u, recursive: source.recursive), sourceID: source.id)
                         outcome.folders[u.path] = source.recursive
                     }
+                case .kubeFolder, .accessGrant:
+                    break   // grants, never scanned as sources
                 }
             } catch let e as DevSafetyError {
                 for u in urls { outcome.issues[u.path] = e.localizedDescription }
@@ -290,13 +456,26 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         return outcome
     }
 
+    /// The folders to grant before the files this context refers to (CA, certificate, key, token file) can be read. Only called in the
+    /// sandboxed edition. A path the gate refuses is never probed, so a gate refusal is not shown as "needs access".
+    private func deniedFolders(of context: KubeconfigContext) -> (folders: [String], moves: [String]) {
+        guard let files = context.files else { return ([], []) }
+        let denied = [files.certificateAuthority, files.clientCertificate, files.clientKey, files.tokenFile].compactMap { $0 }.filter { path in
+            (try? config.gate.assertReadable(URL(fileURLWithPath: path))) != nil && config.fileProbe.probe(path) == .needsAccess
+        }
+        return (AccessFolderPlanner.folders(forDenied: denied, accountHome: config.accountHome),
+                AccessFolderPlanner.filesNeedingMove(forDenied: denied, accountHome: config.accountHome))
+    }
+
     /// Re-reads every source, diffs by identity and publishes the change. Content hashes make an unchanged file a no-op.
     @discardableResult
     public func rescan() async -> MooringsChange {
         let outcome = await scan()
         scanCount += 1
         issues = outcome.issues
-        if hasScanned, outcome.hashes == previousHashes, Set(outcome.contexts.map(\.id)) == Set(previous.keys) {
+        accessNeeded = outcome.accessNeeded
+        let accessUnchanged = outcome.contexts.allSatisfy { previous[$0.id]?.accessFolders == $0.accessFolders && previous[$0.id]?.moveFiles == $0.moveFiles }
+        if hasScanned, outcome.hashes == previousHashes, Set(outcome.contexts.map(\.id)) == Set(previous.keys), accessUnchanged {
             // Nothing changed on disk: stop here (no diff, no events).
             updateWatcher(files: outcome.files, folders: outcome.folders)
             return MooringsChange()
@@ -330,7 +509,8 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         for ctx in outcome.contexts {
             let id = ctx.id
             var o = state.overrides.override(for: id)
-            if let old = previous[id], old.fingerprint != ctx.fingerprint { change.changed.append(id) }
+            // A grant makes referenced files readable without changing the fingerprint (it holds paths, not contents): rebuild the client.
+            if let old = previous[id], old.fingerprint != ctx.fingerprint || old.accessFolders != ctx.accessFolders || old.moveFiles != ctx.moveFiles { change.changed.append(id) }
             if let existing = o, existing.added {
                 var updated = existing
                 updated.sourceRemovedAt = nil
@@ -348,7 +528,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                 updated.lastKnown = lastKnown(ctx)
                 if updated != existing { overrideChanges[id] = updated }
                 if previous[id] == nil, !isFirstScan { change.added.append(id) }
-            } else if o == nil, prefs.firstRunCompleted, ctx.isUsable, !ctx.blockedInDevelopment {
+            } else if o == nil, prefs.firstRunCompleted, ctx.isUsable, !ctx.blockedInDevelopment, unavailableExecCommand(ctx) == nil {
                 // Found after the first run: appears read-only with a "New" badge. Not probed if suggested as Production.
                 var fresh = DiscoveredOverride()
                 fresh.added = true
@@ -397,6 +577,14 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
                                 displayName: ctx.displayName, suggestedEnvironment: ctx.suggestion?.environment)
     }
 
+    // MARK: Edition limits
+
+    /// The exec command of a context this edition can't use (the sandbox runs no credential plugins), or nil.
+    private func unavailableExecCommand(_ ctx: DiscoveredContext) -> String? {
+        guard config.isSandboxed() else { return nil }
+        return ctx.context.exec?.command
+    }
+
     // MARK: First run
 
     /// Everything the first-run sheet lists: contexts that were not decided yet.
@@ -404,6 +592,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         state.contexts.filter { let o = state.overrides.override(for: $0.id); return o?.added != true && o?.hidden != true }.map { ctx in
             var reason: String?
             if let by = ctx.shadowedBy { reason = "Shadowed by \(by)" }
+            else if let command = unavailableExecCommand(ctx) { reason = EditionNotice.execPlugin(command: command) }
             else if ctx.blockedInDevelopment { reason = "Blocked in development builds" }
             else if ctx.context.status != .ready { reason = ctx.context.unsupportedReason ?? "Unsupported" }
             return FirstRunRow(id: ctx.id, context: ctx, selectable: reason == nil, unselectableReason: reason, defaultSelected: reason == nil)
@@ -416,7 +605,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
         var changes: [ClusterID: DiscoveredOverride?] = [:]
         let stamp = now()
         for (id, choice) in choices where choice.selected {
-            guard let ctx = state.context(for: id), ctx.isUsable, !ctx.blockedInDevelopment else { continue }
+            guard let ctx = state.context(for: id), ctx.isUsable, !ctx.blockedInDevelopment, unavailableExecCommand(ctx) == nil else { continue }
             var o = state.overrides.override(for: id) ?? DiscoveredOverride()
             o.added = true
             o.hidden = false
@@ -609,6 +798,10 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             return r
         }
         state.setCheck(.checking, for: id)
+        // The sandbox can't run a credential plugin and can't read files outside a grant: say so before anything is started.
+        if let command = unavailableExecCommand(ctx) { return finish(id, .unavailableInEdition(command: command)) }
+        if config.isSandboxed(), let folder = ctx.accessFolders.first { return finish(id, .needsAccess(folder: folder)) }
+        if config.isSandboxed(), let file = ctx.moveFiles.first { return finish(id, .blocked(AccessFolderPlanner.moveMessage(forFile: file))) }
         let override = state.overrides.override(for: id) ?? DiscoveredOverride()
         guard let cfg = state.makeConfig(for: ctx, override: override) else { return finish(id, .unreachable("The context has no server.")) }
         let secrets = DiscoveredSecrets.resolve(ctx.context, gate: config.gate)
@@ -617,7 +810,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
             do { _ = try await provider.authorization() } catch let e as ExecCredentialError {
                 switch e {
                 case .pluginMissing(let command, _, _): return finish(id, .pluginMissing((command as NSString).lastPathComponent))
-                case .unavailableInEdition: return finish(id, .blocked(e.localizedDescription))
+                case .unavailableInEdition(let command): return finish(id, .unavailableInEdition(command: command))
                 case .signInRequired: return finish(id, .needsSignIn)
                 case .failed, .invalidOutput: return finish(id, .needsSignIn)
                 case .timedOut: return finish(id, .unreachable("The credential plugin timed out."))
@@ -660,6 +853,7 @@ public actor MooringsService: MooringsSourceAdding, ClusterChangeAllowing {
     public func prepareAdoption(id: ClusterID) throws -> Adoption {
         guard let ctx = state.context(for: id), let server = ctx.context.server else { throw MooringsError.notAvailable }
         guard !ctx.blockedInDevelopment else { throw DevSafetyError.hostNotAllowed(server.host() ?? "") }
+        if let command = unavailableExecCommand(ctx) { throw MooringsError.unavailableInEdition(command: command) }
         // An adopted cluster gets a new (UUID) id, so the Production hold would never apply to it: adoption needs a Check first.
         guard !state.isContactHeld(id) else { throw MooringsError.notChecked }
         let override = state.overrides.override(for: id) ?? DiscoveredOverride()
@@ -687,8 +881,11 @@ public enum MooringsError: Error, Equatable, Sendable, LocalizedError {
     case credentialsUnreadable
     /// A Production-suggested context must be checked (or opened) before it can be adopted.
     case notChecked
+    /// App Store edition: an exec-plugin context can't be adopted.
+    case unavailableInEdition(command: String)
     public var errorDescription: String? {
         switch self {
+        case .unavailableInEdition(let command): EditionNotice.execPlugin(command: command)
         case .authorizationDenied: "Changes were not allowed."
         case .notAvailable: "This context is not available any more."
         case .notChecked: "Check this cluster first. It is suggested as Production and has not been contacted."

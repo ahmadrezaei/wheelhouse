@@ -11,6 +11,8 @@ private func statusText(_ state: ClusterCheckState) -> String {
     case .result(.unreachable): "Unreachable"
     case .result(.pluginMissing(let name)): "Plugin missing: \(name)"
     case .result(.blocked(let why)): why
+    case .result(.unavailableInEdition(let command)): EditionNotice.execPlugin(command: command)
+    case .result(.needsAccess(let folder)): "Needs access to \(folder)"
     }
 }
 
@@ -119,9 +121,45 @@ struct MooringsScreen: View {
     }
 }
 
+/// The sandboxed edition's first-run sheet: ask for the `.kube` folder (never the home folder).
+struct KubeGrantSheet: View {
+    let controller: MooringsController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Grant access to your .kube folder").font(.headline)
+            Text("The App Store edition can only read files you let it see. Choose your .kube folder so Wheelhouse can find your clusters. It reads that folder and nothing else; it never changes it.")
+                .fixedSize(horizontal: false, vertical: true)
+            if let error = controller.grantError { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            HStack {
+                Spacer()
+                Button("Not Now") { dismiss() }
+                Button("Choose .kube Folder…") {
+                    Task { await controller.chooseKubeFolder(); if !controller.needsKubeGrant { dismiss() } }
+                }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+}
+
+/// What a row says about an exec-plugin context in the sandboxed edition, with Learn More.
+struct ExecUnavailableBadge: View {
+    let command: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(EditionNotice.execPlugin(command: command)).font(.caption).foregroundStyle(.secondary)
+            Link("Learn More", destination: EditionNotice.learnMoreURL).font(.caption)
+        }
+    }
+}
+
 private struct MooringsList: View {
     let controller: MooringsController
     @State private var showFirstRun = false
+    @State private var showKubeGrant = false
 
     var body: some View {
         List {
@@ -133,6 +171,16 @@ private struct MooringsList: View {
                     VStack(alignment: .leading) {
                         Text(c.displayName).font(.system(.body, design: .monospaced))
                         Text(c.shadowedBy.map { "shadowed by \($0)" } ?? c.fileName).font(.caption).foregroundStyle(.secondary)
+                        if controller.isSandboxed, case .exec(let command) = c.authSummary { ExecUnavailableBadge(command: command) }
+                        ForEach(c.moveFiles, id: \.self) { file in
+                            Text(AccessFolderPlanner.moveMessage(forFile: file)).font(.caption).foregroundStyle(.orange)
+                        }
+                        ForEach(c.accessFolders, id: \.self) { folder in
+                            HStack(spacing: 4) {
+                                Text("Needs access to \(FolderGrantPolicy.tildePath(folder, home: controller.accountHome))").font(.caption).foregroundStyle(.orange)
+                                Button("Grant Folder…") { Task { await controller.chooseAccessFolder(for: folder) } }.buttonStyle(.link).font(.caption)
+                            }
+                        }
                     }
                     Spacer()
                     if c.isCurrent { Text("current").font(.caption2).padding(2).background(.quaternary, in: Capsule()) }
@@ -142,6 +190,11 @@ private struct MooringsList: View {
             }
         }
         .sheet(isPresented: $showFirstRun) { FirstRunMooringsSheet(controller: controller) }
-        .task { await controller.refresh(); if controller.needsFirstRun { showFirstRun = true } }
+        .sheet(isPresented: $showKubeGrant) { KubeGrantSheet(controller: controller) }
+        .task {
+            await controller.refresh()
+            // The folder grant comes first: without it there is nothing to list.
+            if controller.needsKubeGrant { showKubeGrant = true } else if controller.needsFirstRun { showFirstRun = true }
+        }
     }
 }
