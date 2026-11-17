@@ -24,10 +24,18 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// The panes this build shows: a pane that belongs to a feature not enabled in this build (Rigging in Distribution 1.0) is left out.
     static var visible: [SettingsPane] { allCases.filter { $0.isVisible() } }
 
+    #if WH_MAS
+    /// Panes the App Store edition never shows. Updates is gone with Sparkle; M5a adds .terminal, .landfall, .beacon and .rigging here.
+    static let hiddenInAppStoreEdition: Set<SettingsPane> = [.updates]
+    #endif
+
     func isVisible(gateActive: Bool = DevSafety.isActive) -> Bool {
+        #if WH_MAS
+        if Self.hiddenInAppStoreEdition.contains(self) { return false }
+        #endif
         switch self {
-        case .rigging: FeatureRegistry.isEnabled(.rigging, gateActive: gateActive)
-        default: true
+        case .rigging: return FeatureRegistry.isEnabled(.rigging, gateActive: gateActive)
+        default: return true
         }
     }
     var id: String { rawValue }
@@ -92,7 +100,11 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .beacon: BeaconPane()
         case .notifications: NotificationsPane()
         case .iCloud: ICloudPane()
+        #if WH_MAS
+        case .updates: EmptyView()   // UpdatesPane is not compiled into the App Store edition
+        #else
         case .updates: UpdatesPane()
+        #endif
         case .rigging: RiggingPane()
         case .advanced: AdvancedPane()
         }

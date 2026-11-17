@@ -136,7 +136,11 @@ final class MacAppEnvironment {
         // While the gate is on (Debug, Profile, local Release) the app group and both keychain groups are forced to the Debug
         // ones, whatever Info.plist says: a local Release build then cannot open the production group container or name the shared
         // iCloud keychain group (its entitlements do not list the Debug groups, so the keychain refuses: fail closed).
+        #if WH_MAS
+        if gateActive { IsolationOverride.install(.appStoreDebug) }   // the sandboxed edition's own Debug identity, never the GitHub one
+        #else
         if gateActive { IsolationOverride.install(.debug) }
+        #endif
         let paths = AppPaths.current
         var notes = [gateActive ? "Development safety ON" : "Development safety off"]
 
@@ -388,3 +392,12 @@ final class MacAppEnvironment {
     }
     // end M4b
 }
+
+#if WH_MAS
+extension IsolationValues {
+    /// The Mac App Store edition Debug, Profile and Release identity (its entitlements list only these groups).
+    static let appStoreDebug = IsolationValues(appGroup: "JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug",
+                                               sharedKeychainSuffix: "com.ahmadrezaei.wheelhouse.mas.debug",
+                                               privateKeychainSuffix: "com.ahmadrezaei.wheelhouse.mas.debug")
+}
+#endif
