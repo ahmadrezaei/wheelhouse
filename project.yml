@@ -565,6 +565,9 @@ targets:
         CODE_SIGN_ENTITLEMENTS: WheelhouseMASWidgets/WheelhouseMASWidgets-Debug.entitlements
         WH_APP_GROUP: JCZY58QP3L.com.ahmadrezaei.wheelhouse.mas.debug
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WH_MAS"
+        # The Mac App Store needs a provisioning profile in every app extension; the widget's own entitlements
+        # (sandbox and a team-prefixed app group) don't make automatic signing embed one.
+        PROVISIONING_PROFILE_REQUIRED: YES
       configs:
         Distribution:
           PRODUCT_BUNDLE_IDENTIFIER: com.ahmadrezaei.wheelhouse.widgets
