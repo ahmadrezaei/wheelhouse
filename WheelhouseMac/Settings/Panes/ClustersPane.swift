@@ -63,7 +63,7 @@ struct ClustersPane: View {
             .environment(\.kubeconfigImportPolicy, env.importer.policy)
             .environment(\.clusterClientFactory, env.clientFactory)
             .environment(\.clusterChangeAllowing, env.moorings.service)
-            .frame(minWidth: 520, minHeight: 480)
+            .frame(minWidth: 560, idealWidth: 620, minHeight: 520, idealHeight: 720)
     }
 }
 

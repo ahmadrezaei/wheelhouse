@@ -239,6 +239,49 @@ final class WheelhouseMacUITests: XCTestCase {
         XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 10), "Add Cluster did nothing")
     }
 
+    /// Settings ▸ Clusters ▸ Edit…: every field of the editor sheet is reachable (the Name field at the top and Remove at the bottom
+    /// were cut off by the column form style), and a rename is saved.
+    func testEditClusterSheetShowsEveryFieldAndRenames() throws {
+        let app = try launch(["-WHImportFile", repoRoot.appending(path: ".testcluster/kubeconfig").path, "-WHResetState"])
+        XCTAssertTrue(app.buttons["Add Cluster"].waitForExistence(timeout: 15), "the import sheet did not open")
+        app.sheets.firstMatch.buttons["Add Cluster"].click()
+        XCTAssertTrue(cell(app, "wheelhouse-test").waitForExistence(timeout: 20), "the imported cluster is missing")
+        app.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.outlines["Sidebar"].staticTexts["Clusters"].click()
+        let edit = settings.buttons["Edit…"].firstMatch
+        if !edit.waitForExistence(timeout: 10) { print("SETTINGS TREE\n", settings.debugDescription) }
+        XCTAssertTrue(edit.exists, "no Edit… button")
+        edit.click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "Edit… did nothing")
+        sleep(1)
+        dump(app, "edit-cluster-sheet")
+        // The first field of the form is Name (its label is a separate text on the Mac).
+        let name = sheet.scrollViews.firstMatch.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "no Name field")
+        XCTAssertEqual(name.value as? String, "wheelhouse-test")
+        XCTAssertTrue(name.isHittable, "the Name field is not on screen")
+        XCTAssertTrue(sheet.frame.contains(name.frame), "the Name field is outside the sheet: \(name.frame) in \(sheet.frame)")
+        XCTAssertTrue(sheet.buttons["Cancel"].exists, "no Cancel in the edit sheet")
+        // The bottom of the form scrolls into view.
+        let remove = sheet.buttons["Remove Cluster…"]
+        XCTAssertTrue(remove.exists, "no Remove Cluster… button")
+        sheet.scrollViews.firstMatch.scroll(byDeltaX: 0, deltaY: -3000)
+        XCTAssertTrue(remove.isHittable, "Remove Cluster… cannot be scrolled into view")
+        sheet.scrollViews.firstMatch.scroll(byDeltaX: 0, deltaY: 3000)
+        name.click()
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("renamed-test")
+        sheet.buttons["Save"].click()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "Save did not close the sheet")
+        // The cluster row combines its texts into one accessibility element.
+        let renamed = settings.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'renamed-test' OR value CONTAINS 'renamed-test'")).firstMatch
+        if !renamed.waitForExistence(timeout: 10) { print("AFTER SAVE\n", settings.debugDescription) }
+        XCTAssertTrue(renamed.exists, "the new name is not in the cluster list")
+    }
+
     /// Quits with ⌘Q, which runs the app's terminate path (it writes the workspace); `terminate()` would kill the app first.
     private func quit(_ app: XCUIApplication) {
         app.typeKey("q", modifierFlags: .command)

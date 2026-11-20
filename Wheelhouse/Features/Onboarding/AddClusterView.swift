@@ -42,6 +42,14 @@ struct AddClusterView: View {
     }
 
     private var isEditing: Bool { editingID != nil }
+    /// On the Mac the editor is always a sheet, so editing needs a Cancel too (on iOS an edit is pushed and has a back button).
+    private var isMacSheet: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         Form {
@@ -58,10 +66,15 @@ struct AddClusterView: View {
             testSection
             if isEditing { deleteSection }
         }
+        #if os(macOS)
+        // The default Mac form style lays fields out in columns and does not scroll, so in a sheet the top (Name) and the bottom
+        // were cut off. The grouped style scrolls and wraps the footers.
+        .formStyle(.grouped)
+        #endif
         .navigationTitle(isEditing ? "Edit Cluster" : "Add Cluster")
         .whInlineNavigationTitle()
         .toolbar {
-            if !isEditing {
+            if !isEditing || isMacSheet {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { cleanupIdentity(); if router.sheet != nil { router.dismissSheet() } else { dismiss() } }
                 }
@@ -106,7 +119,7 @@ struct AddClusterView: View {
                 .whKeyboard(.url).textContentType(.URL).whNoAutocapitalization().autocorrectionDisabled()
             TextField("Default namespace (optional)", text: $draft.defaultNamespace).whNoAutocapitalization().autocorrectionDisabled()
             if showProblems || draft.problems.contains(.httpNotAllowedForProduction) { ForEach(draft.problems, id: \.self) { Text($0.message).font(.footnote).foregroundStyle(Palette.criticalText) } }
-            if draft.serverIsLocalhost {
+            if draft.serverIsLocalhost && !isMacSheet {
                 Label("127.0.0.1 / localhost only works from the Simulator or the Mac itself. On a real iPhone use the machine’s LAN address.", systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote).foregroundStyle(Palette.warningText)
             }
